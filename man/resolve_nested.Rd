@@ -10,24 +10,40 @@ resolve_nested(
   min_dl_gain = 0,
   classes = c("chrom", "event"),
   nested = c("arm", "50Mb", "20Mb"),
-  promote = TRUE
+  promote = TRUE,
+  gate = c("dl", "z"),
+  gate_q = 0.95,
+  tpar = NULL,
+  params = caller_defaults()
 )
 }
 \arguments{
 \item{calls}{cell-level calls table (\code{\link[=call_table]{call_table()}})}
 
-\item{scores}{scored rows (\code{cell}, \code{region}, \code{dl_gain}); NULL when \code{calls} has \code{dl_gain}}
+\item{scores}{scored rows (\code{cell}, \code{region}, \code{dl_gain}; with \code{gate = "z"} also \code{z}, \code{sd_null} and, with
+\code{tpar}, \code{class}, \code{stratum}); NULL when \code{calls} has these columns}
 
-\item{min_dl_gain}{minimal gain depth LLR of a reportable gain}
+\item{min_dl_gain}{minimal gain depth LLR of a reportable gain (\code{gate = "dl"})}
 
 \item{classes}{classes whose reportable gains need depth support}
 
 \item{nested}{classes of the nested calls that can explain a chromosome gain}
 
 \item{promote}{make the explaining nested call reportable}
+
+\item{gate}{depth gate of a gain: \code{"dl"} (gain depth LLR above \code{min_dl_gain}) or \code{"z"} (z above the
+midpoint and above the \code{gate_q} quantile of the row's depth null)}
+
+\item{gate_q}{null quantile of the \code{"z"} gate (0.95: at most 5 \% of null-depth gain rows pass)}
+
+\item{tpar}{\code{"z"} gate: the Student-t fits per class x stratum (\code{\link[=fit_depth_null]{fit_depth_null()}}, completed as in
+\code{\link[=caller_normal]{caller_normal()}}); NULL = the Gaussian depth null N(0, 1)}
+
+\item{params}{\code{\link[=caller_defaults]{caller_defaults()}} (\code{shifts}, \code{sd_floor}; the \code{"z"} gate)}
 }
 \value{
-\code{calls} with column \code{resolved} (NA = unchanged) and updated \code{reportable}
+\code{calls} with column \code{resolved} (NA = unchanged) and updated \code{reportable}; with \code{gate = "z"} also
+\code{gate_z} (the z the gate used) and \code{gate_thr} (its z threshold), set on the gated gain rows and NA elsewhere
 }
 \description{
 A diluted sub-chromosomal imbalance (a 1p loss, a distal CN-LOH) makes the
@@ -36,10 +52,25 @@ of the nested event dominates while its depth contrast is diluted, and the
 gain state (f 2/3) fits a diluted haplotype fraction better than 1:0 / 2:0.
 Per cell, a reportable \code{gain} call of a \code{classes} region therefore needs
 \enumerate{
-\item depth support: the gain depth LLR of the row itself is positive
-(\code{dl_gain > min_dl_gain}; for the Student-t null, z above the midpoint
-between neutral and the gain shift), so the allelic term alone cannot
-carry a gain label; and
+\item depth support, so that the allelic term alone cannot carry a gain label:
+\itemize{
+\item \code{gate = "dl"} (default): the gain depth LLR of the row itself is
+positive (\code{dl_gain > min_dl_gain}; for the Student-t null, z above
+the midpoint between neutral and the gain shift, \code{t_m + mu / 2} with
+\code{mu = shifts["gain"] / pmax(sd_null, sd_floor)}). For a noisy cell
+(large \code{sd_null}) \code{mu} is small and the gate is weak;
+\item \code{gate = "z"} (opt-in): the row's z exceeds
+\code{max(t_m + mu / 2, t_m + t_s * qt(gate_q, t_df))} with the Student-t
+null of the row's class x stratum (\code{tpar}, \code{\link[=match_depth_null]{match_depth_null()}}; with
+\code{tpar = NULL} the Gaussian null, \code{max(mu / 2, qnorm(gate_q))}): the
+midpoint stays as a floor and the null quantile is added on top, so
+a null-depth row passes with probability at most \code{1 - gate_q}
+whatever its \code{sd_null}. A row with NA z has no depth support.
+\code{min_dl_gain} is not used. The gate is on z, not on \code{dl_gain}: the
+Student-t LLR falls back towards 0 for very large z
+(\code{\link[=ll_depth_shift]{ll_depth_shift()}}), so a quantile on \code{dl_gain} would reject the
+strongest gains; and
+}
 \item (class \code{chrom}) no nested explanation: no called loss / CN-LOH row of
 the same cell and chromosome in \code{nested} classes (arm, 50 Mb, 20 Mb)
 with a higher score.
@@ -48,6 +79,7 @@ A gain failing either rule stays in the table with \code{called = TRUE} but
 \verb{nested <region> <state>}). With \code{promote}, the best (highest-score) nested
 loss / CN-LOH call that explains a dropped chromosome gain is made
 reportable (\code{resolved = "replaces <region> gain"}; arm and 50 Mb losses are
-reportable anyway, a 20 Mb one is promoted).
+reportable anyway, a 20 Mb one is promoted). Losses are not gated: the
+loss vs CN-LOH label is decided by the scores (\code{\link[=score_cells]{score_cells()}}).
 }
 }

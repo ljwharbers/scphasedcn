@@ -296,6 +296,17 @@ test_that("caller_tumour finds the clones of sim_tum2 and their states", {
   check_thresholds(res$thresholds)
 })
 
+test_that("caller_tumour: the defaults of confirm_sided, perm_decision and profile_orient are today's code paths", {
+  # all-default results equal the run with the three options spelled out at their pre-option behaviour (the run before
+  # these options existed is bit-identical: assignments, segments, calls; checked against the previous release)
+  d = clone_defaults()
+  expect_identical(d[c("confirm_sided", "perm_decision", "profile_orient")], list(confirm_sided = "two", perm_decision = "quantile", profile_orient = "ps"))
+  r0 = tum2_result()
+  r1 = caller_tumour(tum2_input(), opts = list(confirm_sided = "two", perm_decision = "quantile", profile_orient = "ps"), verbose = FALSE)
+  for (nm in c("assignments", "segments", "calls", "clones", "thresholds", "profiles", "events", "null_fit", "notes")) expect_identical(r1[[nm]], r0[[nm]])
+  expect_false("p" %in% names(r0$null_fit$clones$tests))
+})
+
 test_that("caller_tumour stops on unknown or invalid tumour options before any work", {
   inp = tum2_input()
   expect_error(caller_tumour(inp, opts = list(split_pass = TRUE), verbose = FALSE), "split_pass")

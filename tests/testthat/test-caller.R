@@ -817,6 +817,115 @@ test_that("male chrX is depth-only in cell and pooled scores: no CN-LOH state, p
   expect_identical(r_f$thresholds, r_f0$thresholds)
 })
 
+# ---- female chrX on depth only (chrx_allelic) ----------------------------------------------------------------------
+
+# female fake features with X-inactivation on chrX: per cell one random active X (chromosome-wide anchored phase), so
+# every chrX row of a cell has f ~ f_x or 1 - f_x; depth is null everywhere (no copy-number event at all)
+xci_fake = function(n_cells = 400, seed = 51, f_x = 0.8) {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(n_cells, rg, seed = seed)
+  set.seed(seed + 1)
+  act = setNames(sample(c(TRUE, FALSE), n_cells, replace = TRUE), unique(ff$cell))
+  x = which(ff$chrom == "chrX")
+  fx = fifelse(act[ff$cell[x]], f_x, 1 - f_x)
+  ff[x, nA := as.numeric(rbinom(.N, n_hap, fx))]
+  ff[x, `:=`(nB = n_hap - nA, f = fifelse(n_hap > 0, nA / n_hap, NA_real_))]
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  list(rg = rg, ff = ff)
+}
+# data.table subsets with == add an auto index; compare tables without it
+no_index = function(x) { x = copy(x); setindex(x, NULL); x }
+# rows / calls off chrX, and the score columns of the default run
+off_x = function(x, cols = names(x)) no_index(x[is.na(chrom) | chrom != "chrX", cols, with = FALSE])
+
+test_that("chrx_allelic = FALSE: X-inactivation imbalance on female chrX is not called; autosomes and males unchanged", {
+  p0 = caller_defaults()
+  expect_true(p0$chrx_allelic)
+  expect_identical(match("chrx_allelic", names(p0)), match("pool_sex_thr", names(p0)) + 1L)
+  p1 = modifyList(p0, list(chrx_allelic = FALSE))
+  x = xci_fake()
+  ff0 = copy(x$ff)
+  run = function(p, ...) caller_normal(x$ff, regions = x$rg, null_cells = "features", n_draws = 1000, params = p, ...)
+  r0 = run(p0)
+  r1 = run(p1)
+  expect_identical(x$ff, ff0)                                                     # the features are not changed
+  expect_equal(r0$null_fit$sex, "female")                                         # inferred before chrX is masked
+  expect_equal(r1$null_fit$sex, "female")
+  expect_true(r0$null_fit$chrx_allelic)
+  expect_false(r1$null_fit$chrx_allelic)
+  expect_true(any(grepl("chrX: allele channel on", r0$notes)))
+  expect_true(any(grepl(sprintf("chrX: depth only per cell .* %d chrX cell-regions", nrow(r1$scores[chrom == "chrX"])), r1$notes)))
+  # chrX: allelic X-inactivation calls with alleles; at the null rate on depth only
+  cx = function(r) r$calls[level == "cell" & chrom == "chrX"]
+  expect_equal(nrow(cx(r0)), 1200L)
+  expect_gt(mean(cx(r0)$called), 0.7)
+  expect_gt(sum(cx(r0)[, called & reportable]), 30)
+  expect_lte(mean(cx(r1)$called), 0.01)
+  expect_false(any(cx(r1)$state == "cnloh"))
+  s1 = r1$scores[chrom == "chrX"]
+  expect_true(all(s1$n_hap == 0 & s1$nA == 0 & is.na(s1$f) & !s1$allelic_ok))
+  expect_true(all(s1$al_gain == 0 & s1$al_loss == 0 & s1$s_allelic == 0))
+  expect_true(all(is.infinite(s1$cl_cnloh)))
+  expect_false(any(r1$calls[level == "pool" & chrom == "chrX", reportable]))  # female chrX pools stay non-reportable
+  # everything off chrX is the default run's
+  expect_identical(off_x(r1$scores, names(r0$scores)), off_x(r0$scores))
+  expect_identical(no_index(r1$thresholds), no_index(r0$thresholds))
+  expect_identical(off_x(r1$calls), off_x(r0$calls))
+  expect_identical(off_x(r1$events), off_x(r0$events))
+  expect_identical(r1$null_fit[c("tpar", "rho", "null_cells", "selection", "pool_scale", "sex")],
+                   r0$null_fit[c("tpar", "rho", "null_cells", "selection", "pool_scale", "sex")])
+  # an explicit sex wins: "male" leaves chrX as it is (no masking)
+  rm0 = run(p0, sex = "male", pool_classes = character())
+  rm1 = run(p1, sex = "male", pool_classes = character())
+  expect_identical(no_index(rm1$scores), no_index(rm0$scores))
+  expect_identical(no_index(rm1$calls), no_index(rm0$calls))
+  expect_error(run(modifyList(p0, list(chrx_allelic = NA))), "chrx_allelic")
+  # male sample (sex inferred from allelic_ok of the regions): the parameter changes nothing
+  rg = fake_regions(tiles = c("10Mb" = 1e7), sex = "male")
+  fm = fake_features(300, rg, seed = 44)
+  fm[chrom == "chrX", `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_)]
+  fm[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  m0 = caller_normal(fm, regions = rg, null_cells = "features", n_draws = 1000, params = p0)
+  m1 = caller_normal(fm, regions = rg, null_cells = "features", n_draws = 1000, params = p1)
+  expect_equal(m1$null_fit$sex, "male")
+  for (k in c("scores", "thresholds", "calls", "events", "pools")) expect_identical(no_index(m1[[k]]), no_index(m0[[k]]))
+  expect_identical(m1$notes, m0$notes)
+})
+
+test_that("chrx_allelic on sim_norm_f: the default is the run without the key; FALSE changes chrX only, the chrX loss stays callable", {
+  sf = sim_features(sim_norm_f)
+  rg = fake_regions(sim_norm_f$scn$bins, tiles = c("20Mb" = 2e7))
+  tr = sim_norm_f$truth
+  cells = sim_norm_f$scn$cells$cell
+  car = lapply(tr$carriers, function(n) unique(cells[tr$nuclei$cell[n]]))     # 1p loss, chr8 gain, chr2 CN-LOH, chr21 gain, chrX loss
+  mult = tr$cells[multiplet == TRUE, cell]
+  run = function(p) caller_normal(sf, regions = rg, multiplets = mult, n_draws = 500, params = p)
+  p0 = caller_defaults()
+  r0 = run(p0)
+  pu = p0
+  pu$chrx_allelic = NULL                                                          # a parameter list without the key
+  ru = run(pu)
+  for (k in c("scores", "thresholds", "calls", "events", "pools")) expect_identical(no_index(ru[[k]]), no_index(r0[[k]]))
+  r1 = run(modifyList(p0, list(chrx_allelic = FALSE)))
+  expect_identical(off_x(r1$scores, names(r0$scores)), off_x(r0$scores))
+  expect_identical(no_index(r1$thresholds), no_index(r0$thresholds))
+  expect_identical(off_x(r1$calls), off_x(r0$calls))
+  expect_identical(off_x(r1$events), off_x(r0$events))
+  expect_identical(r1$null_fit[c("tpar", "rho", "null_cells", "pool_scale")], r0$null_fit[c("tpar", "rho", "null_cells", "pool_scale")])
+  # chrX: no CN-LOH, no allele-driven gain (every reportable chrX gain has depth support), carriers of the private
+  # chrX loss still called from depth
+  s1 = r1$scores[chrom == "chrX"]
+  expect_true(all(s1$n_hap == 0 & !s1$allelic_ok))
+  c1 = r1$calls[level == "cell" & chrom == "chrX" & called & reportable]
+  expect_false(any(c1$state == "cnloh"))
+  g = merge(c1[state == "gain", .(cell, region)], s1[, .(cell, region, dl_gain)], by = c("cell", "region"))
+  expect_true(all(g$dl_gain > 0))
+  rec = function(r) mean(car[[5]] %in% unique(r$calls[level == "cell" & called & reportable & chrom == "chrX" & state == "loss", cell]))
+  expect_gte(rec(r1), 0.8)
+  expect_gte(rec(r1), rec(r0) - 0.1)
+  expect_false(any(r1$calls[level == "pool" & chrom == "chrX", reportable]))
+})
+
 # ---- allelic tile mask (mask_allelic) -------------------------------------------------------------------------------
 
 # null cells x 5 Mb tiles of chr1-chr6 (10 tiles each), ~20 votes per row, beta-binomial at rho 0.01; one tile

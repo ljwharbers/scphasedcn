@@ -74,6 +74,13 @@ test_that("caller_params reads caller.yaml (= caller_defaults) and applies overr
   tf2 = tempfile(fileext = ".yaml")
   writeLines(yaml_lines(caller_defaults()), tf2)
   expect_equal(caller_params(tf2), caller_defaults())
+  # chrx_allelic: TRUE in caller.yaml (the default), FALSE from a config file and through yaml_lines
+  expect_true(pf$chrx_allelic)
+  writeLines(c("chrx_allelic: false"), tf3)
+  expect_false(caller_params(tf3)$chrx_allelic)
+  px = modifyList(caller_defaults(), list(chrx_allelic = FALSE))
+  writeLines(yaml_lines(px), tf2)
+  expect_identical(caller_params(tf2), px)
 })
 
 test_that("multiplet_table normalises vectors, files and multiplet score tables", {
@@ -195,6 +202,37 @@ test_that("call_scn takes precomputed features, explicit null cells and multiple
   expect_false(r3$params$normal$pool_loo)
   expect_true(any(grepl("called on s_comb", r3$notes)))
   expect_null(r3$params$tumour)
+})
+
+test_that("call_scn with chrx_allelic = FALSE: features keep their chrX votes, params record it, mask_allelic still applies", {
+  res = norm_result()
+  fe = list(long = copy(res$features), regions = res$regions, cells = res$feature_info$cells, use = res$feature_info$use,
+            phasing = res$feature_info$phasing, notes = character())
+  long0 = copy(fe$long)
+  expect_gt(fe$long[chrom == "chrX", sum(n_hap)], 0)
+  p1 = modifyList(caller_defaults(), list(chrx_allelic = FALSE))
+  r1 = call_scn(sim_dir("sim_norm_f"), "normal", features = fe, params = p1, embedding = FALSE, verbose = FALSE)
+  expect_identical(fe$long, long0)                                                # masking is the scorer's, not the features'
+  expect_identical(r1$features, long0)
+  expect_true(all(r1$scores[chrom == "chrX", n_hap] == 0))
+  expect_false(r1$null_fit$chrx_allelic)
+  expect_false(r1$params$chrx_allelic)
+  expect_true(any(grepl("chrX: depth only per cell", r1$notes)))
+  out = file.path(tempdir(), "callscn_out_chrx")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(r1, out, write_features = TRUE)
+  expect_false(caller_params(file.path(out, "params.yaml"))$chrx_allelic)
+  expect_equal(fread(file.path(out, "features.tsv.gz"))[chrom == "chrX", sum(n_hap)], long0[chrom == "chrX", sum(n_hap)])
+  expect_true(any(grepl("chrX: depth only per cell", readLines(file.path(out, "NOTES.md")))))
+  # with the allelic tile mask (needs the votes): the mask runs on the features, the chrX rule in the scorer
+  fx = cell_features(sim_dir("sim_norm_f"), method = "celltype", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins))
+  r2 = call_scn(sim_dir("sim_norm_f"), "normal", features = fx, params = modifyList(p1, list(mask_allelic = TRUE)), embedding = FALSE,
+                verbose = FALSE)
+  expect_false(is.null(r2$null_fit$allelic_mask))
+  expect_true(any(grepl("^allelic mask:", r2$notes)) && any(grepl("chrX: depth only per cell", r2$notes)))
+  expect_true(all(r2$scores[chrom == "chrX", n_hap] == 0))
+  expect_gt(r2$features[chrom == "chrX", sum(n_hap)], 0)
+  expect_false(any(r2$calls[level == "cell" & chrom == "chrX" & called & reportable, state] == "cnloh"))
 })
 
 test_that("scn_embedding is reproducible (seeded truncated SVD) and named by cell", {

@@ -29,6 +29,15 @@ Options worth knowing:
 - `--peaks`: an optional peak BED file (a file, not a directory) for FRiP per cell and `peak_bp` per bin (QC only).
 - `--layers`: a comma list of `depth`, `alleles`, `fragments`, `qc` (default: all four, which is what the R package
   reads). `--layers alleles,fragments` recomputes the allele layer alone, e.g. with a new VCF.
+- `--vote-ps first|majority`: how a fragment's haplotype vote treats phase sets. `first` (default): the majority over
+  all phased SNPs the fragment covers, filed under the phase set of the first one. Phase sets are not oriented
+  relative to each other, so a fragment across a phase-block junction mixes unrelated haplotype labels; `majority`
+  lets only the SNPs of the phase set holding most of the fragment's phased SNP observations vote and files the
+  fragment under that phase set (a tie between phase sets: ambiguous, hap 3). Recorded in `params.json`.
+
+Fragments whose start lies in the blacklist are flagged (`flags` bit 8) and left out of the depth layers (the
+"clean" fragments, `n_clean`), but their SNP observations stay in the allele counts and their `hap` / `ps` in the
+fragments table; the R caller's `votes_clean` parameter drops them from the molecule votes.
 
 Genome: GRCh38 / hg38 with `chr` names (bundled chromosome sizes, ENCODE blacklist v2 and centromeres; see
 `src/scphasedcn/resources/README.md`).

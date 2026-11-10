@@ -313,6 +313,27 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
   expect_error(caller_tumour(inp, opts = list(min_bal_len = "x"), verbose = FALSE), "min_bal_len")
 })
 
+test_that("assign_cells keeps the normal clone N0 as a hypothesis when no cell is labelled N0", {
+  res = tum2_result()
+  inp = tum2_input()
+  tr = sim_truth(sim_tum2)
+  # N0 replaces the event-free clone(s); no member is labelled N0 (as when no fitted clone was replaced)
+  sg0 = as.data.table(res$segments)[clone != "N0"]
+  K0 = unique(sg0$clone)
+  nn = add_normal_clone(list(segments = sg0, fit = list(par = data.table(clone = K0, c = 0.9, a = 0.9, rho = 0.01, s_sys = 0))), 1e7)
+  expect_true("N0" %in% nn$st$segments$clone)
+  members = as.data.table(res$assignments)[assigned == TRUE & !clone %in% c(nn$replaced, "N0"), .(cell, clone)]
+  expect_false("N0" %in% members$clone)
+  pieces = segment_pieces(nn$st$segments, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  par = as.data.table(nn$st$fit$par)[clone != "N0"]                      # no N0 row: c = median c, a = 1
+  asg = assign_cells(fp, members, nn$st$segments, inp$null_fit$tpar, inp$null_fit$rho, par = par, mixtures = FALSE)
+  expect_true("N0" %in% colnames(attr(asg, "ll")))
+  a = merge(asg, tr, by = "cell")
+  expect_gte(a[type == "normal" & mult == FALSE, mean(clone == "N0")], 0.9)
+  expect_lte(a[type != "normal" & mult == FALSE, mean(clone == "N0")], 0.05)
+})
+
 test_that("control_regions and segment_pieces partition the clone breakpoints", {
   res = tum2_result()
   pcs = segment_pieces(res$segments, tum2_input()$regions)

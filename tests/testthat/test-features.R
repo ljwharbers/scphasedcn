@@ -314,3 +314,28 @@ test_that("cell_meta without some of the given cells keeps their QC stratum / n_
   expect_identical(m$fold, c(1L, NA, 2L))
   expect_identical(apply_cell_meta(copy(meta), NULL), meta)
 })
+
+test_that("subset_features re-indexes the votes: each kept cell keeps its own votes (cells 2-3 of 3)", {
+  regions = data.table(region = "chr1", class = "chrom", sd_class = "chrom", chrom = "chr1", start = 0, end = 1e7,
+                       n_bins = 100L, n_use = 100L, eligible = TRUE, null_region = TRUE, allelic_ok = TRUE)
+  atoms = data.table(atom = 1:2, chrom = "chr1", start = c(0, 5e6), end = c(5e6, 1e7), bin = c(1L, 51L))
+  votes = data.table(cell = 1:3, atom = 1L, ps = 1, nA = c(10L, 0L, 3L), nB = c(0L, 7L, 4L))
+  cells = data.table(cell = c("c1", "c2", "c3"), n_frag = 1e4, stratum = "<20k")
+  long = data.table(cell = cells$cell, region = "chr1", nA = c(10, 0, 3), nB = c(0, 7, 4), n_blocks = 1, f = c(1, 0, 3 / 7))
+  long[, n_hap := nA + nB]
+  win = list(windows = data.table(window = "chr1:0", chrom = "chr1", start = 0, end = 1e6),
+             x = matrix(1:3, 1, 3, dimnames = list("chr1:0", cells$cell)), e = matrix(4:6, 1, 3, dimnames = list("chr1:0", cells$cell)))
+  fe = structure(list(long = long, regions = regions, cells = cells, votes = votes, atoms = atoms, win = win,
+                      phasing = c(detected = "chromosome", orientation = "chromosome")), class = "scn_features")
+  fs = subset_features(fe, c("c3", "c2"))
+  expect_identical(fs$cells$cell, c("c2", "c3"))
+  expect_identical(fs$votes$cell, 1:2)
+  expect_identical(fs$votes$nB, c(7L, 4L))
+  expect_identical(colnames(fs$win$x), c("c2", "c3"))
+  expect_identical(fs$win$e[1, ], c(c2 = 5L, c3 = 6L))
+  # the allele features re-aggregated from the votes are each cell's own
+  up = update_allelic_features(fs, exclude_atoms = integer())
+  expect_equal(up$long[order(cell), nA], c(0, 3))
+  expect_equal(up$long[order(cell), nB], c(7, 4))
+  expect_identical(subset_features(fe, fe$cells$cell), fe)
+})

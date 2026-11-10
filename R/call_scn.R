@@ -391,10 +391,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   } else {
     if (!is.list(features) || is.null(features$long)) stop("call_scn: `features` must be an scn_features object (cell_features()) or its .rds")
     t_feat = 0
-    if (!is.null(cells) && mode == "normal") {
-      features$long = features$long[cell %in% cells]
-      features$cells = features$cells[cell %in% cells]
-    }
+    if (!is.null(cells) && mode == "normal") features = subset_features(features, cells)
   }
   long = features$long
   if (!is.null(nc_cells)) { long = copy(long); long[, null_cell := cell %in% nc_cells] }

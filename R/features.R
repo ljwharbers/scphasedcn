@@ -938,6 +938,36 @@ update_allelic_features = function(features, exclude_atoms, groups = NULL, param
   features
 }
 
+#' Subset a features object to a set of cells
+#'
+#' Keeps the rows of `long` and `cells` of the given cells and re-indexes the votes (whose `cell` is the row of
+#' `cells`) to the kept rows, so that [update_allelic_features()] and the tumour mode still give each cell its own
+#' votes; the 1 Mb window depth `win` keeps the kept cells' columns. Every other component is kept as it is.
+#' @param features `scn_features` ([cell_features()])
+#' @param cells cells to keep (others are ignored)
+#' @return the subset `scn_features` (the object itself when every cell is kept)
+#' @export
+subset_features = function(features, cells) {
+  ids = as.character(features$cells$cell)
+  keep = ids %in% as.character(cells)
+  if (all(keep)) return(features)
+  idx = which(keep)
+  features$cells = features$cells[keep]
+  features$long = features$long[cell %in% ids[idx]]
+  if (!is.null(features$votes)) {
+    v = features$votes[cell %in% idx]
+    v[, cell := as.integer(match(cell, idx))]
+    features$votes = v
+  }
+  w = features$win
+  if (is.list(w) && is.matrix(w$x) && !is.null(colnames(w$x))) {
+    k = colnames(w$x) %in% ids[idx]
+    w$x = w$x[, k, drop = FALSE]; w$e = w$e[, k, drop = FALSE]
+    features$win = w
+  }
+  features
+}
+
 #' @export
 print.scn_features = function(x, ...) {
   cat(sprintf("<scn_features> %d cells x %d regions (%d rows)\n", nrow(x$cells), nrow(x$regions), nrow(x$long)))

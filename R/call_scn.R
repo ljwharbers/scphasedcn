@@ -600,6 +600,9 @@ utils::globalVariables("part")
 #' tumour mode: `clones.tsv`, `assignments.tsv`, `clone_segments.tsv`, `clone_profiles.tsv.gz`,
 #' `reference_pool.txt`; `regions.tsv`; `result.rds` (the object without scores and features), `params.yaml`,
 #' `summary.tsv` ([scphasedcn_summary()]) and `NOTES.md`. Optional: `scores.tsv.gz`, `features.tsv.gz`.
+#' The files of a previous result in `out` (the names above) are removed first, so a re-run never leaves stale
+#' tables behind (e.g. `clones.tsv` of a tumour run, `scores.tsv.gz` of a run with `write_scores`); other files in
+#' `out` are left alone.
 #' @param obj `scphasedcn` from [call_scn()]
 #' @param out output directory (created)
 #' @param write_scores also write the per cell x region scores
@@ -610,6 +613,10 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
   obj = relabel_legacy(obj)
   if (!inherits(obj, "scphasedcn")) stop("write_scphasedcn: not a scphasedcn object")
   dir.create(out, recursive = TRUE, showWarnings = FALSE)
+  # the files this writer owns: clear those of a previous result (never anything else)
+  old = file.path(out, scphasedcn_output_files())
+  old = old[file.exists(old) & !dir.exists(old)]
+  if (length(old)) unlink(old)
   files = character()
   w = function(d, name) {
     if (is.null(d)) d = data.table()
@@ -680,6 +687,13 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
   writeLines(notes, file.path(out, "NOTES.md"))
   files[["NOTES.md"]] = file.path(out, "NOTES.md")
   invisible(files)
+}
+
+# every file write_scphasedcn() can write
+scphasedcn_output_files = function() {
+  c("cells.tsv", "calls.tsv", "pooled_calls.tsv", "events.tsv", "thresholds.tsv", "null_fit.tsv", "regions.tsv",
+    "false_calls.tsv", "false_events.tsv", "clones.tsv", "assignments.tsv", "clone_segments.tsv", "clone_profiles.tsv.gz",
+    "reference_pool.txt", "scores.tsv.gz", "features.tsv.gz", "summary.tsv", "params.yaml", "result.rds", "NOTES.md")
 }
 
 # results written before the rename (working name scncall, 0.1.0-pre builds) carry the class "scncall":

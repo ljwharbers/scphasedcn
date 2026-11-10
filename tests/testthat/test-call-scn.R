@@ -369,3 +369,21 @@ test_that("barcodes of every input lose a trailing -1; matched counts in the not
   expect_warning(run(multiplets = "AAAC-1"), "none of the 1 multiplets barcodes")
   expect_identical(cli_cells({ f = tempfile(); writeLines(c("cell_0002-1", "cell_0003"), f); f }, ids[1:4]), ids[2:3])
 })
+
+test_that("write_scphasedcn clears the files of a previous result and nothing else", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 10)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  res = call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500))
+  out = file.path(tempdir(), "write_clear")
+  unlink(out, recursive = TRUE); dir.create(out)
+  stale = c("clones.tsv", "assignments.tsv", "scores.tsv.gz", "reference_pool.txt")
+  for (f in c(stale, "my_notes.txt")) writeLines("old", file.path(out, f))
+  dir.create(file.path(out, "plots"))
+  files = write_scphasedcn(res, out)
+  expect_false(any(file.exists(file.path(out, stale))))
+  expect_true(file.exists(file.path(out, "my_notes.txt")))                 # not ours: kept
+  expect_true(dir.exists(file.path(out, "plots")))
+  expect_setequal(list.files(out), c(basename(files), "my_notes.txt", "plots"))
+  expect_true(all(basename(files) %in% scphasedcn_output_files()))
+})

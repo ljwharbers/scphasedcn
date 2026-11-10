@@ -387,12 +387,21 @@ utils::globalVariables(c("wi", "ri", "rs", "re", "x.wi", "i.ri", "i.class", "i.s
 #' fragments of the same cell and chromosome; one vote per molecule for the majority haplotype
 #' (ties dropped); `ps` is the first fragment's phase set. The running maximum is computed per group
 #' with an integer offset (exact for coordinates below 2^53 / number of groups).
+#'
+#' Phase sets are not oriented relative to each other, so a molecule whose fragments lie in different phase sets
+#' (a molecule across a block junction) mixes unrelated haplotype labels. With `split_ps = TRUE` the molecules are
+#' formed as above and then split by phase set: the fragments of each phase set of a molecule give their own vote
+#' (majority haplotype of those fragments, ties dropped) in that phase set, with `start` / `end` / `n_frag` of
+#' those fragments. Molecules within one phase set are the same under both settings.
 #' @param fr fragments with `cell, chrom, start, end, hap, ps`; `hap` "A"/"B" (other labels dropped) or
 #'   integer codes 1 / 2 (= A / B)
 #' @param gap maximal gap (bp) between fragments of one molecule
-#' @return data.table `cell, chrom, start, end, ps, n_frag, hap` (hap "A"/"B"), one row per molecule
+#' @param split_ps one vote per molecule x phase set instead of one per molecule (default FALSE; the caller
+#'   parameter `mol_split_ps`)
+#' @return data.table `cell, chrom, start, end, ps, n_frag, hap` (hap "A"/"B"), one row per molecule (per molecule x
+#'   phase set with `split_ps`)
 #' @export
-collapse_molecules = function(fr, gap = 2000) {
+collapse_molecules = function(fr, gap = 2000, split_ps = FALSE) {
   h = fr$hap
   isa = if (is.character(h)) h == "A" else h == 1L
   isb = if (is.character(h)) h == "B" else h == 2L
@@ -410,8 +419,14 @@ collapse_molecules = function(fr, gap = 2000) {
   cm = cummax(as.numeric(d$end) + off) - off
   d[, mol := cumsum(first | c(TRUE, d$start[-1] > cm[-n] + gap))]
   d[, isB := !isA]
-  m = d[, .(cell = cell[1], chrom = chrom[1], start = min(start), end = max(end), ps = ps[1],
-            nA = sum(isA), nB = sum(isB), n_frag = .N), by = mol]
+  if (isTRUE(split_ps)) {
+    m = d[, .(cell = cell[1], chrom = chrom[1], start = min(start), end = max(end),
+              nA = sum(isA), nB = sum(isB), n_frag = .N), by = .(mol, ps)]
+    setcolorder(m, c("mol", "cell", "chrom", "start", "end", "ps"))
+  } else {
+    m = d[, .(cell = cell[1], chrom = chrom[1], start = min(start), end = max(end), ps = ps[1],
+              nA = sum(isA), nB = sum(isB), n_frag = .N), by = mol]
+  }
   m = m[nA != nB]
   m[, hap := ifelse(nA > nB, "A", "B")]
   m[, c("nA", "nB", "mol") := NULL]
@@ -445,12 +460,19 @@ atoms_from_regions = function(bins, regions) {
   a[]
 }
 
-# hap-assigned fragments with a phase set of one chromosome: start, end, cell, hap (1/2), ps
-read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
+# blacklist bit of the fragments' `flags` column (F_BLACKLIST in the extractor's bam.py). The extractor's depth
+# layers count the "clean" fragments, `(flags & F_BLACKLIST) == 0` (cli.py, cmd_extract), i.e. those whose start is
+# outside the blacklist; `votes_clean` applies the same definition to the votes.
+FRAG_FLAG_BLACKLIST = 8L
+
+# hap-assigned fragments with a phase set of one chromosome: start, end, cell, hap (1/2), ps; `clean = TRUE` keeps only
+# clean fragments (blacklist bit unset)
+read_hap_fragments = function(frag_file, chrom, tabix = NULL, clean = FALSE) {
   empty = data.table(start = numeric(), end = numeric(), cell = character(), hap = integer(), ps = numeric())
   if (!is.null(tabix) && nzchar(tabix) && file.exists(tabix) && file.exists(paste0(frag_file, ".tbi"))) {
-    cmd = sprintf("%s %s %s | awk -F'\\t' '($11==1||$11==2) && $13>0' | cut -f2,3,4,7,11,13",
-                  shQuote(tabix), shQuote(frag_file), shQuote(chrom))
+    flt = if (isTRUE(clean)) sprintf(" && int($7/%d)%%2==0", FRAG_FLAG_BLACKLIST) else ""
+    cmd = sprintf("%s %s %s | awk -F'\\t' '($11==1||$11==2) && $13>0%s' | cut -f2,3,4,7,11,13",
+                  shQuote(tabix), shQuote(frag_file), shQuote(chrom), flt)
     fr = tryCatch(suppressWarnings(fread(cmd = cmd, header = FALSE, sep = "\t", col.names = c("start", "end", "cell", "flags", "hap", "ps"),
                                          colClasses = list(character = 3))),
                   error = function(e) NULL)
@@ -463,6 +485,7 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
   chr0 = chrom
   fr = fr[fr$chrom == chr0]
   fr[, hap := hap_code(hap)]
+  if (isTRUE(clean)) fr = fr[bitwAnd(as.integer(flags), FRAG_FLAG_BLACKLIST) == 0L]
   fr[hap %in% 1:2 & ps > 0, .(start, end, cell = as.character(cell), hap, ps)]
 }
 
@@ -473,6 +496,10 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
 #' A / B and a phase set are collapsed into molecules ([collapse_molecules()]), each molecule is assigned
 #' to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
 #' stays per chromosome (integer cell indices, `gc()` between chromosomes).
+#'
+#' `clean = TRUE` keeps only the fragments the extractor counts in the depth layers (no blacklist bit in `flags`,
+#' the extractor's `clean = (flags & F_BLACKLIST) == 0`), in the tabix path (awk) and in the fallback;
+#' `split_ps = TRUE` gives one vote per molecule x phase set ([collapse_molecules()]).
 #' @param frag_file fragments.tsv.gz (+ .tbi)
 #' @param cells cell barcodes; the votes' `cell` is the index into this vector
 #' @param atoms [atoms_from_regions()] output
@@ -480,9 +507,12 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
 #' @param gap molecule gap (bp)
 #' @param tabix path of the tabix binary ("" = the `tabix` on the PATH; NULL / not found = the R fallback through
 #'   Rsamtools)
+#' @param split_ps split molecules by phase set (caller parameter `mol_split_ps`; default FALSE)
+#' @param clean votes from clean (not blacklisted) fragments only (caller parameter `votes_clean`; default FALSE)
 #' @return votes data.table `cell, atom, ps, nA, nB` (passes [check_votes()])
 #' @export
-read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix = caller_defaults()$tabix) {
+read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix = caller_defaults()$tabix,
+                      split_ps = FALSE, clean = FALSE) {
   atoms = as.data.table(atoms)
   chroms = chroms %||% unique(atoms$chrom)
   if (identical(tabix, "")) tabix = unname(Sys.which("tabix"))
@@ -491,13 +521,13 @@ read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix 
     ch = chroms[k]
     a = atoms[chrom == ch][order(start)]
     if (!nrow(a)) next
-    fr = read_hap_fragments(frag_file, ch, tabix)
+    fr = read_hap_fragments(frag_file, ch, tabix, clean = clean)
     if (!nrow(fr)) next
     ci = match(fr$cell, cells)
     fr = data.table(cell = ci, chrom = ch, start = as.numeric(fr$start), end = as.numeric(fr$end), hap = as.integer(fr$hap), ps = fr$ps)[!is.na(cell)]
     if (!nrow(fr)) next
     big = nrow(fr) > 5e6
-    m = collapse_molecules(fr, gap = gap)
+    m = collapse_molecules(fr, gap = gap, split_ps = split_ps)
     rm(fr)
     k_at = findInterval(m$start, a$start)
     ok = k_at > 0 & m$start < a$end[pmax(k_at, 1)]
@@ -757,7 +787,8 @@ read_sample_depth = function(dir, layers = character()) {
 #' @param phasing "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored"
 #' @param groups NULL, the name of a `cell_meta` column, a vector named by cell, or one label per kept
 #'   cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)
-#' @param mol_gap molecule gap (bp; default `params$mol_gap`, 2000)
+#' @param mol_gap molecule gap (bp; default `params$mol_gap`, 2000); `params$mol_split_ps` and
+#'   `params$votes_clean` set the molecule split by phase set and the blacklist filter of the votes ([read_votes()])
 #' @param keep_votes keep the votes table in the result
 #' @param layers bin layers to read (none are needed by the depth normalisation)
 #' @param qc named list of [cell_qc()] arguments
@@ -828,7 +859,8 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   # alleles
   ra = regions[allelic_ok == TRUE]
   atoms = atoms_from_regions(scn$bins, ra)
-  votes = read_votes(scn$fragments, keep, atoms, chroms = unique(ra$chrom), gap = mol_gap, tabix = params$tabix)
+  votes = read_votes(scn$fragments, keep, atoms, chroms = unique(ra$chrom), gap = mol_gap, tabix = params$tabix,
+                     split_ps = isTRUE(params$mol_split_ps), clean = isTRUE(params$votes_clean))
   detected = detect_phasing(votes, atoms)
   orientation = switch(phasing, auto = if (detected == "chromosome") "chromosome" else "loo", block = "loo", phasing)
   note(sprintf("votes: %d rows (%d molecules); phasing detected %s, orientation %s", nrow(votes), sum(votes$nA) + sum(votes$nB),

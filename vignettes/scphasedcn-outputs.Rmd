@@ -43,8 +43,8 @@ both). `read_scphasedcn(out)` reads a written run back.
 | `score`, `thr`, `called` | the region score, its null threshold and `score > thr` |
 | `level` | `cell`, `pool` or `clone` |
 | `source` | `cell` (the cell's own evidence), `inherited` (from its clone or pool) or `confirmed` (a clone call the cell's own evidence confirms) |
-| `reportable` | the call survives the nesting rules (e.g. a chromosome gain is not reported inside a stronger nested arm loss) |
-| `z`, `f`, `n_hap` | depth z, major-haplotype fraction and molecule votes of the cell in the region |
+| `reportable` | the call survives the nesting rules (e.g. a chromosome gain is not reported inside a stronger nested arm loss) and the policy; normal mode: chrX pools of a female are never reportable (X-inactivation) |
+| `z`, `f`, `n_hap` | depth z, major-haplotype fraction and molecule votes of the cell in the region as scored (normal mode with `chrx_allelic = false`: `f` NA and `n_hap` 0 on a female's chrX, which is scored on depth only; `features` keeps the observed votes) |
 | `stratum` | the cell's depth stratum (clean fragments; `<20k`, `20-50k`, `>=50k`) |
 | `confident` | tumour mode: the cell's clone assignment is confident |
 
@@ -91,6 +91,6 @@ The components of the object:
 | `calls`, `events` | see above | see above |
 | `pools` | pool membership (`kind` = `type` or `knn`) | NULL |
 | `clones`, `assignments`, `segments`, `profiles` | NULL | see above |
-| `null_fit` | depth t parameters, rho, the null cells and how they were selected | depth t parameters, rho, reference pool, clone discovery details |
+| `null_fit` | depth t parameters, rho, the null cells and how they were selected, the sex and the chrX rule (`chrx_allelic`) | depth t parameters, rho, reference pool, clone discovery details |
 | `params` | all parameters, including the `normal:` caller arguments | all parameters, including the `tumour:` options |
 | `features`, `feature_info`, `embedding`, `notes` | the per-cell region features and the run notes | the same |

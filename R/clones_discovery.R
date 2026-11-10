@@ -660,7 +660,7 @@ merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.99
   names(lab) = names(leaves)
   list(clones = lab, tests = rbindlist(tests, fill = TRUE))
 }
-utils::globalVariables(c("differ", "l1", "l2", "depth_used"))
+utils::globalVariables(c("differ", "l1", "l2", "depth_used", "p"))
 
 #' Clone discovery within a trunk
 #'

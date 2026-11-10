@@ -23,7 +23,7 @@ both). `read_scphasedcn(out)` reads a written run back.
 | `pooled_calls.tsv` | normal mode: called rows of the cell pools |
 | `events.tsv` | a cell's overlapping called regions merged into events |
 | `thresholds.tsv` | the null thresholds per score, region class and depth stratum (and cross-validation fold) |
-| `regions.tsv` | the regions scored (arms, chromosomes, 5-50 Mb tiles, events; tumour mode also clone pieces) |
+| `regions.tsv` | the regions scored (arms, chromosomes, 5-50 Mb tiles, events; tumour mode also clone pieces); see below |
 | `null_fit.tsv` | the depth null (Student-t per class x stratum) and the allelic overdispersion `rho` |
 | `false_calls.tsv`, `false_events.tsv` | normal mode: the realised false-call rate on the null cells |
 | `clones.tsv`, `assignments.tsv`, `clone_segments.tsv`, `clone_profiles.tsv.gz`, `reference_pool.txt` | tumour mode: clones, per-cell assignment, clone copy-number segments, clone window profiles, the normal reference cells |
@@ -47,6 +47,22 @@ both). `read_scphasedcn(out)` reads a written run back.
 | `z`, `f`, `n_hap` | depth z, major-haplotype fraction and molecule votes of the cell in the region |
 | `stratum` | the cell's depth stratum (clean fragments; `<20k`, `20-50k`, `>=50k`) |
 | `confident` | tumour mode: the cell's clone assignment is confident |
+
+## Regions, features and thresholds of male sex chromosomes
+
+`regions.tsv` holds one row per scored region: `region`, `class`, `sd_class` (the class whose null regions give the
+cell's null SD), `chrom`, `start`, `end`, `n_bins` / `n_use` (all / usable 100 kb bins inside), `eligible`, `null_region`
+(autosomal arm, chromosome and tile regions that give null rows) and `allelic_ok` (FALSE on a male's chrX / chrY, which
+are depth-only). The features table (`features.tsv.gz`) repeats these per cell with the depth (`x`, `e`, `log2ratio`,
+`sd_null`, `z`) and allele (`nA`, `nB`, `n_hap`, `n_blocks`, `f`, `orient`) columns.
+
+With the opt-in one-copy model of normal mode (`params$haploid_model = TRUE`, males) the usable chrY bins are scored
+too (chromosome and tile regions; the bundled hg38 centromere table has no chrY row, so no chrY arms), and both tables
+get a column `ploidy`: 1 on chrX / chrY (one copy is the neutral state there), 2 elsewhere. Rows with `ploidy` 1 are
+scored with a complete loss and a 1 -> 2 gain (`params$haploid_shifts`) and a one-sided depth term, so loss of Y and
+male X gains / losses are called per cell. Their per-cell thresholds have their own rows in `thresholds.tsv`: column
+`sexgrp` is `X` / `Y` for them and `A` for the autosomal rows (pooled thresholds use the same column for their sex
+groups). Without the option there is no `ploidy` column, no chrY region and no `sexgrp` on the per-cell thresholds.
 
 ## Clone segments (tumour mode)
 

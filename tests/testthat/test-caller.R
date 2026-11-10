@@ -863,13 +863,18 @@ test_that("chrx_allelic = FALSE: X-inactivation imbalance on female chrX is not 
   expect_lte(mean(cx(r1)$called), 0.01)
   expect_false(any(cx(r1)$state == "cnloh"))
   s1 = r1$scores[chrom == "chrX"]
+  # chrX rows take the depth-only thresholds (chan "depth"), every other row the default ones
+  expect_true(all(s1$chan == "depth") && all(is.na(r1$scores[chrom != "chrX", chan])))
+  td = r1$thresholds[chan %in% "depth"]
+  expect_true(nrow(td) > 0 && all(td$level == "cell"))
+  expect_equal(s1$thr_s_comb, apply_thresholds(s1[, !"chan"], td[, !"chan"], "s_comb")$thr_s_comb)
   expect_true(all(s1$n_hap == 0 & s1$nA == 0 & is.na(s1$f) & !s1$allelic_ok))
   expect_true(all(s1$al_gain == 0 & s1$al_loss == 0 & s1$s_allelic == 0))
   expect_true(all(is.infinite(s1$cl_cnloh)))
   expect_false(any(r1$calls[level == "pool" & chrom == "chrX", reportable]))  # female chrX pools stay non-reportable
   # everything off chrX is the default run's
   expect_identical(off_x(r1$scores, names(r0$scores)), off_x(r0$scores))
-  expect_identical(no_index(r1$thresholds), no_index(r0$thresholds))
+  expect_identical(no_index(r1$thresholds[is.na(chan), !"chan"]), no_index(r0$thresholds))
   expect_identical(off_x(r1$calls), off_x(r0$calls))
   expect_identical(off_x(r1$events), off_x(r0$events))
   expect_identical(r1$null_fit[c("tpar", "rho", "null_cells", "selection", "pool_scale", "sex")],
@@ -908,7 +913,7 @@ test_that("chrx_allelic on sim_norm_f: the default is the run without the key; F
   for (k in c("scores", "thresholds", "calls", "events", "pools")) expect_identical(no_index(ru[[k]]), no_index(r0[[k]]))
   r1 = run(modifyList(p0, list(chrx_allelic = FALSE)))
   expect_identical(off_x(r1$scores, names(r0$scores)), off_x(r0$scores))
-  expect_identical(no_index(r1$thresholds), no_index(r0$thresholds))
+  expect_identical(no_index(r1$thresholds[is.na(chan), !"chan"]), no_index(r0$thresholds))
   expect_identical(off_x(r1$calls), off_x(r0$calls))
   expect_identical(off_x(r1$events), off_x(r0$events))
   expect_identical(r1$null_fit[c("tpar", "rho", "null_cells", "pool_scale")], r0$null_fit[c("tpar", "rho", "null_cells", "pool_scale")])
@@ -924,6 +929,49 @@ test_that("chrx_allelic on sim_norm_f: the default is the run without the key; F
   expect_gte(rec(r1), 0.8)
   expect_gte(rec(r1), rec(r0) - 0.1)
   expect_false(any(r1$calls[level == "pool" & chrom == "chrX", reportable]))
+  # depth-only thresholds: without them (the default thresholds, which include the allele term of these vote-rich
+  # null rows and are negative here) ~a quarter of the chrX rows are called; with them the non-carriers are called
+  # at about the null rate
+  nc = r1$calls[level == "cell" & chrom == "chrX" & !cell %in% c(car[[5]], mult)]
+  expect_lte(mean(nc$called), 0.01)
+  td = r1$thresholds[chan %in% "depth" & score == "s_comb" & fold == 0L]
+  t0 = r1$thresholds[is.na(chan) & level == "cell" & score == "s_comb" & fold == 0L]
+  k = match(paste(td$class, td$stratum), paste(t0$class, t0$stratum))
+  expect_true(all(td$thr > t0$thr[k]))
+})
+
+test_that("depth_only_thresholds: null rows re-scored on depth only, CV quantiles; apply_thresholds matches them by chan", {
+  sf = sim_features(sim_norm_f)
+  rg = fake_regions(sim_norm_f$scn$bins, tiles = c("20Mb" = 2e7))
+  p = caller_defaults()
+  r = caller_normal(sf, regions = rg, n_draws = 500, pool_classes = character(), params = p)
+  st = caller_states("normal", p)
+  nul = r$scores[is_null == TRUE]
+  td = depth_only_thresholds(nul, st, r$null_fit$tpar, p)
+  expect_true(all(td$chan == "depth"))
+  expect_silent(check_thresholds(td))
+  t0 = r$thresholds[level == "cell"]
+  key = function(x) paste(x$score, x$class, x$stratum, x$fold)
+  expect_true(all(key(td) %in% key(t0)))
+  k = match(key(td), key(t0))
+  expect_equal(td[score == "s_depth", thr], t0$thr[k][td$score == "s_depth"])      # z is the same
+  expect_true(all(td[score == "s_comb", thr] > t0$thr[k][td$score == "s_comb"]))  # no negative allele term
+  # the depth-only null rows, thresholded by their own CV thresholds: the budget holds per class
+  dn = copy(nul[, .(cell, region, class, stratum, z, sd_null, fold)])[, `:=`(nA = 0, n_hap = 0, allelic_ok = FALSE)]
+  sd = score_cells(dn, st, r$null_fit$tpar, 0.01)
+  sd[, chan := "depth"]
+  a = apply_thresholds(sd, rbind(t0[, !"level"], td, fill = TRUE), "s_comb")
+  expect_equal(a$thr_s_comb, apply_thresholds(sd[, !"chan"], td[, !"chan"], "s_comb")$thr_s_comb)
+  expect_lte(a[, mean(call_s_comb)], 0.004)
+  # rows without chan (or chan NA) take the default thresholds; a table without chan works as before
+  b = apply_thresholds(nul, rbind(t0, td, fill = TRUE), "s_comb")
+  expect_equal(b$thr_s_comb, apply_thresholds(nul, t0, "s_comb")$thr_s_comb)
+  expect_equal(b$thr_s_comb, nul$thr_s_comb)
+  # a group of the rows to threshold without null rows takes the class threshold over all strata
+  tg = depth_only_thresholds(nul, st, r$null_fit$tpar, p, groups = data.table(class = "chrom", stratum = "none_such"))
+  x = tg[stratum == "none_such" & score == "s_comb" & fold == 0L]
+  expect_true(x$pooled_fallback)
+  expect_equal(x$thr, unname(quantile(sd[class == "chrom", s_comb], p$null_q, type = 7)))
 })
 
 # ---- allelic tile mask (mask_allelic) -------------------------------------------------------------------------------

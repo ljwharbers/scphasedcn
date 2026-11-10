@@ -134,7 +134,7 @@ def cmd_extract(a):
     acc = None
     if "alleles" in layers_on and d["snps"]:
         snps = load_snps(d["snps"], chrom, phased=d["phased"], region=reg[1] if reg else None)
-        acc = AlleleAccumulator(snps, min_bq=a.min_bq)
+        acc = AlleleAccumulator(snps, min_bq=a.min_bq, vote_ps=a.vote_ps)
         _log(f"SNPs on {chrom}: {len(snps)} ({int((snps.hap_of_alt > 0).sum())} phased) from {d['snps']}")
 
     # BAM pass
@@ -157,7 +157,7 @@ def cmd_extract(a):
     params = {"version": __version__, "sample": d["sample"], "bam": d["bam"], "barcodes": d["barcodes"],
               "barcode_space": space, "barcode_map": d["barcode_map"], "chrom": chrom,
               "region": a.region, "binsize": a.binsize, "assign": a.assign, "min_mapq": a.min_mapq, "min_bq": a.min_bq,
-              "snps": d["snps"], "phased": d["phased"], "peaks": d["peaks"],
+              "snps": d["snps"], "phased": d["phased"], "vote_ps": a.vote_ps, "peaks": d["peaks"],
               "layers": sorted(layers_on), "ref": ref, "command": " ".join(sys.argv)}
 
     tiling = Tiling.regular_grid(chrom, length, a.binsize)
@@ -336,6 +336,10 @@ def add_extract_args(s):
                         "(default start)")
     s.add_argument("--snps", help="VCF(.gz, indexed) of het SNPs"); s.add_argument("--phased", action="store_true")
     s.add_argument("--no-snps", action="store_true", help="ignore the yaml VCF")
+    s.add_argument("--vote-ps", default="first", choices=["first", "majority"],
+                   help="phase sets in a fragment's haplotype vote: first = majority over all its phased SNPs, filed "
+                        "under the phase set of the first one (default); majority = only the SNPs of the phase set "
+                        "holding most of its phased SNP observations vote (a tie between phase sets is ambiguous)")
     s.add_argument("--peaks", help="peak BED file for FRiP / peak_bp (optional)")
     s.add_argument("--min-mapq", type=int, default=30); s.add_argument("--min-bq", type=int, default=10)
     s.add_argument("--layers", default=DEFAULT_LAYERS,

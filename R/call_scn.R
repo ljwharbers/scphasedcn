@@ -295,9 +295,10 @@ utils::globalVariables(c("st", "k", "region"))
 #' segments, cell assignment, per-cell inherited / confirmed calls).
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
-#' @param cell_meta NULL, a table or a TSV path with `cell` and optional `cell_type, flat, fold, group,
-#'   stratum, n_frag` (passed to [cell_features()]; `flat` becomes the features' `null_cell`)
-#' @param cells NULL (QC-pass cells) or the cells to call (vector or file)
+#' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
+#'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells are called, those with `qc_pass`
+#'   TRUE when it has that column, else those passing [cell_qc()]; `flat` becomes the features' `null_cell`)
+#' @param cells NULL (QC-pass cells) or the cells to call (vector or file; no cell QC)
 #' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
 #'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data)
 #' @param events named events: a table `region, chrom, start, end`, [cli_events()] output or a named vector of

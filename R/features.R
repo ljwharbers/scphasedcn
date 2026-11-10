@@ -734,18 +734,31 @@ read_sample_depth = function(dir, layers = character()) {
   scn
 }
 
+# cells of a feature run, in the order of `all` (the sample's cells): `cells` as given (no QC); else the cells that pass
+# QC (a `qc_pass` column of `cell_meta` when it has one, else cell_qc()'s), restricted to the cells of `cell_meta`.
+# The R API and the CLI (which passes --cell-meta as `cell_meta`) select the same cells from the same table.
+feature_cells = function(all, qct, cells = NULL, cell_meta = NULL) {
+  if (!is.null(cells)) return(list(keep = intersect(all, cells), how = "given"))
+  meta_qc = !is.null(cell_meta) && "qc_pass" %in% names(cell_meta)
+  k = if (meta_qc) as.character(cell_meta$cell)[as.logical(cell_meta$qc_pass) %in% TRUE] else qct[qc_pass == TRUE]$cell
+  if (!is.null(cell_meta)) k = intersect(k, cell_meta$cell)
+  list(keep = intersect(all, k), how = if (meta_qc) "cell_meta qc_pass" else "QC pass")
+}
+
 #' Per-cell per-region features of a sample
 #'
-#' Reads an extraction directory, applies the cell QC ([cell_qc()]; `cells` restricts the run to a set
-#' of cells instead), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
+#' Reads an extraction directory, applies the cell QC ([cell_qc()]; a `qc_pass` column of `cell_meta` replaces it;
+#' `cells` restricts the run to a set of cells instead, without QC), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
 #' and chrX), normalises depth ([normalise_depth()]: `celltype` for normal tissue, `model` for tumours), builds the
 #' regions ([region_set()]), the depth features ([depth_features()]), the molecule votes
 #' ([read_votes()]) and the oriented allele features ([allelic_features()]), and joins them into the
 #' long features table (`vignette("scphasedcn-outputs", package = "scphasedcn")`).
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
-#' @param cells NULL (QC-pass cells) or the cells to use
-#' @param cell_meta NULL or a data.table with `cell` and optional `cell_type, flat, fold, group, stratum,
-#'   n_frag` (used as-is; NA cell_type = no type-matched reference)
+#' @param cells NULL (QC-pass cells) or the cells to use (no QC)
+#' @param cell_meta NULL or a data.table with `cell` and optional `qc_pass, cell_type, flat, fold, group, stratum,
+#'   n_frag` (used as-is; NA cell_type = no type-matched reference). With `cells` NULL only cells of `cell_meta` are
+#'   used, and a `qc_pass` column (e.g. [make_cell_meta()]) selects them instead of [cell_qc()] (cells with
+#'   `qc_pass` TRUE)
 #' @param method depth normalisation, "celltype" or "model" (any [normalise_depth()] method is accepted)
 #' @param ref_cells reference cells of the normalisation (selector; NULL = all)
 #' @param min_cells_type celltype: minimal reference cells of a type
@@ -789,13 +802,10 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
 
   scn = read_sample_depth(dir, layers = layers)
   qct = do.call(cell_qc, c(list(scn), qc, list(params = params)))
-  keep = if (!is.null(cells)) intersect(scn$cells$cell, cells) else {
-    k = qct[qc_pass == TRUE]$cell
-    if (!is.null(cell_meta)) k = intersect(k, cell_meta$cell)
-    intersect(scn$cells$cell, k)
-  }
+  sel = feature_cells(scn$cells$cell, qct, cells, cell_meta)
+  keep = sel$keep
   if (!length(keep)) stop("cell_features: no cells")
-  note(sprintf("cells: %d of %d (%s)", length(keep), nrow(scn$cells), if (is.null(cells)) "QC pass" else "given"))
+  note(sprintf("cells: %d of %d (%s)", length(keep), nrow(scn$cells), sel$how))
   sex = sex %||% (if ("sex" %in% names(scn$cells)) as.character(scn$cells$sex[1]) else NULL)
   if (is.null(sex) || is.na(sex)) stop("cell_features: `sex` is needed")
   sex = check_sex(sex, "cell_features")

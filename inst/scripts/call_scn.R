@@ -39,8 +39,9 @@ usage = paste(
   "  --caller-config <yaml>  caller parameters (default: the package's caller.yaml; its normal: / tumour: blocks are",
   "                          the caller_normal() arguments / tumour-mode options clone_defaults())",
   "  --cell-meta <tsv>       cell + optional qc_pass/cell_type/flat/fold/group/stratum/n_frag (see make_cell_meta();",
-  "                          cells with qc_pass FALSE are dropped; cell_type 'unknown' = no type)",
-  "  --cells <file|list>     cells to call (default: QC pass, and in cell-meta when given)",
+  "                          only its cells are called: qc_pass TRUE when it has that column, else the cell QC;",
+  "                          cell_type 'unknown' = no type)",
+  "  --cells <file|list>     cells to call, without cell QC (default: QC pass, and in cell-meta when given)",
   "  --null-cells <x>        auto | features | select | a file or ';' list of null cells",
   "  --multiplets <x>        file (one cell per line, or a table with prob / multiplet / clean_singlet) or ';' list",
   "  --groups <column>       tumour mode: cell-meta column of the pseudobulk orientation groups (e.g. a spatial region)",
@@ -113,14 +114,14 @@ cm = NULL
 if (nzchar(a$cell_meta)) {
   cm = fread(a$cell_meta)
   if (!"cell" %in% names(cm)) fail("--cell-meta needs a `cell` column")
-  if ("qc_pass" %in% names(cm)) cm = cm[qc_pass %in% TRUE]
   if ("cell_type" %in% names(cm)) cm[cell_type %in% c("unknown", ""), cell_type := NA]
   if ("stratum" %in% names(cm)) cm[, stratum := as.character(stratum)]
-  keep = intersect(c("cell", "cell_type", "flat", "fold", "group", "stratum", "n_frag", a$groups), names(cm))
+  keep = intersect(c("cell", "qc_pass", "cell_type", "flat", "fold", "group", "stratum", "n_frag", a$groups), names(cm))
   cm = cm[, keep, with = FALSE]
 }
+# --cells bypasses the cell QC; otherwise call_scn() selects the cells of --cell-meta that pass QC (its qc_pass column,
+# else cell_qc() on cells_qc.tsv), exactly as the R API does with the same table
 cells = split_list(a$cells)
-if (is.null(cells) && !is.null(cm) && !nzchar(a$features)) cells = cm$cell
 nc = a$null_cells
 null_cells = if (nc %in% c("auto", "features", "select")) nc else split_list(nc)
 mult = split_list(a$multiplets)

@@ -282,3 +282,41 @@ test_that("make_cell_meta builds the cell metadata from cells_qc and user labels
   expect_true(all(is.na(m2$cell_type)) && all(is.na(m2$flat)))
   expect_error(make_cell_meta(), "no cells")
 })
+
+test_that("cell selection: cell_meta qc_pass replaces the cell QC, without it the QC applies; `cells` bypasses QC", {
+  all = paste0("c", 1:6)
+  qct = data.table(cell = all, qc_pass = c(TRUE, TRUE, TRUE, FALSE, FALSE, TRUE))
+  expect_identical(feature_cells(all, qct)$keep, c("c1", "c2", "c3", "c6"))
+  # a cell_meta without qc_pass: its cells that pass the QC (the CLI no longer passes them as `cells`)
+  m = data.table(cell = c("c6", "c4", "c2", "x9"))
+  s = feature_cells(all, qct, cell_meta = m)
+  expect_identical(s$keep, c("c2", "c6"))
+  expect_identical(s$how, "QC pass")
+  # with qc_pass: the table's QC decides (as make_cell_meta() wrote it)
+  m2 = data.table(cell = c("c6", "c4", "c2", "c1"), qc_pass = c(TRUE, TRUE, FALSE, NA))
+  s2 = feature_cells(all, qct, cell_meta = m2)
+  expect_identical(s2$keep, c("c4", "c6"))
+  expect_identical(s2$how, "cell_meta qc_pass")
+  # explicit cells: no QC, in the sample's order
+  expect_identical(feature_cells(all, qct, cells = c("c5", "c4", "zz"), cell_meta = m2)$keep, c("c4", "c5"))
+})
+
+test_that("call_scn.R --cell-meta without qc_pass applies the cell QC (as the R API does)", {
+  skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
+  script = system.file("scripts", "call_scn.R", package = "scphasedcn")
+  rs = file.path(R.home("bin"), "Rscript")
+  d = sim_dir("sim_norm_f")
+  all_cells = fread(file.path(d, "cells_qc.tsv"))$cell
+  api = norm_result()$cells$cell                                     # QC-pass cells
+  expect_gt(length(setdiff(all_cells, api)), 0)                     # some cells of the simulation fail the QC
+  cm = file.path(tempdir(), "cli_meta_noqc.tsv")
+  fwrite(data.table(cell = all_cells), cm, sep = "\t")
+  cen = file.path(tempdir(), "cli_centromeres.tsv")
+  fwrite(cs_centromeres(sim_norm_f$scn$bins), cen, sep = "\t")
+  out = file.path(tempdir(), "callscn_cli_qc_out")
+  unlink(out, recursive = TRUE)
+  log = suppressWarnings(system2(rs, c(script, "--dir", d, "--out", out, "--sex", "female", "--centromeres", cen,
+                                       "--cell-meta", cm, "--no-embedding", "--cores", "1"), stdout = TRUE, stderr = TRUE))
+  expect_null(attr(log, "status"))
+  expect_setequal(fread(file.path(out, "cells.tsv"))$cell, api)
+})

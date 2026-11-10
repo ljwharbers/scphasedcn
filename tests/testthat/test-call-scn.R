@@ -222,7 +222,7 @@ test_that("call_scn with chrx_allelic = FALSE: features keep their chrX votes, p
   unlink(out, recursive = TRUE)
   write_scphasedcn(r1, out, write_features = TRUE)
   expect_false(caller_params(file.path(out, "params.yaml"))$chrx_allelic)
-  expect_equal(fread(file.path(out, "features.tsv.gz"))[chrom == "chrX", sum(n_hap)], long0[chrom == "chrX", sum(n_hap)])
+  expect_equal(fread(text = readLines(gzfile(file.path(out, "features.tsv.gz"))))[chrom == "chrX", sum(n_hap)], long0[chrom == "chrX", sum(n_hap)])
   expect_true(any(grepl("chrX: depth only per cell", readLines(file.path(out, "NOTES.md")))))
   # with the allelic tile mask (needs the votes): the mask runs on the features, the chrX rule in the scorer
   fx = cell_features(sim_dir("sim_norm_f"), method = "celltype", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins))

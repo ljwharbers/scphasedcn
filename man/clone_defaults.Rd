@@ -46,6 +46,10 @@ tumour state set, one threshold per stratum) or "matched" (each clone hypothesis
 the null rows oriented by that clone's pseudobulk under the same two-state set as the cells; one threshold per
 hypothesis x stratum, hypothesis-wide below \code{min_null_rows}; held-out fold-CV false-confirmation rates per
 hypothesis in \code{null_fit$confirm_null}; the default). The refitted value is \code{null_fit$rho_confirm}.
+\code{confirm_sided} = the allele term of the confirmation scores, cells and null rows alike (\code{\link[=score_cells]{score_cells()}} \code{sided}):
+"two" (default; a cell whose opposite homologue is imbalanced also scores high) or "one" (the votes are oriented
+by the clone's pseudobulk, so only the clone's major haplotype counts). The fallback without null rows (type-7
+quantile of \code{cell_state_scores()}) is always one-sided.
 
 A key that is not one of these defaults stops \code{\link[=caller_tumour]{caller_tumour()}} with an error.
 }

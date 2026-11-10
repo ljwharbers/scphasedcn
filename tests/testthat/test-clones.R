@@ -301,6 +301,7 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
   expect_error(caller_tumour(inp, opts = list(split_pass = TRUE), verbose = FALSE), "split_pass")
   expect_error(caller_tumour(inp, opts = list(ref_null = "x"), verbose = FALSE), "ref_null")
   expect_error(caller_tumour(inp, opts = list(confirm_null = "x"), verbose = FALSE), "should be one of")
+  expect_error(caller_tumour(inp, opts = list(confirm_sided = "x"), verbose = FALSE), "should be one of")
   expect_error(caller_tumour(inp, opts = list(bogus = 1), verbose = FALSE), "unknown option")
   expect_identical(scphasedcn:::check_clone_opts(list()), clone_defaults())
   expect_identical(scphasedcn:::check_clone_opts(list(split_pass = "disagree"))$split_pass, "disagree")
@@ -482,6 +483,77 @@ test_that("ref_null refits rho on the reference pool; the matched null confirms 
   nf = null_fit_table(res$null_fit)
   expect_equal(nf[kind == "allelic_rho_confirm", rho], rc)
   expect_gt(nrow(nf[kind == "depth_t_confirm"]), 0)
+})
+
+# ---- confirm_sided: one-sided per-cell confirmation (clone-oriented votes) ---------------------------------------------
+
+test_that("b_score_hyp: two-sided confirms a cell whose opposite homologue is imbalanced; confirm_sided \"one\" does not", {
+  # votes oriented by the clone (haplotype A = the clone's major haplotype): 40 / 40 vs 0 / 40, depth at the loss shift
+  x = data.table(cell = c("same", "opposite"), region = "r", class = "arm", stratum = "x", z = -5, sd_null = 0.2,
+                 nA = c(40, 0), n_hap = 40)
+  p = caller_defaults()
+  s2 = scphasedcn:::b_score_hyp(x, "loss", -1, 0.95, NULL, 0.01, p, cn = 1L)
+  s1 = scphasedcn:::b_score_hyp(x, "loss", -1, 0.95, NULL, 0.01, p, cn = 1L, sided = "one")
+  expect_identical(scphasedcn:::b_score_hyp(x, "loss", -1, 0.95, NULL, 0.01, p, cn = 1L, sided = "two"), s2)
+  expect_equal(s2$s_comb[1], s2$s_comb[2])
+  expect_gt(s2$s_comb[2], 15)
+  expect_equal(s1$s_comb[1], s2$s_comb[1])
+  expect_lt(s1$s_comb[2], -20)
+  # b_score (cell_state_scores rows) passes it through
+  rows = data.table(cell = c("same", "opposite"), region = "r", sd_class = "arm", stratum = "x", z = -5, sd_null = 0.2,
+                    nA_o = c(40, 0), n_o = 40, label = "loss", cn = 1L, c = 1, a = 1, f_state = 0.95, base_ = 2L)
+  b1 = scphasedcn:::b_score(rows, NULL, 0.01, p, sided = "one")
+  expect_equal(b1$s_comb, s1$s_comb)
+  expect_equal(scphasedcn:::b_score(rows, NULL, 0.01, p)$s_comb, s2$s_comb)
+  expect_identical(scphasedcn:::check_clone_opts(list())$confirm_sided, "two")
+  expect_error(scphasedcn:::check_clone_opts(list(confirm_sided = "both")), "should be one of")
+})
+
+# per-event confirmed rate of the tumour cells (singlets of the truth type) and false confirmations: confirmed calls on
+# singlets whose truth type does not carry the event (normal cells, the other clone)
+tum_conf_table = function(res, sim) {
+  tr = sim_truth(sim)
+  x = merge(res$calls[level == "cell"], tr, by = "cell")[mult == FALSE]
+  ev = data.table(chrom = c("chr8", "chr21", "chr22", "chr2", "chr1"), carrier = c("cloneA|cloneB", "cloneA", "cloneB", "cloneB", "cloneB"))
+  x = merge(x, ev, by = "chrom")
+  x[, carries := mapply(grepl, carrier, type)]
+  x[, .(n_true = sum(carries), conf_true = mean(source[carries] == "confirmed"), n_false = sum(!carries),
+        conf_false = sum(source[!carries] == "confirmed")), by = chrom][order(chrom)]
+}
+
+test_that("confirm_sided \"one\": assignments and segments unchanged, events still confirmed, control false confirmations at the null rate", {
+  for (nm in c("tum2", "tum3")) {
+    r0 = if (nm == "tum2") tum2_result() else tum3_run("matched")
+    r1 = if (nm == "tum2") clone_cached("clones_tum2_one", function() caller_tumour(tum2_input(), opts = list(confirm_sided = "one"), verbose = FALSE)) else
+      tum3_run("one", list(confirm_sided = "one"))
+    sim = if (nm == "tum2") sim_tum2 else sim_tum3
+    # confirmation is after assignment: clones, assignments and segments are those of the default run
+    expect_identical(r1$assignments, r0$assignments)
+    expect_identical(r1$segments, r0$segments)
+    expect_identical(r1$clones, r0$clones)
+    expect_identical(r1$params$tumour$confirm_sided, "one")
+    expect_true(any(grepl("one-sided", r1$notes)))
+    c0 = tum_conf_table(r0, sim); c1 = tum_conf_table(r1, sim)
+    message(nm, " confirmed rate per event (two-sided / one-sided):\n",
+            paste(capture.output(print(merge(c0, c1, by = c("chrom", "n_true", "n_false"), suffixes = c(".two", ".one")))), collapse = "\n"))
+    # true events stay confirmed (within 10 points of the two-sided rate) ...
+    m = merge(c0, c1, by = "chrom", suffixes = c(".two", ".one"))
+    expect_true(all(m$conf_true.one >= m$conf_true.two - 0.1))
+    # ... and the held-out false confirmations of the matched null stay at the budget
+    cn = r1$null_fit$confirm_null
+    if (!is.null(cn) && nrow(cn[hyp == "all" & kind == "control"])) {
+      message(nm, " held-out false confirmations per 1,000 (two / one): control ",
+              signif(r0$null_fit$confirm_null[hyp == "all" & kind == "control", per_1000], 3), " / ",
+              signif(cn[hyp == "all" & kind == "control", per_1000], 3), ", pool ",
+              signif(r0$null_fit$confirm_null[hyp == "all" & kind == "pool", per_1000], 3), " / ",
+              signif(cn[hyp == "all" & kind == "pool", per_1000], 3))
+      expect_lte(cn[hyp == "all" & kind == "control", per_1000], 5)
+      expect_lte(cn[hyp == "all" & kind == "all", per_1000], 3)
+    }
+    cc = r1$calls[level == "cell"]
+    expect_equal(cc$called, cc$score > cc$thr)
+    check_calls(r1$calls)
+  }
 })
 
 # ---- sim_tum4: the disagreement split (split_pass = "disagree") ------------------------------------------------------

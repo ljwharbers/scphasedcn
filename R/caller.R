@@ -89,7 +89,7 @@ allelic_classes = function(ns) {
 #' `mu = shift / pmax(ifelse(is.na(sd_null), 1, sd_null), sd_floor)` under the
 #' Student-t null of the row's class x stratum ([match_depth_null()]) or
 #' N(0, 1); allelic term = best of the state's rows of [ll_allelic()]
-#' (two-sided); combined = sum (missing channels contribute 0). A state whose
+#' (two-sided, or one-sided with `sided = "one"`); combined = sum (missing channels contribute 0). A state whose
 #' rows have different shifts (tumour `amp`) takes the best row of depth +
 #' alleles and reports that row's two terms.
 #' @param d table with `z`, `sd_null`, `nA`, `n_hap` (or `nB`), and `class`,
@@ -103,6 +103,10 @@ allelic_classes = function(ns) {
 #' @param params [caller_defaults()] (`sd_floor`, `eps`)
 #' @param keep_rows also return per-row allelic LLRs `ar_<row_id>` (and
 #'   per-row depth LLRs `dr_<row_id>` of multi-shift states); needed by [pool_scores()]
+#' @param sided allelic term: `"two"` (default) = the better of `f` and `1 - f` per allelic row (votes in an arbitrary
+#'   orientation); `"one"` = `f` on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
+#'   clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
+#'   every allelic row, including the per-row columns of `keep_rows`
 #' @return copy of `d` with `dl_<state>`, `al_<state>`, `cl_<state>` per
 #'   non-neutral state, `s_comb` (best combined LLR), `state_comb` (argmax,
 #'   ties to the first state in table order), `s_depth` (|z|), `state_depth`
@@ -110,8 +114,9 @@ allelic_classes = function(ns) {
 #'   class, e.g. `loss_or_cnloh`)
 #' @export
 score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, eps = params$eps,
-                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE) {
+                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE, sided = c("two", "one")) {
   depth_model = match.arg(depth_model)
+  two = match.arg(sided) == "two"
   d = copy(as.data.table(d))
   n = nrow(d)
   if (!"z" %in% names(d)) d[, z := NA_real_]
@@ -135,9 +140,9 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
   rgrp = if (length(rho) > 1 && length(unique(rho)) > 1) split(seq_len(n), rho) else NULL   # per-row rho: score by group
   if (length(rho) > 1 && is.null(rgrp)) rho = rho[1]
   for (f in unique(ns$f)) {
-    if (is.null(rgrp)) a = ll_allelic(nA, nh, f, rho, eps) else {
+    if (is.null(rgrp)) a = ll_allelic(nA, nh, f, rho, eps, two_sided = two) else {
       a = numeric(n)
-      for (g in rgrp) a[g] = ll_allelic(nA[g], nh[g], f, rho[g[1]], eps)
+      for (g in rgrp) a[g] = ll_allelic(nA[g], nh[g], f, rho[g[1]], eps, two_sided = two)
     }
     acache[[fk(f)]] = fifelse(is.na(a), 0, a)
   }

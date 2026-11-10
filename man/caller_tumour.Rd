@@ -40,7 +40,8 @@ clone only when confidently assigned, else keeps its previous label: \code{clone
 \code{kept}, \code{reassigned}) ->
 \code{\link[=clean_reference]{clean_reference()}} -> optional depth re-pass relative to the clean pool -> per-cell calls. Each cell
 inherits its clone's non-neutral segments (\code{source = "inherited"}) and is \code{confirmed} when its own
-score under the clone state (depth + allele LLR vs neutral) is above the threshold of the tumour null:
+score under the clone state (depth + allele LLR vs neutral; allele term two-sided, or one-sided on the clone-oriented
+votes with \code{opts$confirm_sided = "one"}) is above the threshold of the tumour null:
 reference-pool cells x all pieces + all cells x control pieces, scored as the best of the loss / gain /
 CN-LOH / amp states (type-7 \code{null_q} quantile per stratum, strict \code{>}; pooled over strata below
 \code{min_null_rows}).

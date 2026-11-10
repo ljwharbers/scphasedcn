@@ -337,6 +337,90 @@ test_that("resolve_nested: sim_norm_f carriers of the 1p loss / chr2 CN-LOH get 
   # every dropped gain lacks depth support or lost to a stronger nested loss / CN-LOH
   g = merge(x[state == "gain", .(cell, region, resolved)], r1$scores[, .(cell, region, dl_gain)], by = c("cell", "region"))
   expect_true(all(g$dl_gain <= 0 | grepl("nested", g$resolved)))
+  # gate "dl" (the default) is the rule caller_normal applied; no gate columns
+  rd = resolve_nested(r0$calls, r0$scores, gate = "dl", tpar = r0$null_fit$tpar)
+  expect_identical(rd, r1$calls)
+  expect_false(any(c("gate_z", "gate_thr") %in% names(rd)))
+  # gate "z": the nested events are still resolved and the true chromosome gains stay
+  rz = resolve_nested(r0$calls, r0$scores, gate = "z", tpar = r0$null_fit$tpar)
+  rep_z = function(reg, st) unique(rz[level == "cell" & called & reportable & region == reg & state == st, cell])
+  expect_length(intersect(rep_z("chr1", "gain"), car[[1]]), 0)
+  expect_length(intersect(rep_z("chr2", "gain"), car[[3]]), 0)
+  expect_gte(mean(car[[2]] %in% rep_z("chr8", "gain")), 0.7)
+  expect_gte(mean(car[[4]] %in% rep_z("chr21", "gain")), 0.7)
+  zg = rz[!is.na(gate_thr)]
+  expect_true(all(zg$class %in% c("chrom", "event") & zg$state == "gain"))
+  expect_true(all(zg[reportable == TRUE, gate_z > gate_thr]))
+})
+
+test_that("resolve_nested gate 'z': a null quantile of z on top of the midpoint, per row", {
+  tp = data.table(class = "chrom", stratum = "s", t_m = 0.1, t_s = 1.1, t_df = 7)
+  sdn = c(0.4, 0.4, 0.08, 0.08, 0.08, 0.4)
+  # noisy: between the midpoint and the quantile, above both; clean: below / above the midpoint, very large z; NA z
+  z = c(1.3, 3.5, 3, 4.5, 200, NA)
+  ct = data.table(cell = paste0("c", 1:6), region = "chr5", class = "chrom", chrom = "chr5", start = NA_real_, end = NA_real_,
+                  state = "gain", score = 20, thr = 5, called = TRUE, level = "cell", source = "cell", reportable = TRUE,
+                  z = z, sd_null = sdn, stratum = "s")
+  p = caller_defaults()
+  mu = p$shifts[["gain"]] / pmax(sdn, p$sd_floor)
+  ct[, dl_gain := ll_depth_shift(z, mu, tp)]
+  mid = tp$t_m + mu / 2; qz = tp$t_m + tp$t_s * qt(0.95, tp$t_df)
+  expect_true(mid[1] < z[1] && z[1] < qz)               # the noisy cell's z is between the midpoint and the null quantile
+  expect_true(all(mid[3:5] > qz))                       # clean cells: the midpoint is the binding bound
+  expect_lt(ct$dl_gain[5], 0.5)                         # very large z: the t LLR has fallen back near 0
+  rd = resolve_nested(ct)
+  rz = resolve_nested(ct, gate = "z", tpar = tp)
+  expect_equal(rd$reportable, c(TRUE, TRUE, FALSE, TRUE, TRUE, FALSE))
+  expect_equal(rz$reportable, c(FALSE, TRUE, FALSE, TRUE, TRUE, FALSE))
+  expect_equal(rz$resolved, c("no_depth", NA, "no_depth", NA, NA, "no_depth"))
+  expect_equal(rz$gate_thr, pmax(mid, qz))
+  expect_equal(rz$gate_z, z)
+  # the gate value can come from `scores` instead of the calls
+  sc = ct[, .(cell, region, z, sd_null, class, stratum, dl_gain)]
+  expect_identical(resolve_nested(ct[, !c("z", "sd_null", "stratum")], sc, gate = "z", tpar = tp)$reportable, rz$reportable)
+  # a stricter quantile drops the noisy row above the 0.95 quantile; min_dl_gain is not used by gate "z"
+  expect_false(resolve_nested(ct, gate = "z", gate_q = 0.999, tpar = tp)$reportable[2])
+  expect_identical(resolve_nested(ct, gate = "z", tpar = tp, min_dl_gain = 5)$reportable, rz$reportable)
+  # Gaussian null (tpar NULL): max(mu / 2, qnorm(gate_q))
+  rg = resolve_nested(ct, gate = "z")
+  expect_equal(rg$gate_thr, pmax(mu / 2, qnorm(0.95)))
+  # a row without a null fit (stratum NA) has no depth support
+  ct2 = copy(ct)[1, `:=`(z = 5, stratum = NA_character_)]
+  expect_equal(resolve_nested(ct2, gate = "z", tpar = tp)[1, resolved], "no_depth")
+  expect_error(resolve_nested(ct, gate = "z", gate_q = 1), "gate_q")
+  expect_error(resolve_nested(ct[, !"sd_null"], gate = "z", tpar = tp), "sd_null")
+  expect_error(resolve_nested(ct, gate = "q"))
+})
+
+test_that("gain gate 'z' on fake features: allele-only gains of noisy cells pass at ~1 - gate_q, true gains stay", {
+  g = gate_fake()
+  r0 = caller_normal(g$ff, regions = g$rg, null_cells = "features", resolve_gains = FALSE, pool_classes = character())
+  cl = merge(r0$calls[level == "cell" & class == "chrom" & state == "gain" & called & reportable, .(cell, region)], g$pl,
+             by = c("cell", "region"))
+  sdn = r0$scores[class == "chrom", .(cell, region, sd_null)]
+  rate = function(gate) {
+    r = resolve_nested(r0$calls, r0$scores, gate = gate, tpar = r0$null_fit$tpar)
+    m = merge(merge(cl, r[, .(cell, region, reportable)], by = c("cell", "region")), sdn, by = c("cell", "region"))
+    m[, .(n = .N, rate = mean(reportable)), keyby = .(kind, noisy = sd_null > 0.25)]
+  }
+  rd = rate("dl"); rz = rate("z")
+  expect_true(all(rd$n >= 100))
+  fd = rd[kind == "allele_only"]; fz = rz[kind == "allele_only"]
+  # allele-only "gains" (null depth) of noisy cells: ~22 % pass the midpoint, ~5 % the 0.95 null quantile
+  expect_lte(fz[noisy == TRUE, rate], 0.08)
+  expect_lte(fz[noisy == FALSE, rate], 0.08)
+  expect_gte(fd[noisy == TRUE, rate], 0.15)
+  expect_gt(fd[noisy == TRUE, rate], 2.5 * fz[noisy == TRUE, rate])
+  # true gains (depth + alleles): recall within 0.1 in clean cells; noisy cells lose recall (their depth shift is
+  # ~1.5 null SD, so a 5 % null pass rate costs power there)
+  td = rd[kind == "true_gain"]; tz = rz[kind == "true_gain"]
+  expect_gte(tz[noisy == FALSE, rate], td[noisy == FALSE, rate] - 0.1)
+  expect_gte(tz[noisy == TRUE, rate], 0.4)
+  # caller_normal passes the gate through and records it
+  r1 = caller_normal(g$ff, regions = g$rg, null_cells = "features", gain_gate = "z", gain_gate_q = 0.95, pool_classes = character())
+  expect_identical(r1$calls, resolve_nested(r0$calls, r0$scores, gate = "z", tpar = r0$null_fit$tpar))
+  expect_true(any(grepl("depth gate z: above the midpoint and the 0.95 null quantile", r1$notes, fixed = TRUE)))
+  expect_error(caller_normal(g$ff, regions = g$rg, gain_gate = "zz"), "gain_gate")
 })
 
 test_that("resolve_nested rules on a hand-made calls table", {

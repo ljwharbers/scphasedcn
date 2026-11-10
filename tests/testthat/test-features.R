@@ -339,3 +339,29 @@ test_that("subset_features re-indexes the votes: each kept cell keeps its own vo
   expect_equal(up$long[order(cell), nB], c(7, 4))
   expect_identical(subset_features(fe, fe$cells$cell), fe)
 })
+
+test_that("read_hap_fragments: a failing tabix command stops, no records gives no rows; read_votes warns on empty chromosomes", {
+  skip_on_os("windows")
+  td = tempfile("fake_tabix"); dir.create(td)
+  frag = file.path(td, "fragments.tsv.gz"); writeLines("x", frag); writeLines("x", paste0(frag, ".tbi"))
+  fake = function(name, body) { p = file.path(td, name); writeLines(c("#!/bin/sh", body), p); Sys.chmod(p, "0755"); p }
+  bad = fake("tabix_bad", c("echo 'could not load the index' >&2", "exit 1"))
+  empty = fake("tabix_empty", "exit 0")
+  # fragment table columns: chrom start end cell score strand ... flags (7) ... hap (11) ... ps (13)
+  rec = c("chr1\t100\t300\tAAAC\t1\t+\t0\t.\t.\t.\t1\t.\t5",
+          "chr1\t400\t600\tAAAG\t1\t+\t0\t.\t.\t.\t2\t.\t5",
+          "chr1\t700\t900\tAAAG\t1\t+\t0\t.\t.\t.\t0\t.\t5")              # hap 0: dropped by the awk filter
+  good = fake("tabix_good", c('[ "$2" = chr1 ] || exit 0', sprintf("printf '%s\\n'", paste(gsub("\t", "\\\\t", rec), collapse = "\\n"))))
+  expect_error(read_hap_fragments(frag, "chr1", bad), "tabix failed.*could not load the index")
+  e = read_hap_fragments(frag, "chr1", empty)
+  expect_equal(nrow(e), 0L)
+  expect_identical(names(e), c("start", "end", "cell", "hap", "ps"))
+  g = read_hap_fragments(frag, "chr1", good)
+  expect_equal(g$cell, c("AAAC", "AAAG"))
+  expect_equal(g$hap, c(1L, 2L))
+  atoms = data.table(atom = 1:2, chrom = c("chr1", "chr2"), start = 0, end = 1e6, bin = 1:2)
+  expect_warning(v <- read_votes(frag, c("AAAC", "AAAG"), atoms, tabix = good), "1 chromosome\\(s\\) \\(chr2\\)")
+  expect_equal(sum(v$nA + v$nB), 2L)
+  expect_warning(read_votes(frag, c("CCCC"), atoms[1], tabix = good), "barcodes")
+  expect_error(read_votes(frag, "AAAC", atoms, tabix = bad), "tabix failed")
+})

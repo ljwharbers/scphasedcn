@@ -447,16 +447,27 @@ atoms_from_regions = function(bins, regions) {
   a[]
 }
 
-# hap-assigned fragments with a phase set of one chromosome: start, end, cell, hap (1/2), ps
+# hap-assigned fragments with a phase set of one chromosome: start, end, cell, hap (1/2), ps. The tabix pipeline runs
+# under `set -o pipefail` with its output in a temporary file: no record on the contig (exit 0, empty output) gives no
+# rows, a failing command (missing / corrupt file or index, tabix error) stops with the command's error
 read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
   empty = data.table(start = numeric(), end = numeric(), cell = character(), hap = integer(), ps = numeric())
   if (!is.null(tabix) && nzchar(tabix) && file.exists(tabix) && file.exists(paste0(frag_file, ".tbi"))) {
-    cmd = sprintf("%s %s %s | awk -F'\\t' '($11==1||$11==2) && $13>0' | cut -f2,3,4,7,11,13",
-                  shQuote(tabix), shQuote(frag_file), shQuote(chrom))
-    fr = tryCatch(suppressWarnings(fread(cmd = cmd, header = FALSE, sep = "\t", col.names = c("start", "end", "cell", "flags", "hap", "ps"),
-                                         colClasses = list(character = 3))),
-                  error = function(e) NULL)
-    if (is.null(fr) || ncol(fr) != 6 || !nrow(fr)) return(empty)
+    pipe = sprintf("set -o pipefail; %s %s %s | awk -F'\\t' '($11==1||$11==2) && $13>0' | cut -f2,3,4,7,11,13",
+                   shQuote(tabix), shQuote(frag_file), shQuote(chrom))
+    out = tempfile(fileext = ".tsv"); err = tempfile(fileext = ".err")
+    on.exit(unlink(c(out, err)), add = TRUE)
+    status = suppressWarnings(system2("bash", c("-c", shQuote(pipe)), stdout = out, stderr = err))
+    if (!identical(as.integer(status), 0L)) {
+      msg = if (file.exists(err)) paste(utils::head(readLines(err, warn = FALSE), 5), collapse = "; ") else ""
+      stop(sprintf("read_hap_fragments: reading %s (%s) with tabix failed (exit status %s)%s", frag_file, chrom, status,
+                   if (nzchar(msg)) paste0(": ", msg) else ""), call. = FALSE)
+    }
+    if (!file.exists(out) || file.size(out) == 0) return(empty)
+    fr = fread(out, header = FALSE, sep = "\t", col.names = c("start", "end", "cell", "flags", "hap", "ps"),
+               colClasses = list(character = 3))
+    if (ncol(fr) != 6) stop(sprintf("read_hap_fragments: %s (%s) does not have the fragment table's columns", frag_file, chrom),
+                            call. = FALSE)
     fr[, flags := NULL]
     return(fr)
   }
@@ -474,7 +485,8 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
 #' [read_fragments()] when the tabix binary or index is missing; fragments of `cells` with haplotype
 #' A / B and a phase set are collapsed into molecules ([collapse_molecules()]), each molecule is assigned
 #' to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
-#' stays per chromosome (integer cell indices, `gc()` between chromosomes).
+#' stays per chromosome (integer cell indices, `gc()` between chromosomes). A failing tabix command stops with its
+#' error; a chromosome with atoms but no haplotype-assigned fragment of `cells` gives a warning.
 #' @param frag_file fragments.tsv.gz (+ .tbi)
 #' @param cells cell barcodes; the votes' `cell` is the index into this vector
 #' @param atoms [atoms_from_regions()] output
@@ -489,15 +501,16 @@ read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix 
   chroms = chroms %||% unique(atoms$chrom)
   if (identical(tabix, "")) tabix = unname(Sys.which("tabix"))
   out = vector("list", length(chroms))
+  none = character()                                 # chromosomes with atoms but no haplotype fragment of the cells
   for (k in seq_along(chroms)) {
     ch = chroms[k]
     a = atoms[chrom == ch][order(start)]
     if (!nrow(a)) next
     fr = read_hap_fragments(frag_file, ch, tabix)
-    if (!nrow(fr)) next
+    if (!nrow(fr)) { none = c(none, ch); next }
     ci = match(fr$cell, cells)
     fr = data.table(cell = ci, chrom = ch, start = as.numeric(fr$start), end = as.numeric(fr$end), hap = as.integer(fr$hap), ps = fr$ps)[!is.na(cell)]
-    if (!nrow(fr)) next
+    if (!nrow(fr)) { none = c(none, ch); next }
     big = nrow(fr) > 5e6
     m = collapse_molecules(fr, gap = gap)
     rm(fr)
@@ -509,6 +522,9 @@ read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix 
     rm(m)
     if (big) gc(verbose = FALSE)
   }
+  if (length(none))
+    warning(sprintf("read_votes: no haplotype-assigned fragment with a phase set of the given cells on %d chromosome(s) (%s): their allele features are empty (unphased extraction, or barcodes that do not match?)",
+                    length(none), paste(utils::head(none, 10), collapse = ", ")), call. = FALSE)
   v = rbindlist(out)
   if (!nrow(v)) v = data.table(cell = integer(), atom = integer(), ps = numeric(), nA = integer(), nB = integer())
   v[, cell := as.integer(cell)][, atom := as.integer(atom)][, ps := as.numeric(ps)]

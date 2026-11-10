@@ -216,3 +216,32 @@ test_that("simulated fragments carry the phase set of their first SNP", {
   expect_setequal(unique(sim_tum2$truth$events$type), c("cloneA", "cloneB"))
   expect_equal(sim_norm_f$params$sex, "female")
 })
+
+test_that("ll_depth_shift(one_sided = TRUE): the default up to the shift, continuous at it, monotone beyond", {
+  tp = data.table(t_m = 0.1, t_s = 1.2, t_df = 6)
+  for (mu in c(-6.5, 3)) {
+    m = tp$t_m + mu                                            # the alternative's mode
+    up = seq(0, mu, length.out = 50)                           # neutral side up to the shift (incl. z = t_m + mu - t_m)
+    zin = c(up[sign(mu) * (up - m) <= 0], m)
+    expect_equal(ll_depth_shift(zin, mu, tp, one_sided = TRUE), ll_depth_shift(zin, mu, tp))
+    zout = m + sign(mu) * c(1e-8, 0.5, 2, 10, 50, 200)
+    l1 = ll_depth_shift(zout, mu, tp, one_sided = TRUE)
+    expect_true(all(diff(l1) > 0))                             # monotone beyond the shift
+    expect_equal(l1[1], ll_depth_shift(m, mu, tp), tolerance = 1e-6)   # continuous at the junction
+    expect_true(all(l1 >= ll_depth_shift(m, mu, tp)))          # at least the score at the shift
+    expect_true(all(l1[-1] > ll_depth_shift(zout, mu, tp)[-1]))   # above the redescending default beyond the shift
+  }
+  # the default redescends (the reason for the option): a complete loss scores ~0 two-sided, high one-sided
+  expect_lt(ll_depth_shift(-60, -6.5, tp), ll_depth_shift(-6.5, -6.5, tp))
+  expect_gt(ll_depth_shift(-60, -6.5, tp, one_sided = TRUE), ll_depth_shift(-6.5 + 0.1, -6.5, tp))
+  # Gaussian: z^2 / 2 beyond the shift, continuous; per-row t parameters and NA as in the default
+  z = c(-10, -4, -2, 0, 1, NA)
+  expect_equal(ll_depth_shift(z, -4, one_sided = TRUE), c(50, 8, -4 * -2 - 8, -8, -4 - 8, 0))
+  tr = data.table(t_m = c(0, 0.2, -0.1, 0, 0, 0), t_s = 1, t_df = c(5, 8, 30, 5, 5, 5))
+  mus = c(-3, -3, 2, 2, -1, 1)
+  one = ll_depth_shift(z, mus, tr, one_sided = TRUE)
+  each = vapply(seq_along(z), function(i) ll_depth_shift(z[i], mus[i], tr[i], one_sided = TRUE), numeric(1))
+  expect_equal(one, each)
+  expect_equal(one[6], 0)
+  expect_equal(ll_depth_shift(z, 0, tp, one_sided = TRUE), ll_depth_shift(z, 0, tp))   # no shift: no change
+})

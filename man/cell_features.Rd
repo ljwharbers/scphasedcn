@@ -75,13 +75,22 @@ cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)}
 }
 \value{
 \code{scn_features} list: \code{long} (features, keyed by cell and region), \code{regions}, \code{cells} (row order =
-the votes' cell index), \code{votes}, \code{atoms}, \code{win} (\code{\link[=window_matrices]{window_matrices()}}), \code{params}, \code{notes}, \code{use}, \code{phasing}
+the votes' cell index), \code{votes}, \code{atoms}, \code{win} (\code{\link[=window_matrices]{window_matrices()}}), \code{params}, \code{notes}, \code{use}, \code{phasing},
+\code{use_y} (the chrY bins of the one-copy model, NULL without it)
 }
 \description{
 Reads an extraction directory, applies the cell QC (\code{\link[=cell_qc]{cell_qc()}}; \code{cells} restricts the run to a set
 of cells instead), annotates arms, filters bins (default: \code{\link[=bin_filter]{bin_filter()}} on the kept cells, chr1-22
-and chrX), normalises depth (\code{\link[=normalise_depth]{normalise_depth()}}: \code{celltype} for normal tissue, \code{model} for tumours), builds the
+and chrX; with \code{params$haploid_model} and a male sample also the chrY bins that pass the filter), normalises depth (\code{\link[=normalise_depth]{normalise_depth()}}: \code{celltype} for normal tissue, \code{model} for tumours), builds the
 regions (\code{\link[=region_set]{region_set()}}), the depth features (\code{\link[=depth_features]{depth_features()}}), the molecule votes
 (\code{\link[=read_votes]{read_votes()}}) and the oriented allele features (\code{\link[=allelic_features]{allelic_features()}}), and joins them into the
 long features table (\code{vignette("scphasedcn-outputs", package = "scphasedcn")}).
+}
+\details{
+One-copy model (\code{params$haploid_model = TRUE}, male, normalisation \code{loo} or \code{celltype}): the chrY bins of \code{use}
+(default: those passing \code{\link[=bin_filter]{bin_filter()}}; the ENCODE blacklist removes the chrY centromere and Yq12 heterochromatin /
+PAR2, and reads in PAR1 / ampliconic sequence map with MAPQ < 30 and fail the coverage filter) are normalised
+after the other bins, with the same reference cells and each cell's size factor of the other bins, so the
+autosomal and chrX features are unchanged; the regions and the long table get a \code{ploidy} column (1 on chrX /
+chrY). \code{use_y} in the result marks the added chrY bins. Ignored with a note for females and for \code{model}.
 }

@@ -228,6 +228,7 @@ feature_windows = function(dir, features, method = "model", size = 1e6, min_cell
   if (length(miss)) stop(sprintf("feature_windows: %d cells not in %s", length(miss), dir))
   scn = subset_scn(scn, cells = cells)
   use = features$use %||% (bin_filter(scn$bins, scn$counts) & scn$bins$chrom %in% c(AUTOSOMES_CALLER, "chrX"))
+  if (!is.null(features$use_y)) use = use & !features$use_y      # chrY bins of the one-copy model (normal mode only)
   norm = normalise_depth(scn, method = method, use = use, cell_type = features$cells$cell_type, min_cells_type = min_cells_type)
   window_matrices(scn, norm, size)
 }
@@ -341,6 +342,13 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     topts = utils::modifyList(as.list(sp$tumour %||% list()), as.list(caller_args$opts %||% list()))
     if (length(topts)) caller_args$opts = topts
   }
+  hap_note = NULL
+  if (mode == "tumour" && isTRUE(params$haploid_model)) {
+    # the one-copy model is a normal-mode option; tumour mode has its own ploidy handling (clone states)
+    warning("call_scn: params$haploid_model is a normal-mode option; ignored in tumour mode", call. = FALSE)
+    params$haploid_model = FALSE
+    hap_note = "haploid_model: ignored in tumour mode (set to FALSE)"
+  }
   if (mode == "normal" && !is.null(groups)) {
     warning("call_scn: `groups` (pseudobulk orientation groups) is used in tumour mode only; ignored", call. = FALSE)
     groups = NULL
@@ -405,7 +413,10 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     emb = NULL
     if (isTRUE(embedding)) {
       t_e = Sys.time()
-      emb = tryCatch(scn_embedding(dir, ftab$cell, features$use, seed = params$seed), error = function(e) {
+      # the chrY bins of the one-copy model stay out of the embedding (the kNN pools of the autosomes are unchanged)
+      emb_use = features$use
+      if (!is.null(emb_use) && !is.null(features$use_y)) emb_use = emb_use & !features$use_y
+      emb = tryCatch(scn_embedding(dir, ftab$cell, emb_use, seed = params$seed), error = function(e) {
         warning("call_scn: no chromatin embedding (", conditionMessage(e), "); kNN pools skipped", call. = FALSE)
         NULL
       })
@@ -524,7 +535,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
                 sprintf("scphasedcn %s from %s; git %s", as.character(utils::packageVersion("scphasedcn")),
                         tryCatch(find.package("scphasedcn"), error = function(e) "?"), git_rev()),
                 if (!is.null(feat_path)) sprintf("features: %s", feat_path) else "features: computed",
-                inputs)
+                inputs, hap_note)
   res$run = list(mode = mode, minutes = mins(), host = host, time = Sys.time(), git = git_rev(), inputs = inputs)
   say(sprintf("done (%.1f min)", mins()))
   res

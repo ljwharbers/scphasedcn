@@ -36,6 +36,22 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `n_folds` cross-validation folds of the null thresholds (4);
 #'   * `n_pool` cells per pool (20);
 #'   * `chrx_centromere` chrX centromere (bp, hg38) for female chrX arms;
+#'   * `haploid_model` opt-in one-copy model of the male sex chromosomes in normal mode (FALSE; ignored for females
+#'     and in tumour mode): the usable chrY bins enter the features (depth only, expected depth from the same-sample
+#'     pseudobulk with the cell's size factor of the other bins, so one copy is neutral), regions of male chrX / chrY
+#'     get `ploidy` 1 and are scored with `haploid_shifts` and a one-sided depth term ([ll_depth_shift()]
+#'     `one_sided`), and their per-cell thresholds come from their own null rows (`haploid_thr`). Loss of Y and male X
+#'     gains / losses become callable per cell. chrY has chromosome and tile regions only (the bundled centromere
+#'     table has no chrY row, and Yp is mostly PAR1 / X-transposed sequence);
+#'   * `haploid_shifts` log2 depth shifts of a complete loss (1 -> 0 copies, -6.16) and a gain (1 -> 2 copies, +0.98) on a
+#'     one-copy region: the theoretical copy ratios 0 and 2 attenuated as the diploid `shifts` are (a diploid shift
+#'     s of theoretical ratio r gives the fraction a = (2^s - 1) / (r - 1); a = 0.986 for loss, 0.969 for gain;
+#'     haploid shift = log2(1 + a (r_haploid - 1))). Per row the shift is the log2 ratio of the expected count at that
+#'     shift with the pseudocount of the features, `log2((2^h e + 0.5) / (e + 0.5))`, so a complete loss of a region
+#'     with few expected fragments still reaches it;
+#'   * `haploid_thr` with `haploid_model`: the one-copy rows get per-cell thresholds of their own (per sex chromosome,
+#'     class x stratum, from the one-copy rows of the null cells; [haploid_thresholds()]) instead of the autosomal
+#'     class x stratum thresholds, which do not fit depth-only rows (TRUE);
 #'   * `acrocentric_p` arms without unique sequence, never regions;
 #'   * `min_null_rows` fewer null rows than this in a class x stratum fall back to the pooled threshold (5000);
 #'   * `tabix` path of the tabix binary ("" = the `tabix` on the PATH; none = the R fallback); `seed` RNG seed (1);
@@ -75,6 +91,9 @@ caller_defaults = function() {
     n_folds = 4,
     n_pool = 20,
     chrx_centromere = c(58605580, 62412542),
+    haploid_model = FALSE,
+    haploid_shifts = c(loss = -6.16, gain = 0.98),
+    haploid_thr = TRUE,
     acrocentric_p = paste0("chr", c(13, 14, 15, 21, 22), "p"),
     min_null_rows = 5000,
     tabix = "",
@@ -126,22 +145,38 @@ depth_stratum = function(n, breaks = caller_defaults()$strata_breaks, labels = N
 #' given (`dt((x - t_m) / t_s, t_df)`; [fit_depth_null()]), else N(0, 1)
 #' (`mu * z - mu^2 / 2`). Missing z contributes 0 (no evidence). This is
 #' the depth part (`dl_loss`, `dl_gain`) of the region score of [score_cells()].
+#'
+#' Under the t null this LLR falls back towards 0 for z far beyond the shift (a robustness to artefact outliers that
+#' the default keeps). `one_sided = TRUE` (the one-copy rows of `params$haploid_model`) uses a composite alternative
+#' instead: for z beyond the hypothesised shift (`z - t_m` more extreme than `mu` in the direction of `mu`; Gaussian:
+#' `z` beyond `mu`) the alternative density is taken at its mode, `log f0(t_m) - log f0(z)` (Gaussian: `z^2 / 2`),
+#' which equals the usual expression at `z = t_m + mu` and grows monotonically beyond it; up to the shift it is the
+#' default. A complete loss of a one-copy region then scores at least as high as a loss of exactly the shift.
 #' @param z window z per row (NA allowed)
 #' @param mu shift in z units (scalar or one per row)
 #' @param tpar NULL (Gaussian) or the t parameters: a list / 1-row data.table
 #'   with `t_m`, `t_s`, `t_df`, or the same columns with one value per row
+#' @param one_sided composite one-sided alternative beyond the shift (FALSE: the plain location shift)
 #' @return numeric vector (length of z)
 #' @export
-ll_depth_shift = function(z, mu, tpar = NULL) {
+ll_depth_shift = function(z, mu, tpar = NULL, one_sided = FALSE) {
   zz = fifelse(is.na(z), 0, z)
   if (is.null(tpar)) {
     out = mu * zz - mu^2 / 2
+    if (one_sided) {
+      beyond = sign(mu) * (zz - mu) > 0
+      out = fifelse(beyond, zz^2 / 2, out)
+    }
   } else {
     if (!all(c("t_m", "t_s", "t_df") %in% names(tpar))) stop("ll_depth_shift: tpar needs t_m, t_s, t_df")
     m = tpar[["t_m"]]; s = tpar[["t_s"]]; df = tpar[["t_df"]]
     for (v in list(m, s, df)) if (!length(v) %in% c(1L, length(z))) stop("ll_depth_shift: tpar must have 1 row or one row per z")
     lt = function(x) dt((x - m) / s, df, log = TRUE)
     out = lt(zz - mu) - lt(zz)
+    if (one_sided) {
+      beyond = sign(mu) * (zz - m - mu) > 0
+      out = fifelse(beyond, dt(0, df, log = TRUE) - lt(zz), out)
+    }
   }
   fifelse(is.na(z), 0, out)
 }

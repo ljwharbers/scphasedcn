@@ -12,7 +12,8 @@ region_set(
   sex = "female",
   null_exclude = character(),
   use = NULL,
-  params = caller_defaults()
+  params = caller_defaults(),
+  haploid = FALSE
 )
 }
 \arguments{
@@ -32,6 +33,8 @@ output or a named vector of region strings}
 \item{use}{logical bin filter (NULL = all bins)}
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+
+\item{haploid}{add the \code{ploidy} column (the one-copy model of \code{params$haploid_model})}
 }
 \value{
 regions data.table (passes \code{\link[=check_regions]{check_regions()}})
@@ -44,5 +47,7 @@ usable bin are dropped. Columns follow \code{vignette("scphasedcn-outputs", pack
 bins under the containment rule; tiles are \code{eligible} when \verb{n_bins >= 0.9 * size / bin width} and
 \code{n_use >= 0.7 * n_bins} (the eligibility rule of the spike-in calibration), other regions when they
 have a usable bin; \code{null_region} = arm, chrom and tile regions on autosomes not in \code{null_exclude}
-(chromosome or region names); \code{allelic_ok} is FALSE on male chrX / chrY; \code{sd_class} by \code{\link[=sd_class_of]{sd_class_of()}}.
+(chromosome or region names); \code{allelic_ok} is FALSE on male chrX / chrY; \code{sd_class} by \code{\link[=sd_class_of]{sd_class_of()}}. With
+\code{haploid = TRUE} (\code{params$haploid_model}) a column \code{ploidy} is added: 1 on male chrX / chrY (one copy, the regions
+the one-copy model scores), 2 elsewhere; without it the table has no \code{ploidy} column.
 }

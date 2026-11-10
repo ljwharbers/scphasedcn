@@ -39,17 +39,32 @@ utils::globalVariables(c("row_id", "shift", "fold", "is_null", "null_cell", "nul
 #'     c(0.80, f_att); cnloh 2:0 over f_att; gain 2:1 (2/3); gain_as 3:0 over
 #'     f_att (gain shift); amp 3:1 (0.75), 2:2 (0.5), 4:1 (0.80) with shift
 #'     `k_amp * log2(cn / 2)`.
+#'
+#' `ploidy = 1` (normal sets only) is the state table of a one-copy region (male chrX / chrY with
+#' `params$haploid_model`): neutral 1:0 (shift 0), loss 0:0 (a complete loss, `params$haploid_shifts["loss"]`), gain
+#' 2:0 (`params$haploid_shifts["gain"]`); `f` is NA (no allele test: one-copy regions are depth-only) and purely allelic
+#' states (CN-LOH) have no row. [score_cells()] uses its shifts on the rows with `ploidy` 1.
 #' @param set "normal", "normal_att" or "tumour"
 #' @param params [caller_defaults()]
+#' @param ploidy copies of the region in a normal cell: 2 (default) or 1 (the one-copy table)
 #' @return data.table state, row_id, nA, nB, cn, shift (log2), f (major-haplotype fraction);
 #'   the first row is `neutral`
 #' @export
-caller_states = function(set = c("normal", "normal_att", "tumour"), params = caller_defaults()) {
+caller_states = function(set = c("normal", "normal_att", "tumour"), params = caller_defaults(), ploidy = 2) {
   if (length(set) == 1 && set %in% c("e4", "e4_att")) set = sub("e4", "normal", set, fixed = TRUE)   # older names
   set = match.arg(set)
+  if (!ploidy %in% c(1, 2)) stop("caller_states: ploidy must be 1 or 2")
   eps = params$eps; sh = params$shifts; fa = params$f_att
   mk = function(state, a, b, shift, f) data.table(state = state, nA = as.integer(a), nB = as.integer(b),
                                                   cn = as.integer(a + b), shift = shift, f = f)
+  if (ploidy == 1) {
+    if (set == "tumour") stop("caller_states: ploidy 1 is defined for the normal state sets only")
+    hs = params$haploid_shifts %||% caller_defaults()$haploid_shifts
+    st = rbind(mk("neutral", 1, 0, 0, NA_real_), mk("loss", 0, 0, hs[["loss"]], NA_real_), mk("gain", 2, 0, hs[["gain"]], NA_real_))
+    st[, row_id := paste0(state, "_", seq_len(.N)), by = state]
+    setcolorder(st, c("state", "row_id", "nA", "nB", "cn", "shift", "f"))
+    return(st[])
+  }
   amp = function(a, b, f) mk("amp", a, b, params$k_amp * log2((a + b) / 2), f)
   st = if (set %in% c("normal", "normal_att")) {
     fl = if (set == "normal_att") fa else 1 - eps
@@ -101,6 +116,11 @@ allelic_classes = function(ns) {
 #' @param eps allele error floor
 #' @param depth_model "t" or "gauss"
 #' @param params [caller_defaults()] (`sd_floor`, `eps`)
+#'
+#' With `params$haploid_model` and a `ploidy` column, the rows with `ploidy` 1 (male chrX / chrY) take the depth term
+#' of the one-copy states ([caller_states()] `ploidy = 1`): shift `h` per row `log2((2^h e + 0.5) / (e + 0.5))` (the
+#' row's expected count `e`; `h` when `d` has no `e`), [ll_depth_shift()] with `one_sided = TRUE`; states without a
+#' one-copy row (CN-LOH) are excluded on those rows (`cl_<state>` = -Inf).
 #' @param keep_rows also return per-row allelic LLRs `ar_<row_id>` (and
 #'   per-row depth LLRs `dr_<row_id>` of multi-shift states); needed by [pool_scores()]
 #' @return copy of `d` with `dl_<state>`, `al_<state>`, `cl_<state>` per
@@ -162,6 +182,30 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
     set(d, j = paste0("al_", s), value = al)
     set(d, j = paste0("cl_", s), value = cs)
     cl[[s]] = cs
+  }
+  # one-copy rows (params$haploid_model, `ploidy` 1: male chrX / chrY): depth term at the one-copy shifts of
+  # caller_states(ploidy = 1), per row at the expected count `e` with the features' pseudocount, under the one-sided
+  # alternative; states without a one-copy row are excluded there
+  hp = if (isTRUE(params$haploid_model) && "ploidy" %in% names(d)) which(d$ploidy %in% 1) else integer()
+  if (length(hp)) {
+    hs = caller_states("normal", params, ploidy = 1)[state != "neutral"]
+    ee = if ("e" %in% names(d)) as.numeric(d$e[hp]) else rep(NA_real_, length(hp))
+    tph = if (is.null(tp)) NULL else tp[hp]
+    for (s in sn) {
+      k = match(s, hs$state)
+      if (is.na(k)) {
+        cl[[s]][hp] = -Inf
+        set(d, i = hp, j = paste0("cl_", s), value = -Inf)
+        next
+      }
+      h = hs$shift[k]
+      shr = fifelse(is.finite(ee) & ee >= 0, log2((2^h * ee + 0.5) / (ee + 0.5)), h)
+      dl = ll_depth_shift(d$z[hp], shr / sdp[hp], tph, one_sided = TRUE)
+      cs = dl + d[[paste0("al_", s)]][hp]
+      set(d, i = hp, j = paste0("dl_", s), value = dl)
+      set(d, i = hp, j = paste0("cl_", s), value = cs)
+      cl[[s]][hp] = cs
+    }
   }
   # depth-only rows (allelic_ok FALSE: male chrX / chrY): a purely allelic state (no depth shift, e.g. CN-LOH) has
   # no evidence there; its LLR would be 0 and could win the argmax over negative depth states, so it is excluded
@@ -485,6 +529,68 @@ rho_rows = function(d, tab, rho) {
 # pooled threshold group of a chromosome: X, Y or A (autosome)
 sex_group = function(chrom) fifelse(chrom %in% "chrX", "X", fifelse(chrom %in% "chrY", "Y", "A"))
 utils::globalVariables("sexgrp")
+
+#' Per-cell thresholds of the one-copy rows (haploid model)
+#'
+#' With `params$haploid_model` the rows with `ploidy` 1 (male chrX / chrY) are depth-only and scored with the
+#' one-copy states and a one-sided depth term ([score_cells()]). The autosomal class x stratum thresholds do not fit
+#' them: on autosomal null rows the allele term pulls every non-neutral state far below 0 (a chromosome row carries
+#' hundreds of balanced votes), so the 0.999 quantile of `s_comb` is negative for the large classes and a
+#' depth-only row exceeds it far more often than 1 in 1,000. Per sex chromosome (`sexgrp` X / Y) the thresholds are
+#' therefore [budget_thresholds()] (same `by`, folds, quantile and class x stratum -> class fallback) on the
+#' one-copy null rows: the one-copy arm, chromosome and tile rows of the null cells (eligible), leaving out a cell
+#' whose chromosome row of that sex chromosome has a `log2ratio` beyond the midpoint between neutral and a one-copy
+#' state (below `haploid_shifts["loss"] / 2` or above `haploid_shifts["gain"] / 2`: an evident whole-chromosome event
+#' such as mosaic loss of Y, which the autosomal null-cell selection does not see). A class without such null rows, or
+#' every class with `params$haploid_thr = FALSE`, keeps the autosomal thresholds of its class x stratum
+#' (`pooled_fallback = TRUE`). With fewer than `1 / (1 - null_q)` null rows in a class the empirical quantile sits at
+#' the largest null scores, so the false-call rate of small samples is only bounded by about one over the number of
+#' null rows.
+#' @param sc scored rows ([score_cells()]) with `ploidy`, `chrom`, `null_cell`, `eligible`, `fold`, `log2ratio` and the
+#'   `by` columns
+#' @param thr_auto the autosomal per-cell thresholds ([budget_thresholds()])
+#' @param scores score columns
+#' @param params [caller_defaults()]
+#' @return thresholds table (check_thresholds schema) of the one-copy groups, with column `sexgrp`; attribute `own`
+#'   (sexgrp, class, n_null) lists the classes with thresholds of their own and their null rows
+#' @export
+haploid_thresholds = function(sc, thr_auto, scores = c("s_depth", "s_allelic", "s_comb"), params = caller_defaults()) {
+  sc = as.data.table(sc); thr_auto = as.data.table(thr_auto)
+  by = c("class", "stratum", if ("hstratum" %in% names(sc)) "hstratum")
+  hrow = sc$ploidy %in% 1
+  grp = sex_group(sc$chrom)
+  hs = params$haploid_shifts %||% caller_defaults()$haploid_shifts
+  event = character()
+  if ("log2ratio" %in% names(sc)) {
+    cr = which(hrow & sc$class == "chrom" & !is.na(sc$log2ratio) & (sc$log2ratio < hs[["loss"]] / 2 | sc$log2ratio > hs[["gain"]] / 2))
+    event = unique(paste(sc$cell[cr], sc$chrom[cr]))
+  }
+  hn = hrow & sc$null_cell %in% TRUE & sc$eligible %in% TRUE & sc$class %in% c("arm", "chrom", names(params$tile_sizes)) &
+    !paste(sc$cell, sc$chrom) %in% event
+  ak = function(x) paste(x$score, group_key(x, by), x$fold, sep = "\t")
+  out = list(); own_cls = list()
+  for (g in sort(unique(grp[hrow]))) {
+    i = which(hrow & grp == g)
+    t = budget_thresholds(sc[i], scores, by = by, q = params$null_q, cv = TRUE, min_null = params$min_null_rows, params = params,
+                          null = hn[i])
+    nc = table(sc$class[i][hn[i]])
+    n_cls = as.numeric(nc[t$class]); n_cls[is.na(n_cls)] = 0
+    own = isTRUE(params$haploid_thr %||% TRUE) & n_cls > 0
+    k = match(ak(t), ak(thr_auto))
+    fb = which(!own)
+    set(t, i = fb, j = "thr", value = thr_auto$thr[k[fb]])
+    set(t, i = fb, j = "n_null", value = thr_auto$n_null[k[fb]])
+    set(t, i = fb, j = "pooled_fallback", value = TRUE)
+    t[, sexgrp := g]
+    out[[g]] = t
+    oc = unique(t$class[own])
+    own_cls[[g]] = data.table(sexgrp = rep(g, length(oc)), class = oc, n_null = as.integer(n_cls[match(oc, t$class)]))
+  }
+  res = rbindlist(out, fill = TRUE)
+  if (nrow(res)) res[, n_null := as.integer(n_null)]
+  setattr(res, "own", rbindlist(own_cls))
+  res[]
+}
 
 #' Allelically overdispersed tiles (data-driven allelic mask)
 #'
@@ -1477,6 +1583,9 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     ao = as.logical(regions$allelic_ok)[match(d$region, regions$region)]
     if (any(ao %in% FALSE)) d[, allelic_ok := !(ao %in% FALSE)]
   }
+  if (isTRUE(params$haploid_model) && !"ploidy" %in% names(d) && "ploidy" %in% names(regions))   # one-copy regions
+    d[, ploidy := as.integer(regions$ploidy)[match(region, regions$region)]]
+  hap = isTRUE(params$haploid_model) && "ploidy" %in% names(d) && any(d$ploidy %in% 1)
   # 1. null cells
   nc_col = if ("null_cell" %in% names(d)) d$null_cell else NULL
   use_sel = null_cells == "select" || (null_cells == "auto" && (is.null(nc_col) || all(is.na(nc_col)) || all(nc_col %in% TRUE)))
@@ -1520,6 +1629,14 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE)
   thr = budget_thresholds(sc, scores, q = params$null_q, cv = TRUE, min_null = params$min_null_rows, params = params)
   sc = apply_thresholds(sc, thr, scores)
+  thr_hap = NULL
+  if (hap) {                                                   # one-copy rows: thresholds of their own (haploid_thresholds)
+    sc[, sexgrp := sex_group(chrom)]
+    thr[, sexgrp := "A"]
+    thr_hap = haploid_thresholds(sc, thr, scores, params)
+    thr = rbind(thr, thr_hap, fill = TRUE)
+    sc = apply_thresholds(sc, thr, scores)
+  }
   if (is.null(sex)) sex = infer_sex(d)
   policy = call_policy("normal", sex)
   calls = call_table(sc, NULL, regions, policy)
@@ -1530,6 +1647,19 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   ctype = d[, .(cell_type = cell_type[1]), by = cell]
   ct = setNames(ctype$cell_type, ctype$cell)
   sp = sc[class %in% pool_classes]
+  if (hap) {
+    # pools keep the model without haploid_model: chrY rows are not pooled and the chrX rows are re-scored with the
+    # two-copy states, so the pooled null, region scales and per-class thresholds (shared with the autosomes) are unchanged
+    sp = sp[!chrom %in% "chrY"]
+    sp[, sexgrp := NULL]
+    hx = which(sp$ploidy %in% 1)
+    if (length(hx)) {
+      p0 = params; p0$haploid_model = FALSE
+      r0 = score_cells(sp[hx], states, tpar, if (is.null(rho_tab)) rho else rho_rows(sp[hx], rho_tab, rho), depth_model = depth_model,
+                       params = p0, keep_rows = TRUE)
+      for (cn in grep("^(dl|al|cl|ar|dr)_|^(s|state)_(comb|depth|allelic)$", names(r0), value = TRUE)) set(sp, i = hx, j = cn, value = r0[[cn]])
+    }
+  }
   # pooled null: the null rows, plus for a male the chrX / chrY rows of the null cells (one copy is their null state),
   # so that the sex-chromosome pools get their own region scale instead of the autosomal class fallback
   sexnull = identical(sex, "male") & sp$chrom %in% c("chrX", "chrY") & sp$null_cell %in% TRUE & sp$eligible %in% TRUE
@@ -1588,6 +1718,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                                                      as.integer(params$vote_bins %||% 4), nrow(vbins)),
                         if ((params$pool_tail_q %||% 0) > 0) sprintf("pooled tail calibration q %g (pool_tail_k %g, cross-fitted %s)", params$pool_tail_q,
                                                                 params$pool_tail_k %||% 30, isTRUE(params$pool_tail_xfit %||% TRUE)),
+                        if (hap) sprintf("one-copy model (haploid_model) on %d male chrX / chrY regions (shifts loss %g, gain %g; one-sided depth term); per-cell thresholds of their own for %s; not pooled for chrY, chrX pooled with the two-copy model",
+                                         uniqueN(d$region[d$ploidy %in% 1]), params$haploid_shifts[["loss"]], params$haploid_shifts[["gain"]],
+                                         if (is.null(thr_hap) || !nrow(attr(thr_hap, "own"))) "none (autosomal fallback)" else
+                                           paste(attr(thr_hap, "own")[, paste(sexgrp, class)], collapse = ", ")),
                         sprintf("sex %s; gains resolved %s (min dl_gain %g); pools: region-standardised %s, called on %s",
                                 sex %||% "unknown", resolve_gains, gain_min_dl, pool_standardize, pscore)))
 }

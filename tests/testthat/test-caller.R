@@ -898,3 +898,84 @@ test_that("masked atoms are absent from the allele region sums (allelic_features
   expect_true(any(grepl("masked atoms", fu$notes)))
   expect_error(update_allelic_features(fo[setdiff(names(fo), "votes")], ex), "votes")
 })
+
+# ---- one-copy model (haploid_model) --------------------------------------------------------------------------------
+
+test_that("caller_states(ploidy = 1): complete loss and 1 -> 2 gain, attenuated as the two-copy shifts, no CN-LOH", {
+  p = caller_defaults()
+  h = caller_states("normal", p, ploidy = 1)
+  expect_equal(h$state, c("neutral", "loss", "gain"))
+  expect_equal(h$cn, c(1L, 0L, 2L))
+  expect_equal(h$shift, c(0, p$haploid_shifts[["loss"]], p$haploid_shifts[["gain"]]))
+  expect_true(all(is.na(h$f)))
+  expect_equal(names(h), names(caller_states("normal", p)))
+  expect_identical(caller_states("normal_att", p, ploidy = 1), h)
+  expect_error(caller_states("tumour", p, ploidy = 1), "normal state sets")
+  expect_error(caller_states("normal", p, ploidy = 3), "ploidy")
+  expect_identical(caller_states("normal", p, ploidy = 2), caller_states("normal", p))
+  # the defaults: the theoretical copy ratios 0 and 2 attenuated as the two-copy shifts relate to ratios 1/2 and 3/2
+  a = (2^p$shifts - 1) / (c(0.5, 1.5) - 1)
+  expect_equal(unname(p$haploid_shifts), unname(log2(1 + a * (c(0, 2) - 1))), tolerance = 0.005)
+  p2 = modifyList(p, list(haploid_shifts = c(loss = -5, gain = 0.9)))
+  expect_equal(caller_states("normal", p2, ploidy = 1)$shift, c(0, -5, 0.9))
+})
+
+test_that("score_cells: one-copy rows get the one-sided one-copy depth term only with haploid_model", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7), sex = "male")
+  ff = fake_features(60, rg, seed = 51)
+  ff[chrom == "chrX", `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_)]
+  ff[, allelic_ok := chrom != "chrX"]
+  ff[, ploidy := fifelse(chrom == "chrX", 1L, 2L)]
+  ff[chrom == "chrX" & cell == "cell_0001", `:=`(x = 0, log2ratio = log2(0.5 / (e + 0.5)))]   # a complete loss
+  ff[chrom == "chrX" & cell == "cell_0001", z := log2ratio / pmax(sd_null, 0.05)]
+  tp = complete_tpar(ff, fit_depth_null(ff[chrom != "chrX"]))
+  st = caller_states("normal")
+  p1 = modifyList(caller_defaults(), list(haploid_model = TRUE))
+  s0 = score_cells(ff, st, tp, rho = 0.002)
+  s0b = score_cells(ff[, !"ploidy"], st, tp, rho = 0.002)
+  expect_identical(s0[, !"ploidy"], s0b)                                  # off: the ploidy column is ignored
+  s1 = score_cells(ff, st, tp, rho = 0.002, params = p1)
+  auto = s1$chrom != "chrX"
+  expect_identical(s1[auto], s0[auto])                                    # two-copy rows unchanged
+  x = s1[!auto]
+  sdp = pmax(x$sd_null, 0.05)
+  sh = log2((2^p1$haploid_shifts[["loss"]] * x$e + 0.5) / (x$e + 0.5))
+  expect_equal(x$dl_loss, ll_depth_shift(x$z, sh / sdp, match_depth_null(x, tp), one_sided = TRUE))
+  sg = log2((2^p1$haploid_shifts[["gain"]] * x$e + 0.5) / (x$e + 0.5))
+  expect_equal(x$dl_gain, ll_depth_shift(x$z, sg / sdp, match_depth_null(x, tp), one_sided = TRUE))
+  expect_true(all(is.infinite(x$cl_cnloh)))
+  # the complete loss: called loss with the largest depth evidence of its rows, where the two-copy model had ~0
+  cl = x[cell == "cell_0001"]
+  expect_true(all(cl$state_comb == "loss"))
+  expect_true(all(cl$dl_loss > s0[!auto][cell == "cell_0001", dl_loss]))
+  expect_true(all(cl$dl_loss >= max(x[cell != "cell_0001", dl_loss])))
+})
+
+test_that("haploid_thresholds: own one-copy null per sex chromosome, event cells left out, autosomal fallback", {
+  set.seed(52)
+  mk = function(n, chrom, class, ploidy, s, lr = 0) data.table(cell = sprintf("c%04d", seq_len(n)), region = paste(chrom, class), chrom = chrom,
+                                                               class = class, stratum = "20-50k", fold = (seq_len(n) - 1L) %% 4L + 1L,
+                                                               null_cell = TRUE, eligible = TRUE, ploidy = ploidy, s_comb = s, log2ratio = lr)
+  n = 2000
+  d = rbind(mk(n, "chr1", "chrom", 2L, rnorm(n, -10, 1)), mk(n, "chrX", "chrom", 1L, rnorm(n, 0, 1)),
+            mk(n, "chrY", "chrom", 1L, rnorm(n, 0, 1), lr = c(rep(-5, 100), rep(0, n - 100))))
+  d[chrom == "chrY" & log2ratio < -3, s_comb := 30]                         # 5 % of the null cells lost Y
+  th = budget_thresholds(d[chrom == "chr1"], "s_comb", null = rep(TRUE, n))
+  h = haploid_thresholds(d, th, "s_comb")
+  expect_setequal(h$sexgrp, c("X", "Y"))
+  check_thresholds(h)
+  ref = function(x) unname(quantile(x, 0.999, type = 7))
+  expect_equal(h[sexgrp == "X" & fold == 0, thr], ref(d[chrom == "chrX", s_comb]))
+  expect_equal(h[sexgrp == "Y" & fold == 0, thr], ref(d[chrom == "chrY" & log2ratio > -3, s_comb]))   # LOY cells left out
+  expect_lt(h[sexgrp == "Y" & fold == 0, thr], 30)
+  expect_equal(attr(h, "own")$class, c("chrom", "chrom"))
+  # haploid_thr = FALSE: the autosomal thresholds, flagged as fallback
+  h0 = haploid_thresholds(d, th, "s_comb", modifyList(caller_defaults(), list(haploid_thr = FALSE)))
+  expect_equal(h0[sexgrp == "X"][order(fold), thr], th[order(fold), thr])
+  expect_true(all(h0$pooled_fallback))
+  expect_equal(nrow(attr(h0, "own")), 0)
+  # a class without one-copy null rows falls back too
+  d2 = copy(d)[chrom == "chrX", null_cell := FALSE]
+  h2 = haploid_thresholds(d2, th, "s_comb")
+  expect_equal(h2[sexgrp == "X"][order(fold), thr], th[order(fold), thr])
+})

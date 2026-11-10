@@ -42,3 +42,24 @@ test_that("LOO references of loo / celltype do not depend on the cell's own coun
     expect_lt(abs(contrast(R1)), 0.3, label = m)
   }
 })
+
+test_that("normalise_extra_bins adds bins with the reference of the existing normalisation, other bins untouched", {
+  s = simulate_scn(n_cells = 40, genome = sim_genome(c(chr1 = 20e6, chrX = 10e6, chrY = 10e6)), sex = "male", events = NULL, seed = 4)
+  scn = s$scn
+  y = scn$bins$chrom == "chrY"
+  use0 = bin_filter(scn$bins, scn$counts) & !y
+  for (m in c("loo", "celltype")) {
+    n0 = normalise_depth(scn, m, use = use0)
+    n1 = normalise_extra_bins(scn, n0, y)
+    expect_identical(n1$expected[!y, ], n0$expected[!y, ])
+    expect_identical(n1$use, use0 | y)
+    # chrY: the same leave-one-out reference with each cell's size factor of the other bins
+    X = as.matrix(scn$counts[y, ]); sz = n0$size
+    if (m == "loo") {
+      ref = (rowSums(X) - X) / rep(sum(sz) - sz, each = nrow(X)) * rep(sz, each = nrow(X))
+      expect_equal(unname(n1$expected[y, ]), unname(ref))
+    }
+    expect_equal(stats::median(colSums(X) / colSums(n1$expected[y, ])), 1, tolerance = 0.1)
+  }
+  expect_error(normalise_extra_bins(scn, normalise_depth(scn, "model", use = use0), y), "loo / celltype")
+})

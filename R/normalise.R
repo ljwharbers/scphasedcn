@@ -49,6 +49,26 @@ normalise_depth = function(scn, method = "loo", use = NULL, cell_type = NULL, re
   finish_norm(scn, X, E, use, s, method, list(min_cells_type = min_cells_type, per_cell_gc = per_cell_gc))
 }
 
+# Expected counts of further bins (`extra`, logical over all bins) with the reference of an existing `scn_norm` of
+# method loo / celltype: the same reference cells and each cell's size factor `norm$size` of the original bins, so the
+# original bins are untouched (the chrY bins of the one-copy model, cell_features()). The ratio of the added bins is
+# log2((x + 0.5) / (e + 0.5)) without the per-cell centring.
+normalise_extra_bins = function(scn, norm, extra, cell_type = NULL, ref_cells = NULL, min_cells_type = 20) {
+  if (!norm$method %in% c("loo", "celltype")) stop("normalise_extra_bins: needs a loo / celltype normalisation")
+  extra = as.logical(extra) & !norm$use
+  if (!any(extra)) return(norm)
+  types = cell_type %||% scn$cells$cell_type
+  refs = if (is.null(ref_cells)) rep(TRUE, ncol(scn$counts)) else seq_len(ncol(scn$counts)) %in% cell_selector(scn, ref_cells)
+  X = dense(scn$counts[extra, , drop = FALSE])
+  s = norm$size
+  E = if (norm$method == "loo") norm_loo(X, s, refs) else norm_celltype(X, s, types, refs, min_cells_type)
+  E[!is.finite(E)] = NA
+  norm$expected[extra, ] = E
+  if (!is.null(norm$ratio)) norm$ratio[extra, ] = log2((X + 0.5) / (E + 0.5))
+  norm$use = norm$use | extra
+  norm
+}
+
 # depth normalisation method: "loo", "celltype" or "model" (aliases N1, N2, N4)
 norm_method = function(method) {
   alias = c(N1 = "loo", N2 = "celltype", N4 = "model")

@@ -48,7 +48,8 @@ caller_normal(
 \item{select_args}{extra arguments for \code{\link[=select_null_cells]{select_null_cells()}}}
 
 \item{sex}{"female", "male" or NULL (inferred: female when chrX rows carry allele votes); sets the
-chrX rule of \code{\link[=call_policy]{call_policy()}}}
+chrX rule of \code{\link[=call_policy]{call_policy()}} and, with \code{params$chrx_allelic = FALSE}, which chrX rows are depth-only
+(any sex but "male")}
 
 \item{resolve_gains}{apply \code{\link[=resolve_nested]{resolve_nested()}} to the per-cell calls}
 
@@ -65,8 +66,9 @@ same construction) before the per-class pooled thresholds}
 \value{
 \code{scphasedcn} (mode normal) with \code{scores}, \code{thresholds} (column \code{level}:
 cell, pool_type, pool_knn), \code{calls} (cell and pool level; \code{resolved} for gains changed by
-\code{\link[=resolve_nested]{resolve_nested()}}), \code{events}, \code{pools}, \code{null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)} (\code{vote_bins}: the \code{\link[=vote_bins]{vote_bins()}} table with \code{params$calib = "votes"}; \code{rho_chrom}: the
-\code{\link[=rho_by_chrom]{rho_by_chrom()}} table with \code{params$calib_rho = "chrom"})
+\code{\link[=resolve_nested]{resolve_nested()}}), \code{events}, \code{pools}, \code{null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom, chrx_allelic)} (\code{vote_bins}: the \code{\link[=vote_bins]{vote_bins()}} table with \code{params$calib = "votes"};
+\code{rho_chrom}: the \code{\link[=rho_by_chrom]{rho_by_chrom()}} table with \code{params$calib_rho = "chrom"}; \code{chrx_allelic}: the
+\code{params$chrx_allelic} of the run)
 }
 \description{
 \enumerate{
@@ -91,6 +93,19 @@ construction (\code{\link[=pool_scale]{pool_scale()}}, \code{pool_standardize}),
 survive dropping its most influential cell (\code{pool_loo}: pools are called on
 \code{s_rob}, thresholded on null pools of the same statistic); chrX pools are
 not reportable in females (\code{\link[=call_policy]{call_policy()}} \code{sex}).
+
+Female chrX (\code{params$chrx_allelic}): with TRUE (the default) female chrX rows are scored with both channels
+and thresholded like autosomal rows. With FALSE the scorer drops their allele votes (\code{nA}, \code{nB}, \code{n_hap},
+\code{n_blocks} 0, \code{f} NA, \code{allelic_ok} FALSE in \code{scores}; the features are not changed) after the null-cell
+selection, so they are scored on depth only as male chrX is (no CN-LOH, gains need depth): X-inactivation
+otherwise turns every female cell's chrX into an allelic "gain" / CN-LOH candidate. These rows are marked
+\code{chan = "depth"} and thresholded with \code{\link[=depth_only_thresholds]{depth_only_thresholds()}} (the autosomal null rows scored on depth only;
+rows with \code{chan = "depth"} in \code{thresholds}): the default thresholds are quantiles of scores that include the
+allele term and would let depth-only rows through far above the budget. The null cells, the null fits, the
+default thresholds and every autosomal score and call are unchanged (chrX rows are not null rows with the default
+\code{null_chroms}), and female chrX pools stay non-reportable: their pooled null would need female chrX rows of
+the null cells (not screened on chrX) in the pooled null, which would also move the autosomal pooled
+thresholds through the class-level region scale.
 
 Opt-in calibrations: \code{params$calib = "votes"} keys the per-cell thresholds on class x stratum x vote stratum
 (\code{hstratum}, bins of n_hap of the null rows, \code{\link[=vote_bins]{vote_bins()}}); \code{params$calib_rho = "chrom"} scores the allele

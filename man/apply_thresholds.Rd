@@ -24,3 +24,10 @@ not have) get fold 0. A thresholds table whose \code{stratum} is all "all"
 (class-level, e.g. pooled) is matched on class only. A table with a non-NA \code{hstratum} column (vote
 calibration) is also matched on the rows' \code{hstratum}.
 }
+\details{
+Channel-specific thresholds: a table with a \code{chan} column holds default thresholds (\code{chan} NA) and
+thresholds of other scoring channels (e.g. \code{"depth"}, \code{\link[=depth_only_thresholds]{depth_only_thresholds()}}). Every row first gets its
+default threshold; a row whose own \code{chan} column names a channel of the table then gets that channel's
+threshold instead (matched with the keys of that channel's thresholds). Without a \code{chan} column in the
+table, or in the rows, every row takes the default thresholds.
+}

@@ -32,7 +32,14 @@ utils::globalVariables(c(
 #' Defaults of the tumour mode
 #'
 #' Discovery: `classes`, `depth_delta`, `cap`, `min_n`, `n_pc`, `k`, `max_leaves`, `min_size`, `q`, `n_perm`, `max_cells`,
-#' `split_depth` (discovery / test halves of the window depth as well as of the votes). Hierarchy: trunks =
+#' `split_depth` (discovery / test halves of the window depth as well as of the votes). Merge / split tests
+#' ([merge_clones()], [discover_within()], the split pass; `perm_decision`): `"quantile"` (default) = the observed
+#' contrast above the type-7 `q`-quantile of `n_perm` permutations (with 200 permutations at `q = 0.999` this is
+#' "beats about the maximum": ~6 false splits per 1,000 tests of one clone, not 1); `"pvalue"` = permutation p-value
+#' `(1 + #null >= observed) / (1 + permutations) <= 1 - q`, over `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations
+#' (999 at `q = 0.999`) with an exact early stop for "same" (as soon as p can no longer reach `1 - q`); a "different"
+#' verdict runs every permutation. The run notes give the number of tests and the expected false splits
+#' `n_tests x (1 - q)`. Hierarchy: trunks =
 #' average-linkage groups of [clone_allelic_distance()] cut at `trunk_dist` (bp x haplotype fraction; e.g. 100 Mb
 #' differing by 0.3); trunk cells = trunk posterior >= `trunk_post`; [discover_within()] with `disp_min`, `imb_min`,
 #' `deep_q`, `depth_w`, `max_leaves_trunk`, `n_nb_trunk`; final split pass after the EM rounds (`split_pass`): `FALSE`
@@ -76,7 +83,7 @@ utils::globalVariables(c(
 #' @export
 clone_defaults = function() {
   list(classes = c("arm", "20Mb"), depth_delta = 0.2, cap = 6, min_n = 5, n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
-       q = 0.999, n_perm = 200, max_cells = 250, size_small = 5e6, small_clone = 50, split_depth = TRUE,
+       q = 0.999, n_perm = 200, perm_decision = "quantile", max_cells = 250, size_small = 5e6, small_clone = 50, split_depth = TRUE,
        trunk_dist = 3e7, trunk_post = 0.9, disp_min = 1.5, imb_min = 1, deep_q = 0.5, depth_w = 1,
        max_leaves_trunk = 20, n_nb_trunk = Inf, split_pass = FALSE, split_sep = 2, split_max = 4, split_cand = 3,
        split_min_len = 1e7, split_min_df = 0.15, split_min_excess = 0.05,
@@ -104,6 +111,7 @@ check_clone_opts = function(opts) {
     stop("caller_tumour: opts$ref_null must be \"none\" or \"rho\", not ", paste(rn, collapse = ", "), call. = FALSE)
   opts$confirm_null = match.arg(as.character(opts$confirm_null)[1], c("generic", "matched"))
   opts$confirm_sided = match.arg(as.character(opts$confirm_sided)[1], c("two", "one"))
+  opts$perm_decision = match.arg(as.character(opts$perm_decision)[1], c("quantile", "pvalue"))
   for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len")) {
     v = opts[[k]]
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
@@ -149,6 +157,20 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
 utils::globalVariables(c("s_depth", "s_allele", "i.oA", "i.oN", "oclone"))
 
 b_fun = function(f) get(f, envir = asNamespace("scphasedcn"))
+
+# run note on the merge / split tests: their number and the expected false splits if every tested pair were one clone,
+# n_tests x (1 - q) for the p-value decision; the quantile decision of n permutations runs at ~(n + 1 - h) / (n + 1) per
+# test, h = 1 + q (n - 1) the type-7 quantile's order position (exchangeable continuous statistics; ~6 / 1,000 at n 200,
+# q 0.999)
+split_test_note = function(n_tests, q, n_perm, perm_decision) {
+  nt = sum(n_tests)
+  rate = if (perm_decision == "pvalue") 1 - q else (n_perm + 1 - (1 + q * (n_perm - 1))) / (n_perm + 1)
+  sprintf(paste("split tests (perm_decision %s, q %s, n_perm %d): %d (global merge %d, within-trunk merge %d, split pass %d);",
+                "expected false splits if every tested pair were one clone: n_tests x (1 - q) = %.3f%s"),
+          perm_decision, format(q), as.integer(n_perm), nt, n_tests[["global"]], n_tests[["within"]], n_tests[["split"]],
+          nt * (1 - q), if (perm_decision == "pvalue") "" else
+            sprintf(" (the quantile decision runs at ~%.1f / 1,000 per test: %.3f)", 1000 * rate, nt * rate))
+}
 
 # score rows (cell_state_scores output) with the scorer: one non-neutral state per row (the clone state, shift
 # c * log2(cn / base), major fraction 0.5 + a (f_state - 0.5)) or, for null rows, a given state set (B's tumour set)
@@ -297,7 +319,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     say(length(unique(disc$leaves)), " leaves")
     mc = merge_clones(NULL, NULL, inp$atoms, inp$regions, disc$leaves, disc, q = opts$q, n_perm = opts$n_perm,
                       seed = params$seed, rho = inp$rho, classes = opts$classes, cells = cells, max_cells = opts$max_cells, cdata = cd,
-                      depth_delta = opts$depth_delta)
+                      depth_delta = opts$depth_delta, perm_decision = opts$perm_decision)
     say(length(unique(mc$clones)), " clones after merging (", nrow(mc$tests), " split tests)")
   }
   members = data.table(cell = names(mc$clones), clone = paste0("G", mc$clones))
@@ -422,7 +444,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     saveRDS(list(disc = disc, mc = mc, r = r, doublet_clones = doublet_clones), opts$checkpoint)
   # 2. within-trunk discovery: blocks oriented by each trunk's pseudobulk, allelically selected regions
   tc = r$asg[doublet_like == FALSE & multiplet == FALSE & p_trunk >= opts$trunk_post, .(cell, trunk)]
-  newm = list(); trunk_info = list()
+  newm = list(); trunk_info = list(); n_within_tests = 0L
   for (t_ in sort(unique(tc$trunk))) {
     tcells = tc[trunk == t_, cell]
     if (length(tcells) < 4 * opts$min_size) {
@@ -431,6 +453,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       next
     }
     dw = discover_within(inp, tcells, vs$disc, feat_disc, cd, nfr, opts, params$seed)
+    n_within_tests = n_within_tests + NROW(dw$tests)
     newm[[t_]] = data.table(cell = names(dw$clones), clone = paste0(t_, ".", dw$clones))
     trunk_info[[t_]] = data.table(trunk = t_, n_cells = length(tcells), n_regions = length(dw$regions), n_leaves = dw$n_leaves,
                                   n_clones = uniqueN(dw$clones), regions = paste(dw$regions, collapse = " "))
@@ -486,6 +509,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     }
   }
   rm(cd, feat_disc, halves); invisible(gc(verbose = FALSE))
+  # merge / split tests of the run and their expected false splits (no multiplicity control over the tests)
+  n_tests = c(global = NROW(mc$tests), within = n_within_tests, split = if (is.null(split_tests)) 0L else sum(!is.na(split_tests$differ)))
+  notes = c(notes, split_test_note(n_tests, opts$q, opts$n_perm, opts$perm_decision))
   st = r$st; asg = r$asg
   # 3. clean reference and optional depth re-pass
   cr = clean_reference(inp, asg, st$segments, par = st$fit$par, members = members, min_post = opts$ref_post)

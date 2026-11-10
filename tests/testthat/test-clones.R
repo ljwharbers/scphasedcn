@@ -302,6 +302,7 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
   expect_error(caller_tumour(inp, opts = list(ref_null = "x"), verbose = FALSE), "ref_null")
   expect_error(caller_tumour(inp, opts = list(confirm_null = "x"), verbose = FALSE), "should be one of")
   expect_error(caller_tumour(inp, opts = list(confirm_sided = "x"), verbose = FALSE), "should be one of")
+  expect_error(caller_tumour(inp, opts = list(perm_decision = "x"), verbose = FALSE), "should be one of")
   expect_error(caller_tumour(inp, opts = list(bogus = 1), verbose = FALSE), "unknown option")
   expect_identical(scphasedcn:::check_clone_opts(list()), clone_defaults())
   expect_identical(scphasedcn:::check_clone_opts(list(split_pass = "disagree"))$split_pass, "disagree")
@@ -406,6 +407,115 @@ test_that("the split test keeps its budget on random splits of normal cells (5-r
   }))
   expect_equal(sum(res$differ), 0)
   expect_true(all(res$n_perm == 200))
+})
+
+# ---- perm_decision: the merge / split test's decision rule ---------------------------------------------------------
+
+test_that("perm_decide: false-different rate on exchangeable groups ~6 / 1,000 (quantile of 200) vs <= 1 / 1,000 (p-value)", {
+  # exchangeable groups: |difference of means| of two random halves of 40 iid values, the null by permuting the labels
+  n_rep = 20000
+  run = function(dec, seed) {
+    set.seed(seed)
+    rbindlist(lapply(seq_len(n_rep), function(r) {
+      x = stats::rnorm(40)
+      st = function(g) abs(sum(x[g]) - sum(x[-g]))
+      d = scphasedcn:::perm_decide(st(1:20), function() st(sample.int(40, 20)), q = 0.999, n_perm = 200, perm_decision = dec)
+      list(differ = d$differ, n_perm = d$n_perm, p = d$p)
+    }))
+  }
+  rq = run("quantile", 21); rp = run("pvalue", 22)
+  ci = function(k) signif(1000 * stats::binom.test(k, n_rep)$conf.int, 3)
+  message(sprintf("exchangeable groups, %d tests: quantile (n_perm 200, q 0.999) %d false differ = %.2f / 1,000 (95%% CI %s); ",
+                  n_rep, sum(rq$differ), 1000 * mean(rq$differ), paste(ci(sum(rq$differ)), collapse = "-")),
+          sprintf("pvalue %d = %.2f / 1,000 (95%% CI %s); mean permutations %.1f / %.1f",
+                  sum(rp$differ), 1000 * mean(rp$differ), paste(ci(sum(rp$differ)), collapse = "-"), mean(rq$n_perm), mean(rp$n_perm)))
+  # the quantile of 200 permutations: (n + 1 - h) / (n + 1) = 1.199 / 201 ~ 6 / 1,000, outside a binomial CI around 1 / 1,000
+  expect_gt(mean(rq$differ), 0.0035); expect_lt(mean(rq$differ), 0.0085)
+  expect_lt(stats::binom.test(sum(rq$differ), n_rep, 0.001, alternative = "greater")$p.value, 1e-6)
+  # the p-value decision keeps 1 / 1,000 (exact under exchangeability)
+  expect_gt(stats::binom.test(sum(rp$differ), n_rep, 0.001, alternative = "greater")$p.value, 0.001)
+  expect_lte(mean(rp$differ), 0.002)
+  # every "different" ran all 999 permutations at p = 1 / 1,000; "same" stops early (mean ~ log(999) permutations)
+  expect_true(all(rp[differ == TRUE, n_perm] == 999))
+  expect_true(all(abs(rp[differ == TRUE, p] - 0.001) < 1e-12))
+  expect_true(all(rp[differ == FALSE, p] > 0.001))
+  expect_lt(mean(rp$n_perm), 30)
+  expect_identical(scphasedcn:::perm_min(0.999), 999L)
+  expect_identical(scphasedcn:::perm_min(0.99), 99L)
+  expect_identical(scphasedcn:::perm_min(0.95), 19L)
+})
+
+test_that("perm_decide: the p-value early stop is exact (same verdict as the full run) and the quantile path is unchanged", {
+  for (r in 1:200) {
+    set.seed(r)
+    obs = stats::rnorm(1, 2.5)
+    nul = stats::rnorm(1200)
+    i = 0; draw = function() { i <<- i + 1; nul[i] }
+    e = scphasedcn:::perm_decide(obs, draw, 0.999, 200, TRUE, "pvalue")
+    i = 0
+    f = scphasedcn:::perm_decide(obs, draw, 0.999, 200, FALSE, "pvalue")
+    expect_identical(e$differ, f$differ)
+    expect_equal(f$n_perm, 999)
+    expect_equal(f$p, (1 + sum(nul[1:999] >= obs)) / 1000)
+    expect_identical(f$differ, f$p <= 0.001)
+    # n_perm above the minimum: up to max(n_perm, 999) permutations, p <= 1 - q
+    i = 0
+    g = scphasedcn:::perm_decide(obs, draw, 0.999, 1200, FALSE, "pvalue")
+    expect_equal(g$n_perm, 1200)
+    expect_identical(g$differ, (1 + sum(nul >= obs)) / 1201 <= 0.001)
+  }
+  # quantile: the loop of split_test before perm_decision (type-7 quantile of the draws, early stops)
+  set.seed(5); nul = stats::rexp(200); obs = 4
+  i = 0; draw = function() { i <<- i + 1; nul[i] }
+  d = scphasedcn:::perm_decide(obs, draw, 0.999, 200, FALSE, "quantile")
+  expect_equal(d$thr, unname(stats::quantile(nul, 0.999, type = 7)))
+  expect_identical(d$differ, obs > d$thr)
+})
+
+test_that("split_test(perm_decision = \"pvalue\") separates sim_tum2's clones and keeps one clone together", {
+  inp = tum2_input()
+  cells = inp$cells$cell
+  tr = sim_truth(sim_tum2)[mult == FALSE]
+  cd = contrast_data(inp$features, inp$votes, inp$atoms, inp$regions, cells)
+  ia = match(tr[type == "cloneA", cell], cells); ib = match(tr[type == "cloneB", cell], cells)
+  t0 = Sys.time()
+  dd = split_test(cd, ia, ib, inp$null_fit$rho, perm_decision = "pvalue")
+  tm = as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  expect_true(dd$differ)
+  expect_equal(dd$n_perm, 999)
+  expect_equal(dd$p, 1 / 1000)
+  set.seed(3); sa = sample(ia, 30); sb = sample(setdiff(ia, sa), 30)
+  ss = split_test(cd, sa, sb, inp$null_fit$rho, perm_decision = "pvalue")
+  expect_false(ss$differ)
+  expect_lt(ss$n_perm, 999)
+  expect_gt(ss$p, 0.001)
+  message(sprintf("split_test pvalue: cloneA vs cloneB %d permutations in %.1f s; a random split of cloneA stops after %d", dd$n_perm, tm, ss$n_perm))
+  # the default is the quantile decision without a p column
+  dq = split_test(cd, ia, ib, inp$null_fit$rho)
+  expect_false("p" %in% names(dq))
+  expect_identical(dq, split_test(cd, ia, ib, inp$null_fit$rho, perm_decision = "quantile"))
+})
+
+test_that("caller_tumour(perm_decision = \"pvalue\") on sim_tum2: same clones, p in the tests, the run notes count the tests", {
+  r0 = tum2_result()
+  t0 = Sys.time()
+  r1 = clone_cached("clones_tum2_pvalue", function() caller_tumour(tum2_input(), opts = list(perm_decision = "pvalue"), verbose = FALSE))
+  tm = as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  tr = sim_truth(sim_tum2)
+  a = merge(r1$assignments, tr, by = "cell")[mult == FALSE]
+  expect_gte(clone_ari(a$clone, a$type), 0.9)
+  tt = r1$null_fit$clones$tests
+  expect_true("p" %in% names(tt))
+  expect_true(all(tt[differ == TRUE, n_perm] >= 999))
+  expect_true(all(tt$differ == (tt$p <= 0.001)))
+  expect_false("p" %in% names(r0$null_fit$clones$tests))
+  nt = grep("^split tests", r1$notes, value = TRUE)
+  expect_length(nt, 1)
+  expect_match(nt, "perm_decision pvalue")
+  expect_match(grep("^split tests", r0$notes, value = TRUE), "perm_decision quantile.*6.0 / 1,000")
+  message("sim_tum2 perm_decision pvalue: ", round(tm), " s; ", nt, "\n  default: ", grep("^split tests", r0$notes, value = TRUE),
+          "\n  global tests (pvalue): ", nrow(tt), ", permutations ", sum(tt$n_perm), " (quantile: ", nrow(r0$null_fit$clones$tests), ", ",
+          sum(r0$null_fit$clones$tests$n_perm), ")")
 })
 
 # ---- sim_tum3: the confirmation null refitted on the reference pool, matched null --------------------------------

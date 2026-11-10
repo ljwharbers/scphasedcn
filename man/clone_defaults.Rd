@@ -11,7 +11,14 @@ named list (see \code{\link[=caller_tumour]{caller_tumour()}})
 }
 \description{
 Discovery: \code{classes}, \code{depth_delta}, \code{cap}, \code{min_n}, \code{n_pc}, \code{k}, \code{max_leaves}, \code{min_size}, \code{q}, \code{n_perm}, \code{max_cells},
-\code{split_depth} (discovery / test halves of the window depth as well as of the votes). Hierarchy: trunks =
+\code{split_depth} (discovery / test halves of the window depth as well as of the votes). Merge / split tests
+(\code{\link[=merge_clones]{merge_clones()}}, \code{\link[=discover_within]{discover_within()}}, the split pass; \code{perm_decision}): \code{"quantile"} (default) = the observed
+contrast above the type-7 \code{q}-quantile of \code{n_perm} permutations (with 200 permutations at \code{q = 0.999} this is
+"beats about the maximum": ~6 false splits per 1,000 tests of one clone, not 1); \code{"pvalue"} = permutation p-value
+\verb{(1 + #null >= observed) / (1 + permutations) <= 1 - q}, over \code{max(n_perm, ceiling(1 / (1 - q)) - 1)} permutations
+(999 at \code{q = 0.999}) with an exact early stop for "same" (as soon as p can no longer reach \code{1 - q}); a "different"
+verdict runs every permutation. The run notes give the number of tests and the expected false splits
+\verb{n_tests x (1 - q)}. Hierarchy: trunks =
 average-linkage groups of \code{\link[=clone_allelic_distance]{clone_allelic_distance()}} cut at \code{trunk_dist} (bp x haplotype fraction; e.g. 100 Mb
 differing by 0.3); trunk cells = trunk posterior >= \code{trunk_post}; \code{\link[=discover_within]{discover_within()}} with \code{disp_min}, \code{imb_min},
 \code{deep_q}, \code{depth_w}, \code{max_leaves_trunk}, \code{n_nb_trunk}; final split pass after the EM rounds (\code{split_pass}): \code{FALSE}

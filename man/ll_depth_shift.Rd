@@ -4,7 +4,7 @@
 \alias{ll_depth_shift}
 \title{Depth log-likelihood ratio of a location shift}
 \usage{
-ll_depth_shift(z, mu, tpar = NULL)
+ll_depth_shift(z, mu, tpar = NULL, one_sided = FALSE)
 }
 \arguments{
 \item{z}{window z per row (NA allowed)}
@@ -13,6 +13,8 @@ ll_depth_shift(z, mu, tpar = NULL)
 
 \item{tpar}{NULL (Gaussian) or the t parameters: a list / 1-row data.table
 with \code{t_m}, \code{t_s}, \code{t_df}, or the same columns with one value per row}
+
+\item{one_sided}{composite one-sided alternative beyond the shift (FALSE: the plain location shift)}
 }
 \value{
 numeric vector (length of z)
@@ -25,4 +27,12 @@ Student-t fitted to the null z of the row's class x stratum when \code{tpar} is
 given (\code{dt((x - t_m) / t_s, t_df)}; \code{\link[=fit_depth_null]{fit_depth_null()}}), else N(0, 1)
 (\code{mu * z - mu^2 / 2}). Missing z contributes 0 (no evidence). This is
 the depth part (\code{dl_loss}, \code{dl_gain}) of the region score of \code{\link[=score_cells]{score_cells()}}.
+}
+\details{
+Under the t null this LLR falls back towards 0 for z far beyond the shift (a robustness to artefact outliers that
+the default keeps). \code{one_sided = TRUE} (the one-copy rows of \code{params$haploid_model}) uses a composite alternative
+instead: for z beyond the hypothesised shift (\code{z - t_m} more extreme than \code{mu} in the direction of \code{mu}; Gaussian:
+\code{z} beyond \code{mu}) the alternative density is taken at its mode, \verb{log f0(t_m) - log f0(z)} (Gaussian: \code{z^2 / 2}),
+which equals the usual expression at \code{z = t_m + mu} and grows monotonically beyond it; up to the shift it is the
+default. A complete loss of a one-copy region then scores at least as high as a loss of exactly the shift.
 }

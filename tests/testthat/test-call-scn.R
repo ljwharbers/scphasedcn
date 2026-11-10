@@ -206,12 +206,16 @@ test_that("scn_embedding is reproducible (seeded truncated SVD) and named by cel
   expect_identical(e1, res$embedding)
 })
 
-test_that("tumour mode dispatches to the tumour mode", {
-  d = sim_dir("sim_tum2")
+tum_result = function(params = caller_defaults()) {
   s = sim_tum2
   cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
-  res = call_scn(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
-                 centromeres = cs_centromeres(s$scn$bins))
+  call_scn(sim_dir("sim_tum2"), "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
+           centromeres = cs_centromeres(s$scn$bins), params = params)
+}
+
+test_that("tumour mode dispatches to the tumour mode", {
+  res = tum_result()
+  call_cache$tum = res
   expect_s3_class(res, "scphasedcn")
   expect_equal(res$mode, "tumour")
   expect_true(all(c("clone", "posterior") %in% names(res$cells)))
@@ -281,4 +285,117 @@ test_that("make_cell_meta builds the cell metadata from cells_qc and user labels
   expect_equal(nrow(m2), nrow(fread(file.path(d, "cells_qc.tsv"))))
   expect_true(all(is.na(m2$cell_type)) && all(is.na(m2$flat)))
   expect_error(make_cell_meta(), "no cells")
+})
+
+# ---- one-copy model of the male sex chromosomes (params$haploid_model) ---------------------------------------------
+
+male_result = function(haploid) {
+  key = paste0("male_", haploid)
+  if (is.null(call_cache[[key]])) {
+    p = modifyList(caller_defaults(), list(haploid_model = haploid))
+    call_cache[[key]] = call_scn(sim_dir("sim_norm_m"), "normal", sex = "male", centromeres = cs_centromeres(sim_norm_m$scn$bins),
+                                 params = p, verbose = FALSE)
+  }
+  call_cache[[key]]
+}
+# singlet carriers of sim_norm_m's private events (1 = loss of Y, 2 = chrX gain, 3 = chr8 gain) and all carrier barcodes
+male_carriers = function() {
+  tr = sim_norm_m$truth
+  cells = sim_norm_m$scn$cells$cell
+  car = lapply(tr$carriers, function(n) unique(cells[tr$nuclei$cell[n]]))
+  single = tr$cells[n_nuclei == 1, cell]
+  list(all = car, single = lapply(car, intersect, single))
+}
+
+test_that("simulate_scn: a male has one chrX and one chrY copy, a female no chrY", {
+  g = sim_genome(c(chr1 = 20e6, chrX = 10e6, chrY = 10e6))
+  m = simulate_scn(n_cells = 20, genome = g, sex = "male", events = NULL, multiplet_rate = 0, seed = 3)
+  y = m$scn$bins$chrom == "chrY"; x = m$scn$bins$chrom == "chrX"
+  expect_true(all(m$truth$cn[y, ] == 1) && all(m$truth$cn[x, ] == 1) && all(m$truth$cn[!x & !y, ] == 2))
+  expect_gt(sum(m$scn$counts[y, ]), 0)
+  f = simulate_scn(n_cells = 20, genome = g, sex = "female", events = NULL, multiplet_rate = 0, seed = 3)
+  expect_true(all(f$truth$cn[y, ] == 0) && all(f$truth$cn[!y, ] == 2))
+  expect_equal(sum(f$scn$counts[y, ]), 0)
+  # loss of Y in sim_norm_m: carriers have no chrY copy and no chrY fragments
+  car = male_carriers()$single[[1]]
+  expect_gte(length(car), 3)
+  ym = sim_norm_m$scn$bins$chrom == "chrY"
+  expect_true(all(sim_norm_m$truth$cn[ym, car] == 0))
+  expect_equal(sum(sim_norm_m$scn$counts[ym, car]), 0)
+})
+
+test_that("haploid_model = FALSE: no chrY regions, no ploidy, chrY bins unused (the model without the option)", {
+  r0 = male_result(FALSE)
+  expect_false(any(r0$regions$chrom == "chrY"))
+  expect_false("ploidy" %in% names(r0$regions))
+  expect_false("ploidy" %in% names(r0$features))
+  expect_true(all(is.na(r0$thresholds[level == "cell", sexgrp])))
+  expect_false(any(grepl("one-copy model", r0$notes)))
+})
+
+test_that("haploid_model = TRUE: loss of Y and male X gains are called per cell; autosomes, pools, female and tumour unchanged", {
+  r0 = male_result(FALSE); r1 = male_result(TRUE)
+  car = male_carriers()
+  # chrY regions (no centromere row is needed: the test table has one, so chrYp / chrYq exist here), all one copy
+  yr = r1$regions[chrom == "chrY"]
+  expect_true(all(c("chrY", "5Mb|chrY:0") %in% yr$region))
+  expect_true(all(r1$regions[chrom %in% c("chrX", "chrY"), ploidy] == 1L))
+  expect_true(all(r1$regions[!chrom %in% c("chrX", "chrY"), ploidy] == 2L))
+  expect_false(any(yr$null_region) || any(yr$allelic_ok))
+  expect_true(any(grepl("one-copy model", r1$notes)))
+  # per-cell calls: loss of Y on its carriers, chrX gains on theirs; no chrX / chrY call on a non-carrier
+  cl = r1$calls[level == "cell" & called & reportable]
+  gy = unique(cl[region == "chrY" & state == "loss", cell])
+  gx = unique(cl[region == "chrX" & state == "gain", cell])
+  rec_y = length(intersect(gy, car$single[[1]])) / length(car$single[[1]])
+  rec_x = length(intersect(gx, car$single[[2]])) / length(car$single[[2]])
+  non_y = setdiff(r1$cells$cell, car$all[[1]]); non_x = setdiff(r1$cells$cell, car$all[[2]])
+  fr_y = length(intersect(gy, non_y)) / length(non_y); fr_x = length(intersect(gx, non_x)) / length(non_x)
+  message(sprintf("haploid_model on sim_norm_m: loss of Y recall %.2f (%d singlet carriers), false %.3f; chrX gain recall %.2f (%d), false %.3f",
+                  rec_y, length(car$single[[1]]), fr_y, rec_x, length(car$single[[2]]), fr_x))
+  expect_gte(rec_y, 0.8); expect_gte(rec_x, 0.8)
+  expect_lte(fr_y, 0.01); expect_lte(fr_x, 0.01)
+  expect_equal(cl[chrom %in% c("chrX", "chrY") & !cell %in% c(car$all[[1]], car$all[[2]]), .N], 0L)
+  # without the option loss of Y is not callable (no chrY rows)
+  expect_equal(r0$calls[chrom == "chrY", .N], 0L)
+  # one-copy rows have thresholds of their own (the autosomal null scored depth-only as one-copy rows); their realised
+  # false-call rate on the null cells stays small
+  th = r1$thresholds[level == "cell"]
+  expect_setequal(unique(th$sexgrp), c("A", "X", "Y"))
+  expect_true(all(th[sexgrp %in% c("X", "Y"), null_source] == "autosomal_depth_only"))
+  hz = r1$null_fit$haploid_z_scale
+  expect_setequal(hz$sexgrp, c("X", "Y"))
+  expect_true(all(hz$scale >= 1))
+  sc = r1$scores[ploidy == 1 & null_cell == TRUE & !(chrom == "chrY" & cell %in% car$all[[1]]) & !(chrom == "chrX" & cell %in% car$all[[2]])]
+  expect_lte(mean(sc$call_s_comb), 0.01)
+  # autosomes: features, scores, thresholds, cell and pooled calls identical to the run without the option
+  auto = function(x) x[!chrom %in% c("chrX", "chrY")]
+  key = c("cell", "region")
+  f0 = auto(r0$features); f1 = auto(r1$features)[, names(f0), with = FALSE]
+  setkeyv(f0, key); setkeyv(f1, key)
+  expect_identical(f1, f0)
+  s0 = auto(r0$scores); s1 = auto(r1$scores)[, names(s0), with = FALSE]
+  setkeyv(s0, key); setkeyv(s1, key)
+  expect_identical(s1, s0)
+  t0 = r0$thresholds; t1 = r1$thresholds[sexgrp == "A" | level != "cell"]
+  cn = setdiff(names(t0), "sexgrp")
+  expect_identical(t1[level == "cell", cn, with = FALSE], t0[level == "cell", cn, with = FALSE])
+  expect_identical(t1[level != "cell", names(t0), with = FALSE], t0[level != "cell"])
+  c0 = r0$calls[!chrom %in% c("chrX", "chrY") | level == "pool"]; c1 = r1$calls[!chrom %in% c("chrX", "chrY") | level == "pool"]
+  expect_identical(c1, c0)                                                 # incl. the chrX pooled calls (two-copy model)
+  expect_identical(r1$embedding, r0$embedding)
+  expect_identical(r1$pools, r0$pools)
+  ev = function(x) x[!chrom %in% c("chrX", "chrY")]
+  expect_identical(ev(r1$events), ev(r0$events))
+  # a female run is unaffected by the option
+  rf = call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE,
+                params = modifyList(caller_defaults(), list(haploid_model = TRUE)))
+  r_f = norm_result()
+  for (k in c("calls", "thresholds", "events", "regions", "features", "scores", "pools", "embedding")) expect_identical(rf[[k]], r_f[[k]], info = k)
+  expect_true(any(grepl("haploid_model: not used \\(sex female\\)", rf$feature_info$notes)))
+  # tumour mode ignores the option with a warning and gives the same result
+  r_t = call_cache$tum %||% tum_result()
+  expect_warning(r_t1 <- tum_result(modifyList(caller_defaults(), list(haploid_model = TRUE))), "ignored in tumour mode")
+  for (k in c("calls", "clones", "assignments", "segments", "regions")) expect_identical(r_t1[[k]], r_t[[k]], info = k)
+  expect_false(r_t1$params$haploid_model)
 })

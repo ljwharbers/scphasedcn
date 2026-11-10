@@ -17,7 +17,7 @@ utils::globalVariables(c("qc_pass", "stratum", "cen_left", "cen_right", "cstart"
                          "null_region", "allelic_ok", "n_use", "atom", "ri", "layer", "isA", "isB", "mol", "new",
                          "gA", "gB", "rA", "rB", "grp", "n_blocks", "n_hap", "f_mirror", "fold", "null_cell",
                          "nA_maj", "region_name", "ci", "hA", "hB", "i.gA", "i.gB", "i.hA", "i.hB",
-                         "i.f_mirror", "i.n_blocks", "flags"))
+                         "i.f_mirror", "i.n_blocks", "flags", "ploidy"))
 
 AUTOSOMES_CALLER = paste0("chr", 1:22)
 
@@ -173,7 +173,9 @@ region_bin_matrix = function(bins, regions, use = NULL) {
 #' bins under the containment rule; tiles are `eligible` when `n_bins >= 0.9 * size / bin width` and
 #' `n_use >= 0.7 * n_bins` (the eligibility rule of the spike-in calibration), other regions when they
 #' have a usable bin; `null_region` = arm, chrom and tile regions on autosomes not in `null_exclude`
-#' (chromosome or region names); `allelic_ok` is FALSE on male chrX / chrY; `sd_class` by [sd_class_of()].
+#' (chromosome or region names); `allelic_ok` is FALSE on male chrX / chrY; `sd_class` by [sd_class_of()]. With
+#' `haploid = TRUE` (`params$haploid_model`) a column `ploidy` is added: 1 on male chrX / chrY (one copy, the regions
+#' the one-copy model scores), 2 elsewhere; without it the table has no `ploidy` column.
 #' @param bins bins table (chrom, start, end)
 #' @param centromeres Battenberg centromere table or path ([arm_table()])
 #' @param classes region classes to build (`arm`, `chrom`, tile labels); `event` is added when `events` is given
@@ -183,10 +185,11 @@ region_bin_matrix = function(bins, regions, use = NULL) {
 #' @param null_exclude chromosomes (or region names) whose regions never contribute null rows
 #' @param use logical bin filter (NULL = all bins)
 #' @param params [caller_defaults()]
+#' @param haploid add the `ploidy` column (the one-copy model of `params$haploid_model`)
 #' @return regions data.table (passes [check_regions()])
 #' @export
 region_set = function(bins, centromeres, classes = c("arm", "chrom", "5Mb", "10Mb", "20Mb", "50Mb"), events = NULL,
-                      sex = "female", null_exclude = character(), use = NULL, params = caller_defaults()) {
+                      sex = "female", null_exclude = character(), use = NULL, params = caller_defaults(), haploid = FALSE) {
   bins = as.data.table(bins)
   use = if (is.null(use)) rep(TRUE, nrow(bins)) else as.logical(use)
   bad = setdiff(classes, c("arm", "chrom", names(params$tile_sizes), "event"))
@@ -223,6 +226,7 @@ region_set = function(bins, centromeres, classes = c("arm", "chrom", "5Mb", "10M
   r[, sd_class := sd_class_of(r, bins, arms, params)]
   ord = order(match(r$class, region_classes()), chrom_rank(r$chrom), r$start, r$end)
   r = r[ord, .(region, class, sd_class, chrom, start, end, n_bins, n_use, eligible, null_region, allelic_ok)]
+  if (haploid) r[, ploidy := fifelse(identical(sex, "male") & chrom %in% c("chrX", "chrY"), 1L, 2L)]
   if (anyDuplicated(r$region)) stop("region_set: duplicated region names: ", paste(head(r$region[duplicated(r$region)]), collapse = ", "))
   check_regions(r)
   r[]
@@ -736,10 +740,17 @@ read_sample_depth = function(dir, layers = character()) {
 #'
 #' Reads an extraction directory, applies the cell QC ([cell_qc()]; `cells` restricts the run to a set
 #' of cells instead), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
-#' and chrX), normalises depth ([normalise_depth()]: `celltype` for normal tissue, `model` for tumours), builds the
+#' and chrX; with `params$haploid_model` and a male sample also the chrY bins that pass the filter), normalises depth ([normalise_depth()]: `celltype` for normal tissue, `model` for tumours), builds the
 #' regions ([region_set()]), the depth features ([depth_features()]), the molecule votes
 #' ([read_votes()]) and the oriented allele features ([allelic_features()]), and joins them into the
 #' long features table (`vignette("scphasedcn-outputs", package = "scphasedcn")`).
+#'
+#' One-copy model (`params$haploid_model = TRUE`, male, normalisation `loo` or `celltype`): the chrY bins of `use`
+#' (default: those passing [bin_filter()]; the ENCODE blacklist removes the chrY centromere and Yq12 heterochromatin /
+#' PAR2, and reads in PAR1 / ampliconic sequence map with MAPQ < 30 and fail the coverage filter) are normalised
+#' after the other bins, with the same reference cells and each cell's size factor of the other bins, so the
+#' autosomal and chrX features are unchanged; the regions and the long table get a `ploidy` column (1 on chrX /
+#' chrY). `use_y` in the result marks the added chrY bins. Ignored with a note for females and for `model`.
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param cells NULL (QC-pass cells) or the cells to use
 #' @param cell_meta NULL or a data.table with `cell` and optional `cell_type, flat, fold, group, stratum,
@@ -765,7 +776,8 @@ read_sample_depth = function(dir, layers = character()) {
 #' @param verbose log each step (the run notes) as it happens
 #' @param exclude_atoms NULL or atom ids whose votes are left out of the allele features (see [allelic_features()])
 #' @return `scn_features` list: `long` (features, keyed by cell and region), `regions`, `cells` (row order =
-#'   the votes' cell index), `votes`, `atoms`, `win` ([window_matrices()]), `params`, `notes`, `use`, `phasing`
+#'   the votes' cell index), `votes`, `atoms`, `win` ([window_matrices()]), `params`, `notes`, `use`, `phasing`,
+#'   `use_y` (the chrY bins of the one-copy model, NULL without it)
 #' @export
 cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("celltype", "model"), ref_cells = NULL, min_cells_type = 20,
                          use = NULL, sex = NULL, centromeres = NULL, classes = c("arm", "chrom", "5Mb", "10Mb", "20Mb", "50Mb"),
@@ -810,16 +822,37 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
 
   # bins, usable bins, normalisation
   scn$bins = annotate_arms(scn$bins, centromeres)
-  if (is.null(use)) use = bin_filter(scn$bins, scn$counts) & scn$bins$chrom %in% c(AUTOSOMES_CALLER, "chrX")
+  haploid = isTRUE(params$haploid_model) && identical(sex, "male")
+  if (isTRUE(params$haploid_model) && !haploid) note(sprintf("haploid_model: not used (sex %s)", sex))
+  if (haploid && method == "model") {
+    haploid = FALSE
+    note("haploid_model: not used with the model normalisation (chrY needs a pseudobulk reference)")
+  }
+  use_y = NULL
+  if (is.null(use)) {
+    bf = bin_filter(scn$bins, scn$counts)
+    use = bf & scn$bins$chrom %in% c(AUTOSOMES_CALLER, "chrX")
+    if (haploid) use_y = bf & scn$bins$chrom == "chrY"
+  } else if (haploid) {
+    use = as.logical(use)
+    use_y = use & scn$bins$chrom == "chrY"
+    use = use & !use_y
+  }
   note(sprintf("usable bins: %d of %d", sum(use), length(use)))
   norm = normalise_depth(scn, method = method, use = use, cell_type = meta$cell_type, ref_cells = ref_cells,
                          min_cells_type = min_cells_type)
+  if (haploid) {
+    if (any(use_y)) norm = normalise_extra_bins(scn, norm, use_y, cell_type = meta$cell_type, ref_cells = ref_cells,
+                                                min_cells_type = min_cells_type)
+    use = norm$use
+    note(sprintf("haploid_model: %d usable chrY bins (one copy; pseudobulk reference)", sum(use_y)))
+  }
   norm$ratio = NULL
   note(sprintf("depth: %s (ref cells: %s, min_cells_type %d)", method,
                if (is.null(ref_cells)) "all" else length(cell_selector(scn, ref_cells)), as.integer(min_cells_type)))
 
   regions = region_set(scn$bins, centromeres, classes = classes, events = events, sex = sex, null_exclude = null_exclude,
-                       use = use, params = params)
+                       use = use, params = params, haploid = haploid)
   note(sprintf("regions: %s", paste(regions[, .N, by = class][, paste0(class, " ", N)], collapse = ", ")))
   dm = depth_mats(scn, norm, regions, params)
   win = window_matrices(scn, norm, 1e6)
@@ -866,14 +899,16 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
               group = rep_c(meta$group), fold = rep_c(meta$fold), null_cell = rep_c(meta$flat),
               null_region = rep_r(regions$null_region), eligible = rep_r(regions$eligible),
               allelic_ok = rep_r(regions$allelic_ok))]
+  if ("ploidy" %in% names(regions)) long[, ploidy := rep_r(regions$ploidy)]
   setkeyv(long, c("cell", "region"))
   note(sprintf("long: %d rows (%d cells x %d regions); %.1f min", nrow(long), nc, nr,
                as.numeric(difftime(Sys.time(), t0, units = "mins"))))
   cells_out = merge(meta, qct[, .(cell, qc_pass)], by = "cell", sort = FALSE)[match(keep, cell)]
   check_regions(regions); check_atoms(atoms); check_votes(votes); check_features(long)
-  structure(list(long = long, regions = regions, cells = cells_out, votes = if (keep_votes) votes else NULL, atoms = atoms,
-                 win = win, params = params, notes = notes, use = use, phasing = c(detected = detected, orientation = orientation)),
-            class = "scn_features")
+  out = list(long = long, regions = regions, cells = cells_out, votes = if (keep_votes) votes else NULL, atoms = atoms,
+             win = win, params = params, notes = notes, use = use, phasing = c(detected = detected, orientation = orientation))
+  if (!is.null(use_y)) out$use_y = use_y
+  structure(out, class = "scn_features")
 }
 
 #' Re-aggregate the allele features of a features object without some atoms

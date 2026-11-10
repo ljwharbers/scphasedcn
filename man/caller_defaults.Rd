@@ -24,6 +24,25 @@ calls need score \code{>} threshold (strict, not \code{>=});
 \item \code{n_folds} cross-validation folds of the null thresholds (4);
 \item \code{n_pool} cells per pool (20);
 \item \code{chrx_centromere} chrX centromere (bp, hg38) for female chrX arms;
+\item \code{haploid_model} opt-in one-copy model of the male sex chromosomes in normal mode (FALSE; ignored for females
+and in tumour mode): the usable chrY bins enter the features (depth only, expected depth from the same-sample
+pseudobulk with the cell's size factor of the other bins, so one copy is neutral), regions of male chrX / chrY
+get \code{ploidy} 1 and are scored with \code{haploid_shifts} and a one-sided depth term (\code{\link[=ll_depth_shift]{ll_depth_shift()}}
+\code{one_sided}), and their per-cell thresholds come from the autosomal null rows scored the same way (\code{haploid_thr}). Loss of Y and male X
+gains / losses become callable per cell. chrY has chromosome and tile regions only (the bundled centromere
+table has no chrY row, and Yp is mostly PAR1 / X-transposed sequence);
+\item \code{haploid_shifts} log2 depth shifts of a complete loss (1 -> 0 copies, -6.16) and a gain (1 -> 2 copies, +0.98) on a
+one-copy region: the theoretical copy ratios 0 and 2 attenuated as the diploid \code{shifts} are (a diploid shift
+s of theoretical ratio r gives the fraction a = (2^s - 1) / (r - 1); a = 0.986 for loss, 0.969 for gain;
+haploid shift = log2(1 + a (r_haploid - 1))). Per row the shift is the log2 ratio of the expected count at that
+shift with the pseudocount of the features, \verb{log2((2^h e + 0.5) / (e + 0.5))}, so a complete loss of a region
+with few expected fragments still reaches it;
+\item \code{haploid_thr} with \code{haploid_model}: the per-cell thresholds of the one-copy rows come from the autosomal null rows
+scored depth-only as one-copy rows (same t null, one-sided term; \code{\link[=haploid_thresholds]{haploid_thresholds()}}); FALSE: the autosomal
+\code{s_comb} thresholds, which do not fit depth-only rows (TRUE);
+\item \code{haploid_scale} with \code{haploid_model}: the one-copy rows are scored on the autosomal null scale, their z divided
+by the robust ratio of their null spread to the autosomal one per sex chromosome x \code{sd_class}
+(\code{\link[=haploid_z_scale]{haploid_z_scale()}}; half the fragments and chrY mappability widen it) (TRUE);
 \item \code{acrocentric_p} arms without unique sequence, never regions;
 \item \code{min_null_rows} fewer null rows than this in a class x stratum fall back to the pooled threshold (5000);
 \item \code{tabix} path of the tabix binary ("" = the \code{tabix} on the PATH; none = the R fallback); \code{seed} RNG seed (1);

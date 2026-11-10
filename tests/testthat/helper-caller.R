@@ -3,6 +3,7 @@
 #       two cached simulations and generators of fake caller tables.
 #       - sim_norm_f: normal tissue, female, 3 cell types, hybrid-like phasing (one block per chromosome),
 #         cell-private events only.
+#       - sim_norm_m: normal tissue, male with a chrY (loss of Y, chrX gain, chr8 trisomy; cell-private).
 #       - sim_tum2: male tumour, two clones with a shared trunk, unoriented short phase blocks.
 #       - sim_tum3: sim_tum2 at half the depth with in-block switch errors (clone allele attenuation a ~ 0.7).
 #       - fake_regions(), fake_features(), fake_atoms(), fake_votes(): tables in the package's table
@@ -42,6 +43,21 @@ lazy_cached("sim_norm_f", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
   multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 101))
+
+# Male normal tissue with a chrY (the one-copy model, params$haploid_model): sim_norm_f's design on sim_genome() plus a
+# 20 Mb chrY, male (chrX and chrY one copy). Cell-private events (each nucleus carries each with probability 0.05, ~10
+# of 200 barcodes): loss of Y (0:0, a complete loss), a chrX gain (2:0, one extra copy on one), a chr8 trisomy (2:1, an
+# autosomal control).
+sim_norm_m_events = function() {
+  data.table(chrom = c("chrY", "chrX", "chr8"), start = 0, end = NA_real_,
+             cnA = c(0L, 2L, 2L), cnB = c(0L, 0L, 1L), type = "private")
+}
+lazy_cached("sim_norm_m", function() simulate_scn(
+  n_cells = 200, sex = "male",
+  genome = sim_genome(c(chr1 = 60e6, chr2 = 40e6, chr8 = 30e6, chr21 = 20e6, chr22 = 20e6, chrX = 40e6, chrY = 20e6)),
+  cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
+  depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_m_events(), private_frac = 0.05,
+  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 105))
 
 # Clone truth of the tumour simulation: `type` = the cell type (clone) that carries the event. The
 # simulator applies one event row to one cell type, so the trunk event (chr8 distal 3:1 in both clones)

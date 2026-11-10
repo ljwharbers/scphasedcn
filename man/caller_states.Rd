@@ -6,13 +6,16 @@
 \usage{
 caller_states(
   set = c("normal", "normal_att", "tumour"),
-  params = caller_defaults()
+  params = caller_defaults(),
+  ploidy = 2
 )
 }
 \arguments{
 \item{set}{"normal", "normal_att" or "tumour"}
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+
+\item{ploidy}{copies of the region in a normal cell: 2 (default) or 1 (the one-copy table)}
 }
 \value{
 data.table state, row_id, nA, nB, cn, shift (log2), f (major-haplotype fraction);
@@ -33,4 +36,10 @@ c(0.80, f_att); cnloh 2:0 over f_att; gain 2:1 (2/3); gain_as 3:0 over
 f_att (gain shift); amp 3:1 (0.75), 2:2 (0.5), 4:1 (0.80) with shift
 \code{k_amp * log2(cn / 2)}.
 }
+}
+\details{
+\code{ploidy = 1} (normal sets only) is the state table of a one-copy region (male chrX / chrY with
+\code{params$haploid_model}): neutral 1:0 (shift 0), loss 0:0 (a complete loss, \code{params$haploid_shifts["loss"]}), gain
+2:0 (\code{params$haploid_shifts["gain"]}); \code{f} is NA (no allele test: one-copy regions are depth-only) and purely allelic
+states (CN-LOH) have no row. \code{\link[=score_cells]{score_cells()}} uses its shifts on the rows with \code{ploidy} 1.
 }

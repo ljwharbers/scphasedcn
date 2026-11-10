@@ -40,6 +40,12 @@ null rows keeps ~98 \% of its own estimate);
 votes of 5 Mb tiles whose null overdispersion is an outlier are left out of the allele features (FALSE);
 \item \code{mask_rho_mad} mask threshold in MADs of log tile rho (2);
 \item \code{mask_min_votes} minimal mean votes per null row for a tile to be assessed (3);
+\item \code{mask_f0} shared-bias allelic tile mask in normal mode (\code{\link[=allelic_noisy_tiles]{allelic_noisy_tiles()}}, \code{call_scn()}): the votes
+of 5 Mb tiles whose vote-weighted null-cell haplotype fraction f0 is off 0.5 in an outlying way are left
+out of the allele features (FALSE; independent of \code{mask_allelic}, both on = the union of the two masks;
+\code{\link[=allelic_bias_tiles]{allelic_bias_tiles()}} shows the per-tile fractions before calling);
+\item \code{mask_f0_mad} bias threshold in MADs of \verb{|f0 - 0.5|} over the assessed tiles (3);
+\item \code{mask_f0_min} minimal \verb{|f0 - 0.5|} of a masked tile (0.03);
 \item \code{pool_sex_thr} males: the sex chromosomes get their own pooled threshold group (class x autosome / X / Y)
 with the class threshold as fallback (TRUE; no effect in females);
 \item \code{pool_tail_q} pooled per-region tail calibration (\code{\link[=pool_scale]{pool_scale()}}): quantile of the region-standardised

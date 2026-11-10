@@ -10,7 +10,10 @@ allelic_noisy_tiles(
   size = "5Mb",
   k_mad = params$mask_rho_mad,
   min_votes = params$mask_min_votes,
-  params = caller_defaults()
+  params = caller_defaults(),
+  f0_mad = params$mask_f0_mad,
+  f0_min = params$mask_f0_min,
+  rules = "rho"
 )
 }
 \arguments{
@@ -25,9 +28,16 @@ allelic_noisy_tiles(
 \item{min_votes}{minimal mean votes per null row of a tile for it to be assessed (\code{params$mask_min_votes})}
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+
+\item{f0_mad}{bias threshold in MADs of d0 (\code{params$mask_f0_mad})}
+
+\item{f0_min}{minimal deviation d0 of a bias outlier (\code{params$mask_f0_min})}
+
+\item{rules}{the rules that define \code{masked}: any of \code{"rho"}, \code{"f0"}}
 }
 \value{
-data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked (one row per tile)
+data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked, f0, d0, z_f0,
+masked_rho, masked_f0 (one row per tile)
 }
 \description{
 Per tile of class \code{size}, the method-of-moments beta-binomial overdispersion of the null rows' allele votes,
@@ -37,4 +47,19 @@ stretch whose votes are far more overdispersed than the genome (e.g. a 5 Mb tile
 genome median of 0.011 over 5 Mb tiles) and that inflates the chromosome-level allelic LLRs of the cells. The votes of the
 atoms in masked tiles (\code{\link[=atoms_in_tiles]{atoms_in_tiles()}}) are then left out of the allele features
 (\code{\link[=update_allelic_features]{update_allelic_features()}}, \verb{call_scn(params$mask_allelic = TRUE)}).
+}
+\details{
+Shared allelic bias (\code{params$mask_f0}): per tile also the vote-weighted haplotype fraction of the null rows
+\verb{f0 = sum nA / sum n_hap}, its deviation \verb{d0 = |f0 - 0.5|} and \code{z_f0} = (d0 - median) / MAD of d0 over the
+assessed tiles. A tile is a bias outlier (\code{masked_f0}) when it is assessed, \code{z_f0 > f0_mad} and
+\code{d0 > f0_min}: a stretch whose allele fraction is off 1:1 in the null cells for reasons that are not somatic
+copy number (germline CNV or segmental duplication, imprinted or allele-specific accessible regions, mapping
+bias, false heterozygous SNPs), against which the 1:1 allele null of every cell is wrong. Only null rows are
+used on purpose: a real clonal event carried by part of the tissue is not in the null cells and is not masked.
+\verb{|f0 - 0.5|} covers both orientations of the allele features: under \code{loo} (block) orientation the fraction is
+major-oriented (a biased tile sits above 0.5), under chromosome-anchored orientation it sits at f0 or 1 - f0.
+\code{\link[=allelic_bias_tiles]{allelic_bias_tiles()}} gives the same table over all cells before calling.
+
+\code{rules} selects which flags make up \code{masked} (the tiles whose atoms are dropped): \code{"rho"} (the default and
+the behaviour of earlier versions: \code{masked} = \code{masked_rho}), \code{"f0"}, or both (union).
 }

@@ -1,0 +1,118 @@
+# test-event-fdr.R: the false-event accounting of normal mode (R/event_fdr.R): event_fdr() p- / q-values and the
+# expected false calls / events on fake features with and without planted events, and null_selection_check() on a pure
+# null and on a null that is too thin for a subset of cells.
+
+fdr_cache = new.env()
+fdr_run = function(planted) {
+  key = if (planted) "planted" else "null"
+  if (is.null(fdr_cache[[key]])) {
+    rg = fake_regions(tiles = c("20Mb" = 2e7))
+    ev = data.table(cell = 1:120, region = rep(c("chr8", "chr1p"), each = 60), state = rep(c("gain", "loss"), each = 60))
+    ff = fake_features(1500, rg, events = if (planted) ev else NULL, seed = 61, hap_frac = 0.1)
+    p = modifyList(caller_defaults(), list(min_null_rows = 1000))
+    r = caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character(), params = p)
+    fdr_cache[[key]] = list(r = r, f = event_fdr(r))
+  }
+  fdr_cache[[key]]
+}
+
+test_that("event_fdr adds columns only; its null groups are the thresholds' groups", {
+  x = fdr_run(FALSE)
+  r = x$r; f = x$f
+  # every pre-existing column and row unchanged
+  expect_equal(f$calls[, names(r$calls), with = FALSE], r$calls)
+  expect_equal(f$events[, names(r$events), with = FALSE], r$events)
+  expect_true(all(c("p", "q", "null_borrowed") %in% names(f$calls)))
+  expect_true(all(c("null_cell", "p", "q", "null_borrowed") %in% names(f$events)))
+  # the calibration groups hold exactly the null rows the s_comb thresholds were trained on (fold 0)
+  th = r$thresholds[level == "cell" & score == "s_comb" & fold == 0]
+  g = merge(f$groups, th[, .(class, stratum, n_thr = n_null)], by = c("class", "stratum"))
+  expect_equal(nrow(g), nrow(f$groups))
+  expect_equal(g$n_null, g$n_thr)
+  expect_equal(f$groups$p_floor, 1 / (f$groups$n_null + 1))
+  # tested rows: chromosomes and arms (the classes reportable per cell), not the 20 Mb tiles; chrX borrows the null
+  cc = f$calls[level == "cell" & !is.na(p)]
+  expect_setequal(unique(cc$class), c("chrom", "arm"))
+  expect_equal(f$info$m, nrow(cc))
+  expect_true(all(cc[chrom == "chrX", null_borrowed]) && !any(cc[chrom != "chrX", null_borrowed]))
+  # events: null_cell from the cells table, q of the top region
+  e = f$events[level == "cell"]
+  expect_equal(e$null_cell, e$cell %in% r$cells[null_cell == TRUE, cell])
+  expect_equal(e$q, cc$q[match(paste(e$cell, e$top_region), paste(cc$cell, cc$region))])
+  r0 = r; r0["scores"] = list(NULL)
+  expect_error(event_fdr(r0), "no scores")
+})
+
+test_that("event_fdr on a pure null: expected false ~ realised calls and events, p super-uniform, q not small", {
+  f = fdr_run(FALSE)$f
+  ef = f$expected_false
+  expect_true(all(c("class", "state", "chrom_group", "n_rows", "n_tested", "n_called", "n_events", "null_per_1000",
+                    "expected_false_calls", "expected_false_events", "false_frac_events") %in% names(ef)))
+  expect_true(all(ef[chrom_group == "X", null_borrowed]))
+  for (k in list(c("n_called", "expected_false_calls"), c("n_events", "expected_false_events"))) {
+    n = sum(ef[[k[1]]]); E = sum(ef[[k[2]]])
+    expect_gt(E, 3)
+    expect_gte(n, stats::qpois(0.001, E)); expect_lte(n, stats::qpois(0.999, E))
+  }
+  cc = f$calls[level == "cell" & !is.na(p)]
+  for (t in c(0.001, 0.01, 0.05, 0.2)) expect_lte(mean(cc$p <= t), t + 0.005)
+  expect_lte(sum(cc$q < 0.05), 1)
+  expect_gt(stats::median(cc$q), 0.5)
+  expect_lte(f$info$n_q_below, 1)
+})
+
+test_that("event_fdr: q monotone in the score per class x stratum x fold; strong planted events get q < 0.05", {
+  x = fdr_run(TRUE)
+  r = x$r; f = x$f
+  cc = f$calls[level == "cell" & !is.na(p) & p < 1]
+  mono = cc[order(-score), .(p_ok = !is.unsorted(p), q_ok = !is.unsorted(q)), by = .(class, stratum, fold)]
+  expect_true(all(mono$p_ok) && all(mono$q_ok))
+  car = function(i) sprintf("cell_%04d", i)
+  hit = f$calls[level == "cell" & called & reportable & ((region == "chr8" & state == "gain" & cell %in% car(1:60)) |
+                                                           (region == "chr1p" & state == "loss" & cell %in% car(61:120)))]
+  expect_gte(nrow(hit), 110)
+  expect_true(all(hit$q < 0.05))
+  e = f$events[level == "cell" & ((chrom == "chr8" & cell %in% car(1:60)) | (chrom == "chr1" & cell %in% car(61:120)))]
+  expect_true(all(e$q < 0.05))
+  expect_false(any(e$null_cell))
+  # the expected false chromosome gains match the gains called outside the planted carriers
+  ef = f$expected_false[class == "chrom" & state == "gain" & chrom_group == "A"]
+  fp = nrow(f$events[level == "cell" & top_class == "chrom" & state == "gain" & chrom != "chrX" & !(chrom == "chr8" & cell %in% car(1:60))])
+  expect_gte(fp, stats::qpois(0.001, ef$expected_false_events)); expect_lte(fp, stats::qpois(0.999, ef$expected_false_events))
+  expect_lt(ef$false_frac_events, 0.5)
+  # without the tail model p never goes below the resolution floor 1 / (n + 1) and the planted q-values are coarser
+  f0 = event_fdr(r, tail = "none")
+  c0 = f0$calls[level == "cell" & !is.na(p)]
+  expect_gte(min(c0$p), min(f0$groups$p_floor))
+  h0 = c0[paste(cell, region) %in% paste(hit$cell, hit$region)]
+  expect_gt(stats::median(h0$q), stats::median(hit$q))
+})
+
+test_that("null_selection_check: ~1 / 1,000 on a pure null, clearly higher when the null is too thin for a subset of cells", {
+  gen = sim_genome(setNames(rep(3e7, 9), c(paste0("chr", 1:8), "chrX")))
+  rg = fake_regions(gen, tiles = c("10Mb" = 1e7))
+  f0 = fake_features(1200, rg, seed = 71)
+  n0 = null_selection_check(f0, regions = rg, select_args = list(n_sim = 2e4))
+  expect_true(all(c("class", "stratum", "n_rows", "n_exceed", "per_1000", "lo_per_1000", "hi_per_1000", "nominal_per_1000",
+                    "insample_per_1000", "cv_per_1000") %in% names(n0)))
+  hv = attr(n0, "halves")
+  expect_equal(hv$select_chroms, c("chr1,chr3,chr5,chr7", "chr2,chr4,chr6,chr8"))
+  a0 = n0[stratum == "all"]
+  expect_setequal(a0$class, c("chrom", "arm", "10Mb"))
+  expect_true(all(a0$per_1000 > 0.3 & a0$per_1000 < 2.5))
+  expect_true(all(a0$lo_per_1000 <= a0$insample_per_1000))       # no class above its in-sample (CV) rate
+  expect_equal(sum(n0[stratum != "all", n_rows]), sum(a0$n_rows))
+  # 150 of 1,200 cells with an allelic overdispersion (rho 0.05) the robust parametric selection does not model: the
+  # selection removes the worst of them, the selected half looks clean (in-sample ~1 / 1,000) and the other half does not
+  f1 = copy(f0)
+  bad = unique(f1$cell)[1:150]
+  set.seed(5)
+  f1[cell %in% bad, nA := as.numeric(rbinom(.N, n_hap, rbeta(.N, 0.5 * 0.95 / 0.05, 0.5 * 0.95 / 0.05)))]
+  f1[, nB := n_hap - nA]
+  n1 = null_selection_check(f1, regions = rg, select_args = list(n_sim = 2e4))
+  ch0 = n0[class == "chrom" & stratum == "all"]; ch1 = n1[class == "chrom" & stratum == "all"]
+  expect_gt(ch1$lo_per_1000, 2)
+  expect_gt(ch1$per_1000, 2.5 * ch0$per_1000)
+  expect_lt(ch1$insample_per_1000, 2)
+  expect_error(null_selection_check(f0[chrom %in% c("chr1", "chr3")], regions = rg), "odd and even")
+})

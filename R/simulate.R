@@ -69,7 +69,7 @@ sim_events_tumour = function() {
 #'
 #' @param n_cells number of barcodes (cells) in the output
 #' @param genome bins table from [sim_genome()]
-#' @param sex "male" (chrX one copy, hap A) or "female"
+#' @param sex "male" (chrX and chrY one copy, hap A) or "female" (no chrY: a chrY in the genome gets 0 copies)
 #' @param cell_types named numeric vector of type proportions
 #' @param depth lognormal parameters (meanlog, sdlog) of fragments per nucleus
 #' @param events data.table (chrom, start, end, cnA, cnB, type); `type` may be a
@@ -128,7 +128,8 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
 
   # ---- truth copy numbers per nucleus ----------------------------------------
   cnA = matrix(1L, nb, n_nuc); cnB = matrix(1L, nb, n_nuc)
-  if (sex == "male") cnB[bins$chrom == "chrX", ] = 0L
+  if (sex == "male") cnB[bins$chrom %in% c("chrX", "chrY"), ] = 0L       # one chrX and (when the genome has it) one chrY
+  if (sex == "female") { cnA[bins$chrom == "chrY", ] = 0L; cnB[bins$chrom == "chrY", ] = 0L }
   carriers = vector("list", 0)
   if (!is.null(events) && nrow(events) > 0) {
     for (e in seq_len(nrow(events))) {

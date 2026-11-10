@@ -33,7 +33,7 @@ simulate_scn(
 
 \item{genome}{bins table from \code{\link[=sim_genome]{sim_genome()}}}
 
-\item{sex}{"male" (chrX one copy, hap A) or "female"}
+\item{sex}{"male" (chrX and chrY one copy, hap A) or "female" (no chrY: a chrY in the genome gets 0 copies)}
 
 \item{cell_types}{named numeric vector of type proportions}
 

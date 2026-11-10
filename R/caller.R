@@ -611,7 +611,7 @@ haploid_thresholds = function(sc, thr_auto, scores = c("s_depth", "s_allelic", "
     nr = which(null_flag(sc))
     x0 = sc[nr, intersect(c("cell", "region", "class", "sd_class", "stratum", "fold", "chrom", "z", "sd_null", "e"), names(sc)), with = FALSE]
     x0[, `:=`(ploidy = 1L, nA = 0, n_hap = 0, allelic_ok = FALSE)]
-    ph = modifyList(params, list(haploid_model = TRUE))
+    ph = utils::modifyList(params, list(haploid_model = TRUE))
     keep = unique(c(by, "fold", scores))
   }
   out = list()

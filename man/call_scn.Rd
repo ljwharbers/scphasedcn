@@ -37,9 +37,9 @@ TRUE when it has that column, else those passing \code{\link[=cell_qc]{cell_qc()
 \item{sex}{"female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
 uses a \code{sex} column of \code{cells_qc.tsv} if there is one, as in simulated data)}
 
-\item{events}{named events: a table \verb{region, chrom, start, end}, \code{\link[=cli_events]{cli_events()}} output or a named vector of
-region strings (\verb{20q_gain = "chr20:28000000-"}); scored as \code{event} regions; in tumour mode their chromosomes
-are excluded from the null rows}
+\item{events}{named events: a table \verb{region, chrom, start, end} (0-based half-open), \code{\link[=cli_events]{cli_events()}} output or a
+named vector of region strings (\verb{20q_gain = "chr20:28000000-"}; unnamed ones are named after the region, see
+\code{\link[=region_set]{region_set()}}); scored as \code{event} regions; in tumour mode their chromosomes are excluded from the null rows}
 
 \item{null_cells}{NULL / "auto" (the features' \code{null_cell} when informative, else selected), "features",
 "select" (\code{\link[=select_null_cells]{select_null_cells()}}), or the null cells themselves (vector or file)}

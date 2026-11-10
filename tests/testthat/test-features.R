@@ -365,3 +365,22 @@ test_that("read_hap_fragments: a failing tabix command stops, no records gives n
   expect_warning(read_votes(frag, c("CCCC"), atoms[1], tabix = good), "barcodes")
   expect_error(read_votes(frag, "AAAC", atoms, tabix = bad), "tabix failed")
 })
+
+test_that("events: unnamed ones are named after their region, events without a region warn (CLI --events chr7)", {
+  bins = sim_genome()
+  ce = sim_centromeres(bins)
+  ev = parse_event_arg("chr8;20q=chr1:30000000-; chr2:10000000-20000000 ")
+  expect_identical(unname(ev), c("chr8", "chr1:30000000-", "chr2:10000000-20000000"))
+  expect_identical(names(ev), c("", "20q", ""))
+  r = region_set(bins, ce, classes = c("arm", "chrom"), events = ev)
+  expect_setequal(r[class == "event", region], c("event|chr8", "20q", "chr2:10000000-20000000"))
+  expect_equal(r[region == "event|chr8", c(start, end)], r[region == "chr8", c(start, end)])
+  expect_equal(r[region == "chr2:10000000-20000000", c(start, end, n_bins)], c(10e6, 20e6, 100))   # 0-based half-open
+  # an unnamed character vector (R API) works the same way
+  r2 = region_set(bins, ce, classes = "chrom", events = c("chr8", "chr21:0-5000000"))
+  expect_setequal(r2[class == "event", region], c("event|chr8", "chr21:0-5000000"))
+  # unknown chromosome and an event without a whole bin inside: dropped with a warning naming each
+  expect_warning(r3 <- region_set(bins, ce, classes = "chrom", events = c(a = "chr99:0-1000000", b = "chr1:100-200", c = "chr1")),
+                 "a \\(chromosome chr99 not in the usable bins\\), b \\(no whole usable bin inside\\)")
+  expect_identical(r3[class == "event", region], "c")
+})

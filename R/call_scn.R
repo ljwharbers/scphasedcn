@@ -311,9 +311,9 @@ utils::globalVariables(c("st", "k", "region"))
 #' @param cells NULL (QC-pass cells) or the cells to call (vector or file; no cell QC)
 #' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
 #'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data)
-#' @param events named events: a table `region, chrom, start, end`, [cli_events()] output or a named vector of
-#'   region strings (`20q_gain = "chr20:28000000-"`); scored as `event` regions; in tumour mode their chromosomes
-#'   are excluded from the null rows
+#' @param events named events: a table `region, chrom, start, end` (0-based half-open), [cli_events()] output or a
+#'   named vector of region strings (`20q_gain = "chr20:28000000-"`; unnamed ones are named after the region, see
+#'   [region_set()]); scored as `event` regions; in tumour mode their chromosomes are excluded from the null rows
 #' @param null_cells NULL / "auto" (the features' `null_cell` when informative, else selected), "features",
 #'   "select" ([select_null_cells()]), or the null cells themselves (vector or file)
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5

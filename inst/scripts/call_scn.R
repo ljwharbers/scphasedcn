@@ -33,7 +33,8 @@ usage = paste(
   "                          default: the SCPHASEDCN_SAMPLE_CONFIG environment variable)",
   "  --sample <key>          sample of the --config yaml (extraction dir, sex, events, type)",
   "  --mode normal|tumour    default: the sample's `type` (normal when missing)",
-  "  --events <list>         known events, name=region;name=region (e.g. chr5_gain=chr5;20q_gain=chr20:28000000-)",
+  "  --events <list>         known events, name=region;name=region (e.g. chr5_gain=chr5;20q_gain=chr20:28000000-;",
+  "                          0-based half-open, open end = chromosome end); a bare region is named after itself",
   "  --centromeres <tsv>     centromere table (default: the sample yaml's reference.centromeres, else the hg38 table",
   "                          shipped with the package)",
   "  --caller-config <yaml>  caller parameters (default: the package's caller.yaml; its normal: / tumour: blocks are",
@@ -89,10 +90,8 @@ mode = if (nzchar(a$mode)) a$mode else if (identical(s$type, "tumour")) "tumour"
 if (!mode %in% c("normal", "tumour")) fail("--mode must be normal or tumour")
 sex = if (nzchar(a$sex)) a$sex else s$sex
 if (!is.null(sex)) sex = tryCatch(scphasedcn:::check_sex(sex, "--sex"), error = function(e) fail(conditionMessage(e)))
-events = if (nzchar(a$events)) {
-  kv = strsplit(split_list(a$events), "=", fixed = TRUE)
-  setNames(vapply(kv, `[`, "", 2), vapply(kv, `[`, "", 1))
-} else if (!is.null(s$events)) unlist(s$events) else NULL
+# events: name=region or a bare region (named after the region, e.g. chr7 -> event|chr7); 0-based half-open coordinates
+events = if (nzchar(a$events)) scphasedcn:::parse_event_arg(a$events) else if (!is.null(s$events)) unlist(s$events) else NULL
 cen = if (nzchar(a$centromeres)) a$centromeres else cfg$reference$centromeres
 if (!is.null(cen) && !file.exists(cen)) fail("centromere table not found: ", cen)
 params = caller_params(if (nzchar(a$caller_config)) a$caller_config else NULL)

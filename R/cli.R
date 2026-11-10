@@ -84,7 +84,7 @@ cli_cells = function(path, all) {
   intersect(all, as.character(v))
 }
 
-#' Event regions of a sample (config `events` map) as a regions table
+#' Event regions of a sample (config `events` map, region strings with 0-based half-open coordinates) as a regions table
 #' @param s sample entry from [cli_sample()]
 #' @param chrom_sizes named sizes (closes open ends)
 #' @return data.table region, chrom, start, end, event
@@ -94,6 +94,15 @@ cli_events = function(s, chrom_sizes = NULL) {
   r = parse_region(unlist(s$events), chrom_sizes)
   r[, event := names(s$events)]
   r[]
+}
+
+# --events of call_scn.R: "name=region;region;..." -> region strings named by event ("" for a bare region, which
+# event_table() names after the region)
+parse_event_arg = function(x) {
+  ev = trimws(strsplit(paste(x, collapse = ";"), ";", fixed = TRUE)[[1]])
+  ev = ev[nzchar(ev)]
+  named = grepl("=", ev, fixed = TRUE)
+  stats::setNames(trimws(ifelse(named, sub("^[^=]*=", "", ev), ev)), trimws(ifelse(named, sub("=.*$", "", ev), "")))
 }
 
 #' Arm regions from an annotated bins table

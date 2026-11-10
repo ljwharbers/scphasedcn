@@ -87,12 +87,22 @@ arm_table = function(centromeres, chrom_sizes, sex = "female", params = caller_d
 }
 
 # events: data.table (region, chrom, start, end), cli_events() output (event = name), or a named
-# character vector of region strings (the sample config `events` map)
+# character vector of region strings (the sample config `events` map; 0-based half-open, an open end = chromosome
+# end). An event without a name is named after its region string ("chr20:28000000-"), a bare chromosome "chr7"
+# "event|chr7" (the chromosome region is already called "chr7").
 event_table = function(events, chrom_sizes) {
   if (is.null(events)) return(NULL)
   if (is.character(events) || is.list(events) && !is.data.frame(events)) {
     ev = parse_region(unlist(events), chrom_sizes)
-    if (!is.null(names(events))) ev[, region := names(events)]
+    nm = names(events)
+    if (!is.null(nm)) {
+      miss = is.na(nm) | !nzchar(trimws(nm))
+      ev[!miss, region := nm[!miss]]
+    }
+    if (is.null(nm) || any(miss)) {
+      un = if (is.null(nm)) rep(TRUE, nrow(ev)) else miss
+      ev[un & !grepl(":", region, fixed = TRUE), region := paste0("event|", region)]
+    }
   } else {
     ev = copy(as.data.table(events))
     if ("event" %in% names(ev)) ev[, region := event]
@@ -178,8 +188,11 @@ region_bin_matrix = function(bins, regions, use = NULL) {
 #' @param bins bins table (chrom, start, end)
 #' @param centromeres Battenberg centromere table or path ([arm_table()])
 #' @param classes region classes to build (`arm`, `chrom`, tile labels); `event` is added when `events` is given
-#' @param events NULL, a data.table `region, chrom, start, end` (NA end = chromosome end), [cli_events()]
-#'   output or a named vector of region strings
+#' @param events NULL, a data.table `region, chrom, start, end` (0-based half-open; NA end = chromosome end),
+#'   [cli_events()] output or a named vector of region strings (`"chr20:28000000-"`, `"chr7"`; [parse_region()]). An
+#'   event without a name is named after its region string (a bare chromosome `"chr7"`: `"event|chr7"`). An event
+#'   that yields no region (a chromosome without usable bins, or no whole usable bin inside) is dropped with a
+#'   warning.
 #' @param sex "female" or "male" (case-insensitive, or "F" / "M"; any other value stops)
 #' @param null_exclude chromosomes (or region names) whose regions never contribute null rows
 #' @param use logical bin filter (NULL = all bins)
@@ -215,6 +228,16 @@ region_set = function(bins, centromeres, classes = c("arm", "chrom", "5Mb", "10M
   M = region_bin_matrix(bins, r)
   r[, n_bins := as.integer(round(Matrix::rowSums(M)))]
   r[, n_use := as.integer(round(as.vector(M %*% as.numeric(use))))]
+  if (!is.null(ev) && nrow(ev)) {
+    # events that yield no region: a chromosome without usable bins (unknown, chrY of a female, not in `use`), or no
+    # whole usable bin inside the event (containment rule)
+    no_chr = ev[!chrom %in% chroms, region]
+    no_bin = r[class == "event" & n_use == 0, region]
+    if (length(no_chr) || length(no_bin))
+      warning("region_set: event(s) dropped without a region: ",
+              paste(c(if (length(no_chr)) sprintf("%s (chromosome %s not in the usable bins)", no_chr, ev[!chrom %in% chroms, chrom]),
+                      if (length(no_bin)) sprintf("%s (no whole usable bin inside)", no_bin)), collapse = ", "), call. = FALSE)
+  }
   r = r[n_use > 0]
   bw = stats::median(bins$end - bins$start)
   tsz = params$tile_sizes[r$class]

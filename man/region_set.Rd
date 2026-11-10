@@ -25,7 +25,7 @@ region_set(
 \item{events}{NULL, a data.table \verb{region, chrom, start, end} (NA end = chromosome end), \code{\link[=cli_events]{cli_events()}}
 output or a named vector of region strings}
 
-\item{sex}{"female" or "male"}
+\item{sex}{"female" or "male" (case-insensitive, or "F" / "M"; any other value stops)}
 
 \item{null_exclude}{chromosomes (or region names) whose regions never contribute null rows}
 

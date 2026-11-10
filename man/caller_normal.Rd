@@ -47,8 +47,8 @@ caller_normal(
 
 \item{select_args}{extra arguments for \code{\link[=select_null_cells]{select_null_cells()}}}
 
-\item{sex}{"female", "male" or NULL (inferred: female when chrX rows carry allele votes); sets the
-chrX rule of \code{\link[=call_policy]{call_policy()}}}
+\item{sex}{"female", "male" (case-insensitive, or "F" / "M"; any other value stops) or NULL (inferred: female when
+chrX rows carry allele votes); sets the chrX rule of \code{\link[=call_policy]{call_policy()}}}
 
 \item{resolve_gains}{apply \code{\link[=resolve_nested]{resolve_nested()}} to the per-cell calls}
 

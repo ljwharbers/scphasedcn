@@ -33,8 +33,8 @@ call_scn(
 
 \item{cells}{NULL (QC-pass cells) or the cells to call (vector or file)}
 
-\item{sex}{"female" / "male" (required for real data; NULL uses a \code{sex} column of \code{cells_qc.tsv} if there is one, as in
-simulated data)}
+\item{sex}{"female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
+uses a \code{sex} column of \code{cells_qc.tsv} if there is one, as in simulated data)}
 
 \item{events}{named events: a table \verb{region, chrom, start, end}, \code{\link[=cli_events]{cli_events()}} output or a named vector of
 region strings (\verb{20q_gain = "chr20:28000000-"}); scored as \code{event} regions; in tumour mode their chromosomes

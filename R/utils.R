@@ -1,12 +1,24 @@
 # utils.R
 # What: small shared helpers (null-coalescing, chromosome ordering, region
 #       parsing, bin lookup, sparse/dense coercions, group indicators, cell
-#       selectors, fragment haplotype codes, budget thresholds).
+#       selectors, fragment haplotype codes, budget thresholds, the sample sex check).
 # Why: every module needs the same handful of primitives; keeping them in one
 #      file avoids divergent re-implementations.
 # Inputs: plain vectors / data.tables / Matrix objects. Outputs: same.
 
 `%||%` = function(a, b) if (is.null(a)) b else a
+
+# sample sex of the caller's entry points: "female" / "male", case-insensitive, or "F" / "M"; NULL stays NULL; any
+# other value stops (a "Male" read as female would make chrX allelic, drop chrY and assume ploidy 2)
+check_sex = function(sex, where = "scphasedcn") {
+  if (is.null(sex)) return(NULL)
+  s = tolower(trimws(as.character(unlist(sex))))
+  out = if (length(s) == 1 && !is.na(s)) c(female = "female", f = "female", male = "male", m = "male")[s] else NA
+  if (is.na(out)) stop(sprintf("%s: `sex` must be \"female\" or \"male\" (or \"F\" / \"M\"), not %s", where,
+                               if (length(sex) == 1) sprintf("\"%s\"", as.character(unlist(sex))) else sprintf("a vector of length %d", length(sex))),
+                       call. = FALSE)
+  unname(out)
+}
 
 #' Order chromosome names naturally (chr1..chr22, chrX, chrY, chrM, others)
 #' @param x character vector of chromosome names

@@ -43,7 +43,7 @@ cell_features(
 
 \item{use}{NULL or a logical bin filter}
 
-\item{sex}{"female" / "male" (NULL: the cells' \code{sex} column)}
+\item{sex}{"female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' \code{sex} column)}
 
 \item{centromeres}{centromere table or path (Battenberg layout, see \code{\link[=arm_table]{arm_table()}}; NULL: the hg38 table shipped with
 the package, \code{\link[=hg38_centromeres]{hg38_centromeres()}})}

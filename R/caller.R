@@ -1496,8 +1496,8 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' @param n_draws null pool-regions per class for the pooled thresholds
 #' @param pool_classes region classes that are pooled
 #' @param select_args extra arguments for [select_null_cells()]
-#' @param sex "female", "male" or NULL (inferred: female when chrX rows carry allele votes); sets the
-#'   chrX rule of [call_policy()]
+#' @param sex "female", "male" (case-insensitive, or "F" / "M"; any other value stops) or NULL (inferred: female when
+#'   chrX rows carry allele votes); sets the chrX rule of [call_policy()]
 #' @param resolve_gains apply [resolve_nested()] to the per-cell calls
 #' @param gain_min_dl `min_dl_gain` of [resolve_nested()]
 #' @param pool_loo call pools on the leave-one-out robust score `s_rob` ([pool_scores()])
@@ -1518,6 +1518,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                          null_chroms = paste0("chr", 1:22)) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   null_cells = match.arg(null_cells); depth_model = match.arg(depth_model)
+  sex = check_sex(sex, "caller_normal")
   d = copy(as.data.table(feat))
   need = c("cell", "region", "class", "stratum", "z", "sd_null", "nA", "n_hap")
   miss = setdiff(need, names(d))

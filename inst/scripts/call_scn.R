@@ -28,7 +28,7 @@ usage = paste(
   "  --dir <path>            extraction directory written by `scphasedcn run` (bins_100kb.h5ad, fragments.tsv.gz + .tbi,",
   "                          cells_qc.tsv)",
   "  --out <dir>             output directory (with --config / --sample: default <outputs.root>/<sample>/caller/<tag>)",
-  "  --sex female|male       sample sex (required unless the sample yaml gives it)",
+  "  --sex female|male       sample sex (required unless the sample yaml gives it; also F / M, any case)",
   "  --config <yaml>         sample yaml (layout: system.file('extdata', 'sample_template.yaml', package = 'scphasedcn');",
   "                          default: the SCPHASEDCN_SAMPLE_CONFIG environment variable)",
   "  --sample <key>          sample of the --config yaml (extraction dir, sex, events, type)",
@@ -87,6 +87,7 @@ if (!nzchar(a$features) && !file.exists(file.path(dir, "bins_100kb.h5ad"))) fail
 mode = if (nzchar(a$mode)) a$mode else if (identical(s$type, "tumour")) "tumour" else "normal"
 if (!mode %in% c("normal", "tumour")) fail("--mode must be normal or tumour")
 sex = if (nzchar(a$sex)) a$sex else s$sex
+if (!is.null(sex)) sex = tryCatch(scphasedcn:::check_sex(sex, "--sex"), error = function(e) fail(conditionMessage(e)))
 events = if (nzchar(a$events)) {
   kv = strsplit(split_list(a$events), "=", fixed = TRUE)
   setNames(vapply(kv, `[`, "", 2), vapply(kv, `[`, "", 1))

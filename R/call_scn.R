@@ -298,8 +298,8 @@ utils::globalVariables(c("st", "k", "region"))
 #' @param cell_meta NULL, a table or a TSV path with `cell` and optional `cell_type, flat, fold, group,
 #'   stratum, n_frag` (passed to [cell_features()]; `flat` becomes the features' `null_cell`)
 #' @param cells NULL (QC-pass cells) or the cells to call (vector or file)
-#' @param sex "female" / "male" (required for real data; NULL uses a `sex` column of `cells_qc.tsv` if there is one, as in
-#'   simulated data)
+#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
+#'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data)
 #' @param events named events: a table `region, chrom, start, end`, [cli_events()] output or a named vector of
 #'   region strings (`20q_gain = "chr20:28000000-"`); scored as `event` regions; in tumour mode their chromosomes
 #'   are excluded from the null rows
@@ -332,6 +332,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
                     keep_scores = TRUE, caller_args = list(), ...) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   mode = match.arg(mode)
+  sex = check_sex(sex, "call_scn")
   # caller argument blocks of the parameters (caller_params `normal:` / `tumour:`); caller_args take precedence
   sp = split_params(params)
   params = sp$params

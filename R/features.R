@@ -61,11 +61,12 @@ cell_qc = function(scn, min_frag = 5000, min_mapq60 = 0.5, max_chrM = 0.2, param
 #' (`params$acrocentric_p`) are dropped; chrY arms are kept only for males.
 #' @param centromeres path or table of the Battenberg coordinates
 #' @param chrom_sizes named chromosome sizes (arms are made for these chromosomes only)
-#' @param sex "female" or "male"
+#' @param sex "female" or "male" (case-insensitive, or "F" / "M"; any other value stops)
 #' @param params [caller_defaults()]
 #' @return data.table `region, chrom, arm, start, end`
 #' @export
 arm_table = function(centromeres, chrom_sizes, sex = "female", params = caller_defaults()) {
+  sex = check_sex(sex, "arm_table")
   ce = if (is.character(centromeres)) fread(centromeres) else copy(as.data.table(centromeres))
   setnames(ce, 1:5, c("chrom", "cstart", "cen_left", "cen_right", "cend"))
   ce[, chrom := as.character(chrom)]
@@ -179,7 +180,7 @@ region_bin_matrix = function(bins, regions, use = NULL) {
 #' @param classes region classes to build (`arm`, `chrom`, tile labels); `event` is added when `events` is given
 #' @param events NULL, a data.table `region, chrom, start, end` (NA end = chromosome end), [cli_events()]
 #'   output or a named vector of region strings
-#' @param sex "female" or "male"
+#' @param sex "female" or "male" (case-insensitive, or "F" / "M"; any other value stops)
 #' @param null_exclude chromosomes (or region names) whose regions never contribute null rows
 #' @param use logical bin filter (NULL = all bins)
 #' @param params [caller_defaults()]
@@ -187,6 +188,7 @@ region_bin_matrix = function(bins, regions, use = NULL) {
 #' @export
 region_set = function(bins, centromeres, classes = c("arm", "chrom", "5Mb", "10Mb", "20Mb", "50Mb"), events = NULL,
                       sex = "female", null_exclude = character(), use = NULL, params = caller_defaults()) {
+  sex = check_sex(sex, "region_set")
   bins = as.data.table(bins)
   use = if (is.null(use)) rep(TRUE, nrow(bins)) else as.logical(use)
   bad = setdiff(classes, c("arm", "chrom", names(params$tile_sizes), "event"))
@@ -748,7 +750,7 @@ read_sample_depth = function(dir, layers = character()) {
 #' @param ref_cells reference cells of the normalisation (selector; NULL = all)
 #' @param min_cells_type celltype: minimal reference cells of a type
 #' @param use NULL or a logical bin filter
-#' @param sex "female" / "male" (NULL: the cells' `sex` column)
+#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' `sex` column)
 #' @param centromeres centromere table or path (Battenberg layout, see [arm_table()]; NULL: the hg38 table shipped with
 #'   the package, [hg38_centromeres()])
 #' @param classes region classes
@@ -775,6 +777,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   method = norm_method(method)
   phasing = match.arg(phasing, c("auto", "chromosome", "block", "loo", "mirrored"))
+  sex = check_sex(sex, "cell_features")
   t0 = Sys.time()
   notes = character()
   note = function(...) {
@@ -795,6 +798,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   note(sprintf("cells: %d of %d (%s)", length(keep), nrow(scn$cells), if (is.null(cells)) "QC pass" else "given"))
   sex = sex %||% (if ("sex" %in% names(scn$cells)) as.character(scn$cells$sex[1]) else NULL)
   if (is.null(sex) || is.na(sex)) stop("cell_features: `sex` is needed")
+  sex = check_sex(sex, "cell_features")
   scn = subset_scn(scn, cells = keep)
 
   # cell metadata: QC defaults, cell_meta used as-is

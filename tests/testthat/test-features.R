@@ -283,3 +283,22 @@ test_that("orient_blocks reproduces the reference leave-one-out orientation exac
   }
   expect_false(exists("read_phase_prior", envir = asNamespace("scphasedcn"), inherits = FALSE))
 })
+
+test_that("sex is validated at the entry points: female / male in any case or F / M, anything else stops", {
+  bins = sim_genome()
+  ce = sim_centromeres(bins)
+  cs = chrom_sizes_from_bins(bins)
+  expect_identical(check_sex("Male"), "male")
+  expect_identical(check_sex("F"), "female")
+  expect_identical(check_sex(" FEMALE "), "female")
+  expect_null(check_sex(NULL))
+  expect_identical(arm_table(ce, cs, "M"), arm_table(ce, cs, "male"))
+  expect_identical(region_set(bins, ce, classes = c("arm", "chrom"), sex = "Male"), region_set(bins, ce, classes = c("arm", "chrom"), sex = "male"))
+  expect_false(any(region_set(bins, ce, classes = c("arm", "chrom"), sex = "Male")[chrom == "chrX", allelic_ok]))
+  for (bad in list("mal", "unknown", NA_character_, c("female", "male"), ""))
+    expect_error(arm_table(ce, cs, bad), "`sex` must be")
+  expect_error(region_set(bins, ce, sex = "XY"), "region_set: `sex` must be")
+  expect_error(cell_features(tempfile(), sex = "Mle"), "cell_features: `sex` must be")
+  expect_error(call_scn(tempfile(), sex = "boy"), "call_scn: `sex` must be")
+  expect_error(caller_normal(data.table(), sex = "Mann"), "caller_normal: `sex` must be")
+})

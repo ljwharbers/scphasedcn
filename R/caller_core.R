@@ -56,10 +56,11 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'     with the class threshold as fallback (TRUE; no effect in females);
 #'   * `chrx_allelic` normal mode, females: score chrX rows with the allele channel (TRUE, the default) or on
 #'     depth only (FALSE: [caller_normal()] drops the chrX allele votes before scoring and treats the rows like
-#'     male chrX, `allelic_ok = FALSE`, so purely allelic states such as CN-LOH are not scored there).
+#'     male chrX, `allelic_ok = FALSE`, so purely allelic states such as CN-LOH are not scored there, and
+#'     thresholds them with depth-only thresholds of the autosomal null rows, [depth_only_thresholds()]).
 #'     X-inactivation makes every female cell allelically imbalanced on chrX, so with TRUE chrX collects
-#'     allele-driven "gains" / CN-LOH without depth support. The null cells, the null fits, the thresholds and
-#'     every autosomal score are the same either way; chrX pools of a female stay non-reportable
+#'     allele-driven "gains" / CN-LOH without depth support. The null cells, the null fits, the default
+#'     thresholds and every autosomal score are the same either way; chrX pools of a female stay non-reportable
 #'     ([call_policy()]). No effect in males, on the features, or in tumour mode (which drops the chrX votes
 #'     itself, [clone_defaults()] `allelic_exclude`);
 #'   * `pool_tail_q` pooled per-region tail calibration ([pool_scale()]): quantile of the region-standardised

@@ -98,8 +98,11 @@ Female chrX (\code{params$chrx_allelic}): with TRUE (the default) female chrX ro
 and thresholded like autosomal rows. With FALSE the scorer drops their allele votes (\code{nA}, \code{nB}, \code{n_hap},
 \code{n_blocks} 0, \code{f} NA, \code{allelic_ok} FALSE in \code{scores}; the features are not changed) after the null-cell
 selection, so they are scored on depth only as male chrX is (no CN-LOH, gains need depth): X-inactivation
-otherwise turns every female cell's chrX into an allelic "gain" / CN-LOH candidate. The null cells, the null
-fits, the thresholds and every autosomal score are unchanged (chrX rows are not null rows with the default
+otherwise turns every female cell's chrX into an allelic "gain" / CN-LOH candidate. These rows are marked
+\code{chan = "depth"} and thresholded with \code{\link[=depth_only_thresholds]{depth_only_thresholds()}} (the autosomal null rows scored on depth only;
+rows with \code{chan = "depth"} in \code{thresholds}): the default thresholds are quantiles of scores that include the
+allele term and would let depth-only rows through far above the budget. The null cells, the null fits, the
+default thresholds and every autosomal score and call are unchanged (chrX rows are not null rows with the default
 \code{null_chroms}), and female chrX pools stay non-reportable: their pooled null would need female chrX rows of
 the null cells (not screened on chrX) in the pooled null, which would also move the autosomal pooled
 thresholds through the class-level region scale.

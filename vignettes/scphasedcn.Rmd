@@ -28,7 +28,8 @@ Two modes:
   are also called in pools (random pools within a cell type, chromatin-kNN pools). Male chrX is scored on depth only.
   Female chrX is scored with both channels per cell by default, but X-inactivation makes every female cell
   allelically imbalanced there, so on real data it collects allele-only "gains" / CN-LOH; `chrx_allelic: false` in
-  the caller config scores it on depth only (autosomal calls and thresholds do not change). Female chrX pools are not
+  the caller config scores it on depth only, with thresholds of the autosomal null rows scored on depth only
+  (autosomal calls and thresholds do not change). Female chrX pools are not
   reportable.
 - **tumour** (`mode = "tumour"`): clones. The caller discovers clones, fits their allele-specific copy-number states,
   re-assigns every cell by likelihood and reports per-cell calls inherited from the clone or confirmed by the cell.

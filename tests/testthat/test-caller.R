@@ -898,3 +898,54 @@ test_that("masked atoms are absent from the allele region sums (allelic_features
   expect_true(any(grepl("masked atoms", fu$notes)))
   expect_error(update_allelic_features(fo[setdiff(names(fo), "votes")], ex), "votes")
 })
+
+# ---- named events (class `event`: no null rows) ------------------------------------------------------------------
+
+test_that("named event regions borrow the thresholds of their sd_class (per cell and pooled); other classes unchanged", {
+  rg0 = fake_regions(tiles = c("20Mb" = 2e7))
+  ev_row = copy(rg0[region == "chr8"])[, `:=`(region = "chr8_event", class = "event", sd_class = "chrom", null_region = FALSE)]
+  rg = rbind(rg0, ev_row)
+  ff = fake_features(300, rg, events = data.table(cell = 1:12, region = "chr8_event", state = "loss"), seed = 21)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  res = caller_normal(ff, regions = rg, null_cells = "features", n_draws = 1500)
+  th = res$thresholds
+  expect_true("borrowed_from" %in% names(th))
+  te = th[level == "cell" & class == "event"]
+  expect_gt(nrow(te), 0)
+  expect_false(anyNA(te$thr))
+  expect_true(all(te$borrowed_from == "chrom"))
+  tc = th[level == "cell" & class == "chrom"]
+  k = match(paste(te$score, te$stratum, te$fold), paste(tc$score, tc$stratum, tc$fold))
+  expect_false(anyNA(k))
+  expect_identical(te$thr, tc$thr[k])
+  expect_true(all(is.na(th[class != "event", borrowed_from])))
+  # per-cell rows carry the borrowed threshold; the spiked carriers are called (reportable events)
+  ev_sc = res$scores[region == "chr8_event"]
+  expect_false(anyNA(ev_sc$thr_s_comb))
+  ce = res$calls[level == "cell" & region == "chr8_event" & called & state == "loss"]
+  expect_gte(sum(sprintf("cell_%04d", 1:12) %in% ce$cell), 10)
+  expect_true(all(ce$reportable))
+  expect_lt(sum(!ce$cell %in% sprintf("cell_%04d", 1:12)), 3)
+  # pooled: a non-NA borrowed threshold, and the event's pools are thresholded
+  tp = th[level == "pool_type" & class == "event"]
+  expect_gt(nrow(tp), 0)
+  expect_false(anyNA(tp$thr))
+  expect_true(all(tp$borrowed_from == "chrom"))
+  pe = res$calls[level == "pool" & region == "chr8_event"]
+  expect_gt(nrow(pe), 0)
+  expect_false(anyNA(pe$thr))
+  # the other classes: identical thresholds and calls without the event row
+  r0 = caller_normal(ff[class != "event"], regions = rg0, null_cells = "features", n_draws = 1500)
+  expect_false("borrowed_from" %in% names(r0$thresholds))
+  th1 = th[class != "event"][, borrowed_from := NULL]
+  expect_identical(th1, r0$thresholds)
+  expect_identical(res$calls[region != "chr8_event"], r0$calls)
+  # vote calibration: the event rows take the vote strata of their sd_class
+  p = modifyList(caller_defaults(), list(calib = "votes", min_null_rows = 200))
+  rv = caller_normal(ff, regions = rg, null_cells = "features", n_draws = 500, pool_classes = character(), params = p)
+  sv = rv$scores[region == "chr8_event"]
+  expect_true(all(sv$hstratum %in% c(rv$null_fit$vote_bins[class == "chrom", hstratum], "none")))
+  expect_false(anyNA(sv$thr_s_comb))
+  tv = rv$thresholds[level == "cell" & class == "chrom" & score == "s_comb"]
+  expect_identical(sv$thr_s_comb, tv$thr[match(paste(sv$stratum, sv$hstratum, sv$fold), paste(tv$stratum, tv$hstratum, tv$fold))])
+})

@@ -320,3 +320,24 @@ test_that("call_scn.R --cell-meta without qc_pass applies the cell QC (as the R 
   expect_null(attr(log, "status"))
   expect_setequal(fread(file.path(out, "cells.tsv"))$cell, api)
 })
+
+test_that("params.yaml round-trips empty vectors and strings with backslashes / quotes", {
+  p = caller_defaults()
+  p$tabix = "C:\\tools\\tabix \"v2\""
+  p$tumour = clone_defaults()
+  p$tumour$allelic_exclude = character()
+  p$tumour$checkpoint = "ck\\run\t1.rds"
+  p$normal = normal_arg_defaults()
+  tf = tempfile(fileext = ".yaml")
+  writeLines(c("# scphasedcn caller parameters", yaml_lines(p)), tf)
+  r = caller_params(tf)
+  expect_identical(r$tumour$allelic_exclude, character())             # not the default chrX, chrY
+  expect_identical(r$tabix, p$tabix)
+  expect_identical(r$tumour$checkpoint, p$tumour$checkpoint)
+  expect_equal(r, p)
+  # a null keeps the default, an empty list is empty
+  writeLines(c("tumour:", "  allelic_exclude: null", "  mix_w: []"), tf)
+  r2 = caller_params(tf)
+  expect_identical(r2$tumour$allelic_exclude, c("chrX", "chrY"))
+  expect_identical(r2$tumour$mix_w, numeric())
+})

@@ -24,7 +24,7 @@ utils::globalVariables(c("called", "reportable", "level", "cell", "n_calls", "n_
 #' [caller_defaults()] updated from a YAML file (default `inst/config/caller.yaml` of the package: one key per
 #' default, named vectors as maps) and then from `overrides`. Values are coerced to the type of the default
 #' (numeric, logical, character; names kept for named vectors). Empty strings and nulls keep the default
-#' (e.g. `tabix: ""` = the `tabix` on the PATH). Unknown keys in the file are ignored with a
+#' (e.g. `tabix: ""` = the `tabix` on the PATH); an empty list (`[]`) is an empty vector (e.g. `allelic_exclude: []`). Unknown keys in the file are ignored with a
 #' warning; unknown keys in `overrides` are added as-is.
 #'
 #' Two optional blocks hold the arguments of the two callers: `tumour:` (tumour-mode options, any
@@ -90,9 +90,15 @@ split_params = function(params) {
   list(params = params[setdiff(names(params), c("tumour", "normal"))], tumour = params$tumour, normal = params$normal)
 }
 
-# coerce a config value to the type (and names) of the default; NULL / "" / "null" / "~" keep the default
+# coerce a config value to the type (and names) of the default; NULL / "" / "null" / "~" keep the default; an empty
+# list (`key: []`) is an empty vector of the default's type (e.g. allelic_exclude: [] = no excluded chromosome)
 coerce_param = function(v, def) {
-  if (is.null(v) || length(v) == 0) return(NULL)
+  if (is.null(v)) return(NULL)
+  if (length(v) == 0) {
+    out = if (is.logical(def)) logical() else if (is.numeric(def)) numeric() else character()
+    if (!is.null(names(def))) names(out) = character()
+    return(out)
+  }
   nm = names(v)
   if (is.list(v)) { nm = names(v); v = unlist(v, use.names = FALSE) }
   if (is.character(v) && length(v) == 1 && v %in% c("", "null", "NULL", "~")) return(NULL)
@@ -107,7 +113,11 @@ yaml_lines = function(x, indent = 0) {
   q = function(v) {
     if (is.logical(v)) return(ifelse(is.na(v), "null", ifelse(v, "true", "false")))
     if (is.numeric(v)) return(ifelse(is.na(v), "null", format(v, scientific = FALSE, trim = TRUE, digits = 15)))
-    sprintf("\"%s\"", gsub("\"", "\\\\\"", as.character(v)))
+    # YAML double-quoted scalars: escape backslashes first, then quotes and control characters
+    e = gsub("\\", "\\\\", as.character(v), fixed = TRUE)
+    e = gsub("\"", "\\\"", e, fixed = TRUE)
+    e = gsub("\n", "\\n", e, fixed = TRUE); e = gsub("\t", "\\t", e, fixed = TRUE); e = gsub("\r", "\\r", e, fixed = TRUE)
+    sprintf("\"%s\"", e)
   }
   out = character()
   for (k in names(x)) {

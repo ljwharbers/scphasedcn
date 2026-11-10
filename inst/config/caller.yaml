@@ -49,6 +49,7 @@ tumour:                     # tumour mode: clone_defaults() options (CLI --confi
   confirm_sided: "two"      # allele term of the per-cell confirmation (cells and null rows): "two" (two-sided) or "one" (only the clone's major haplotype)
   ref_null: "none"          # confirmation rho refitted on the clean reference pool: "none" or "rho"
   split_pass: false         # final clone split pass: false or "disagree" (members disagree with the clone state)
+  profile_orient: "ps"      # clone profiles: split-half vote orientation per chromosome x phase set ("ps") or per window x phase set ("window")
   perm_decision: "quantile" # merge / split tests: "quantile" (observed above the 0.999 quantile of 200 permutations, ~6 false splits / 1,000 tests) or "pvalue" (permutation p <= 1 - q, >= 999 permutations, early stop)
   em_rounds: 2              # hard-EM assignment rounds
   checkpoint: ""            # resume cache (.rds) of the global discovery and first round; "" = off

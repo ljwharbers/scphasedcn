@@ -47,6 +47,9 @@ utils::globalVariables(c(
 #' state; `split_sep`, `split_max` splits per pass, `split_cand` candidates tested per clone, `split_min_len` minimal
 #' segment length, `split_min_df` major-fraction step of an alternative between amplified states, see
 #' [split_alt_states()], `split_min_excess` minimal contradiction above its noise floor).
+#' Clone profiles ([clone_profiles()], `profile_orient`): the split-half vote orientation per chromosome x phase set
+#' (`"ps"`, default) or per profile window x phase set (`"window"`: a phase set that spans two events on opposite
+#' haplotypes, e.g. a chromosome-wide one, is oriented separately in each window; fewer votes per orientation unit).
 #' Normal hypothesis (`normal_hypothesis`): a fixed all-neutral clone `N0` replaces every fitted clone without a
 #' non-neutral segment >= `normal_min_event` bp in each round. States: `size_small`, `small_clone`, `p_switch`, `min_win`, `min_llr`;
 #' segment rules of [segment_clone()] (all segmentations of the run, including the split pass): `min_excess` (pooled
@@ -83,7 +86,8 @@ utils::globalVariables(c(
 #' @export
 clone_defaults = function() {
   list(classes = c("arm", "20Mb"), depth_delta = 0.2, cap = 6, min_n = 5, n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
-       q = 0.999, n_perm = 200, perm_decision = "quantile", max_cells = 250, size_small = 5e6, small_clone = 50, split_depth = TRUE,
+       q = 0.999, n_perm = 200, perm_decision = "quantile", max_cells = 250, size_small = 5e6, small_clone = 50,
+       profile_orient = "ps", split_depth = TRUE,
        trunk_dist = 3e7, trunk_post = 0.9, disp_min = 1.5, imb_min = 1, deep_q = 0.5, depth_w = 1,
        max_leaves_trunk = 20, n_nb_trunk = Inf, split_pass = FALSE, split_sep = 2, split_max = 4, split_cand = 3,
        split_min_len = 1e7, split_min_df = 0.15, split_min_excess = 0.05,
@@ -112,6 +116,7 @@ check_clone_opts = function(opts) {
   opts$confirm_null = match.arg(as.character(opts$confirm_null)[1], c("generic", "matched"))
   opts$confirm_sided = match.arg(as.character(opts$confirm_sided)[1], c("two", "one"))
   opts$perm_decision = match.arg(as.character(opts$perm_decision)[1], c("quantile", "pvalue"))
+  opts$profile_orient = match.arg(as.character(opts$profile_orient)[1], c("ps", "window"))
   for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len")) {
     v = opts[[k]]
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
@@ -339,7 +344,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       # shared window bias, which the reference removes from the depth); none -> median-centred profiles
       ref_cells = character()
       p0 = clone_profiles(inp$win, inp$votes, inp$atoms, members, size = size, seed = params$seed, cells = cells,
-                          rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid)
+                          rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid, orient = opts$profile_orient)
       f0 = fit_states(p0, grid)
       s0 = segment_clone(f0, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
                         opts$max_contra)
@@ -356,7 +361,8 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       }
     }
     prof = clone_profiles(inp$win, inp$votes, inp$atoms, members, ref_cells = ref_cells, size = size, seed = params$seed,
-                          cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid, min_ref = opts$min_ref)
+                          cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid, min_ref = opts$min_ref,
+                          orient = opts$profile_orient)
     fit = fit_states(prof, grid)
     seg = segment_clone(fit, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
                        opts$max_contra)

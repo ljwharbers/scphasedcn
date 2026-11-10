@@ -16,7 +16,8 @@ clone_profiles(
   rho = 0.01,
   allelic_chroms = NULL,
   haploid = character(),
-  min_ref = 30
+  min_ref = 30,
+  orient = c("ps", "window")
 )
 }
 \arguments{
@@ -41,6 +42,9 @@ clone_profiles(
 \item{haploid}{chromosomes with one copy in a normal cell (male chrX / chrY): \code{ploidy} 1}
 
 \item{min_ref}{minimal reference pool size}
+
+\item{orient}{unit of the split-half vote orientation: \code{"ps"} (chromosome x phase set) or \code{"window"} (window x phase
+set)}
 }
 \value{
 data.table clone, window, chrom, start, end, ploidy, base (copy number of log2 = 0: the ploidy when
@@ -52,7 +56,9 @@ Per clone x window (1 Mb, or \code{size}): depth log2 of the pooled counts (\ver
 centred on the clone's autosomal median (states are relative to the clone baseline); SE = SD of the
 per-cell window log2 ratios / sqrt(cells) (combined with the reference SE). Haplotype fraction: the
 clone's cells are split into two random halves; each phase block is oriented on one half and counted on
-the other, summed per window: \code{nA}, \code{nB}, \code{n_hap}, \code{f}, \code{f_se} (binomial SE x
+the other (\code{orient = "ps"}: one orientation per chromosome x phase set; \code{"window"}: per window x phase set, so a
+phase set that spans events on opposite haplotypes, e.g. a chromosome-wide one, is oriented separately in each
+window, at the cost of fewer votes per orientation), summed per window: \code{nA}, \code{nB}, \code{n_hap}, \code{f}, \code{f_se} (binomial SE x
 the beta-binomial inflation \code{1 + (nbar - 1) * rho}, nbar = molecule-weighted molecules per cell), and
 \code{n_blocks}.
 }

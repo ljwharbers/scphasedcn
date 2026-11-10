@@ -8,36 +8,52 @@ haploid_thresholds(
   sc,
   thr_auto,
   scores = c("s_depth", "s_allelic", "s_comb"),
-  params = caller_defaults()
+  params = caller_defaults(),
+  states = caller_states("normal", params),
+  tpar = NULL,
+  depth_model = c("t", "gauss"),
+  z_scale = NULL
 )
 }
 \arguments{
-\item{sc}{scored rows (\code{\link[=score_cells]{score_cells()}}) with \code{ploidy}, \code{chrom}, \code{null_cell}, \code{eligible}, \code{fold}, \code{log2ratio} and the
-\code{by} columns}
+\item{sc}{scored rows (\code{\link[=score_cells]{score_cells()}}) with \code{ploidy}, \code{chrom}, \code{is_null}, \code{fold}, \code{z}, \code{sd_null}, \code{e} and the \code{by}
+columns}
 
 \item{thr_auto}{the autosomal per-cell thresholds (\code{\link[=budget_thresholds]{budget_thresholds()}})}
 
 \item{scores}{score columns}
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+
+\item{states}{state set of the two-copy rows (\code{\link[=caller_states]{caller_states()}}; its one-copy table is used)}
+
+\item{tpar}{\code{\link[=fit_depth_null]{fit_depth_null()}} output (t model; NULL = Gaussian)}
+
+\item{depth_model}{"t" or "gauss"}
+
+\item{z_scale}{NULL or the \code{\link[=haploid_z_scale]{haploid_z_scale()}} table: the null rows of group X / Y are scored with that group's
+spread \code{k} of their \code{sd_class} (z x k with \code{z_scale} k, i.e. shift / (sd_null k) on the autosomal z), as the
+one-copy rows are}
 }
 \value{
-thresholds table (check_thresholds schema) of the one-copy groups, with column \code{sexgrp}; attribute \code{own}
-(sexgrp, class, n_null) lists the classes with thresholds of their own and their null rows
+thresholds table (check_thresholds schema) of the one-copy groups, with columns \code{sexgrp} and \code{null_source}
 }
 \description{
 With \code{params$haploid_model} the rows with \code{ploidy} 1 (male chrX / chrY) are depth-only and scored with the
-one-copy states and a one-sided depth term (\code{\link[=score_cells]{score_cells()}}). The autosomal class x stratum thresholds do not fit
-them: on autosomal null rows the allele term pulls every non-neutral state far below 0 (a chromosome row carries
-hundreds of balanced votes), so the 0.999 quantile of \code{s_comb} is negative for the large classes and a
-depth-only row exceeds it far more often than 1 in 1,000. Per sex chromosome (\code{sexgrp} X / Y) the thresholds are
-therefore \code{\link[=budget_thresholds]{budget_thresholds()}} (same \code{by}, folds, quantile and class x stratum -> class fallback) on the
-one-copy null rows: the one-copy arm, chromosome and tile rows of the null cells (eligible), leaving out a cell
-whose chromosome row of that sex chromosome has a \code{log2ratio} beyond the midpoint between neutral and a one-copy
-state (below \code{haploid_shifts["loss"] / 2} or above \code{haploid_shifts["gain"] / 2}: an evident whole-chromosome event
-such as mosaic loss of Y, which the autosomal null-cell selection does not see). A class without such null rows, or
-every class with \code{params$haploid_thr = FALSE}, keeps the autosomal thresholds of its class x stratum
-(\code{pooled_fallback = TRUE}). With fewer than \code{1 / (1 - null_q)} null rows in a class the empirical quantile sits at
-the largest null scores, so the false-call rate of small samples is only bounded by about one over the number of
-null rows.
+one-copy states and a one-sided depth term (\code{\link[=score_cells]{score_cells()}}). The autosomal class x stratum thresholds of \code{s_comb}
+do not fit them: on autosomal null rows the allele term pulls every non-neutral state far below 0 (a chromosome
+row carries hundreds of balanced votes), so the 0.999 quantile is negative for the large classes and a depth-only
+row exceeds it far more often than 1 in 1,000.
+}
+\details{
+With \code{params$haploid_thr} (default) the thresholds of the one-copy rows come from the autosomal null rows (\code{is_null})
+scored as one-copy rows: depth only (no allele term), the one-copy states (\code{\link[=caller_states]{caller_states()}} \code{ploidy = 1}) at each null
+row's own expected count \code{e}, the one-sided depth term and the same Student-t null fit \code{tpar} of the row's class x
+stratum (z is already standardised per cell by \code{sd_null}; the one-copy rows themselves are brought to this scale by
+their \code{z_scale}, \code{\link[=haploid_z_scale]{haploid_z_scale()}}); then \code{\link[=budget_thresholds]{budget_thresholds()}} (type-7 \code{null_q} quantile per
+class x stratum, fold-cross-validated, class fallback below \code{min_null_rows}). This null is as large as the autosomal
+one and is not selected on the sex chromosomes, so mosaic sex-chromosome events of the null cells (e.g. loss of Y)
+cannot enter it. The same thresholds serve chrX and chrY (\code{sexgrp} X / Y). With \code{haploid_thr = FALSE} the one-copy
+rows keep the autosomal \code{s_comb} thresholds of their class x stratum. Column \code{null_source} says which:
+\code{autosomal_depth_only} or \code{autosomal}.
 }

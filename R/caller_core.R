@@ -40,7 +40,7 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'     and in tumour mode): the usable chrY bins enter the features (depth only, expected depth from the same-sample
 #'     pseudobulk with the cell's size factor of the other bins, so one copy is neutral), regions of male chrX / chrY
 #'     get `ploidy` 1 and are scored with `haploid_shifts` and a one-sided depth term ([ll_depth_shift()]
-#'     `one_sided`), and their per-cell thresholds come from their own null rows (`haploid_thr`). Loss of Y and male X
+#'     `one_sided`), and their per-cell thresholds come from the autosomal null rows scored the same way (`haploid_thr`). Loss of Y and male X
 #'     gains / losses become callable per cell. chrY has chromosome and tile regions only (the bundled centromere
 #'     table has no chrY row, and Yp is mostly PAR1 / X-transposed sequence);
 #'   * `haploid_shifts` log2 depth shifts of a complete loss (1 -> 0 copies, -6.16) and a gain (1 -> 2 copies, +0.98) on a
@@ -49,9 +49,12 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'     haploid shift = log2(1 + a (r_haploid - 1))). Per row the shift is the log2 ratio of the expected count at that
 #'     shift with the pseudocount of the features, `log2((2^h e + 0.5) / (e + 0.5))`, so a complete loss of a region
 #'     with few expected fragments still reaches it;
-#'   * `haploid_thr` with `haploid_model`: the one-copy rows get per-cell thresholds of their own (per sex chromosome,
-#'     class x stratum, from the one-copy rows of the null cells; [haploid_thresholds()]) instead of the autosomal
-#'     class x stratum thresholds, which do not fit depth-only rows (TRUE);
+#'   * `haploid_thr` with `haploid_model`: the per-cell thresholds of the one-copy rows come from the autosomal null rows
+#'     scored depth-only as one-copy rows (same t null, one-sided term; [haploid_thresholds()]); FALSE: the autosomal
+#'     `s_comb` thresholds, which do not fit depth-only rows (TRUE);
+#'   * `haploid_scale` with `haploid_model`: the one-copy rows are scored on the autosomal null scale, their z divided
+#'     by the robust ratio of their null spread to the autosomal one per sex chromosome x `sd_class`
+#'     ([haploid_z_scale()]; half the fragments and chrY mappability widen it) (TRUE);
 #'   * `acrocentric_p` arms without unique sequence, never regions;
 #'   * `min_null_rows` fewer null rows than this in a class x stratum fall back to the pooled threshold (5000);
 #'   * `tabix` path of the tabix binary ("" = the `tabix` on the PATH; none = the R fallback); `seed` RNG seed (1);
@@ -94,6 +97,7 @@ caller_defaults = function() {
     haploid_model = FALSE,
     haploid_shifts = c(loss = -6.16, gain = 0.98),
     haploid_thr = TRUE,
+    haploid_scale = TRUE,
     acrocentric_p = paste0("chr", c(13, 14, 15, 21, 22), "p"),
     min_null_rows = 5000,
     tabix = "",

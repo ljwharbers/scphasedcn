@@ -951,31 +951,95 @@ test_that("score_cells: one-copy rows get the one-sided one-copy depth term only
   expect_true(all(cl$dl_loss >= max(x[cell != "cell_0001", dl_loss])))
 })
 
-test_that("haploid_thresholds: own one-copy null per sex chromosome, event cells left out, autosomal fallback", {
-  set.seed(52)
-  mk = function(n, chrom, class, ploidy, s, lr = 0) data.table(cell = sprintf("c%04d", seq_len(n)), region = paste(chrom, class), chrom = chrom,
-                                                               class = class, stratum = "20-50k", fold = (seq_len(n) - 1L) %% 4L + 1L,
-                                                               null_cell = TRUE, eligible = TRUE, ploidy = ploidy, s_comb = s, log2ratio = lr)
-  n = 2000
-  d = rbind(mk(n, "chr1", "chrom", 2L, rnorm(n, -10, 1)), mk(n, "chrX", "chrom", 1L, rnorm(n, 0, 1)),
-            mk(n, "chrY", "chrom", 1L, rnorm(n, 0, 1), lr = c(rep(-5, 100), rep(0, n - 100))))
-  d[chrom == "chrY" & log2ratio < -3, s_comb := 30]                         # 5 % of the null cells lost Y
-  th = budget_thresholds(d[chrom == "chr1"], "s_comb", null = rep(TRUE, n))
-  h = haploid_thresholds(d, th, "s_comb")
-  expect_setequal(h$sexgrp, c("X", "Y"))
+test_that("haploid_thresholds: the autosomal null rows scored depth-only as one-copy rows; mosaic loss of Y cannot lower them", {
+  bins = sim_genome(c(chr1 = 60e6, chr2 = 40e6, chr8 = 30e6, chrX = 40e6, chrY = 20e6))
+  rg = fake_regions(bins, tiles = c("10Mb" = 1e7), sex = "male")
+  rg[, null_region := !chrom %in% c("chrX", "chrY")]
+  ff = fake_features(400, rg, seed = 53)
+  sx = ff$chrom %in% c("chrX", "chrY")
+  ff[sx, `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_)]
+  ff[, `:=`(ploidy = fifelse(chrom %in% c("chrX", "chrY"), 1L, 2L), allelic_ok = !chrom %in% c("chrX", "chrY"))]
+  ff[, is_null := null_cell & null_region & eligible]
+  sc_ = c("s_depth", "s_allelic", "s_comb")
+  p1 = modifyList(caller_defaults(), list(haploid_model = TRUE))
+  st = caller_states("normal", p1)
+  run = function(f, scale = FALSE) {
+    tp = complete_tpar(f, fit_depth_null(f[is_null == TRUE]))
+    hz = if (scale) haploid_z_scale(f) else NULL
+    if (scale) f = copy(f)[, z_scale := fifelse(ploidy == 1L, hz$scale[match(paste(sex_group(chrom), sd_class), paste(hz$sexgrp, hz$sd_class))], NA_real_)]
+    sc = score_cells(f, st, tp, rho = 0.002, params = p1)
+    thr = budget_thresholds(sc, sc_)
+    sc[, sexgrp := sex_group(chrom)]; thr[, sexgrp := "A"]
+    list(sc = sc, thr = thr, tp = tp, hz = hz, h = haploid_thresholds(sc, thr, sc_, p1, st, tp, z_scale = hz))
+  }
+  r = run(ff); h = r$h
   check_thresholds(h)
-  ref = function(x) unname(quantile(x, 0.999, type = 7))
-  expect_equal(h[sexgrp == "X" & fold == 0, thr], ref(d[chrom == "chrX", s_comb]))
-  expect_equal(h[sexgrp == "Y" & fold == 0, thr], ref(d[chrom == "chrY" & log2ratio > -3, s_comb]))   # LOY cells left out
-  expect_lt(h[sexgrp == "Y" & fold == 0, thr], 30)
-  expect_equal(attr(h, "own")$class, c("chrom", "chrom"))
-  # haploid_thr = FALSE: the autosomal thresholds, flagged as fallback
-  h0 = haploid_thresholds(d, th, "s_comb", modifyList(caller_defaults(), list(haploid_thr = FALSE)))
-  expect_equal(h0[sexgrp == "X"][order(fold), thr], th[order(fold), thr])
-  expect_true(all(h0$pooled_fallback))
-  expect_equal(nrow(attr(h0, "own")), 0)
-  # a class without one-copy null rows falls back too
-  d2 = copy(d)[chrom == "chrX", null_cell := FALSE]
-  h2 = haploid_thresholds(d2, th, "s_comb")
-  expect_equal(h2[sexgrp == "X"][order(fold), thr], th[order(fold), thr])
+  expect_setequal(h$sexgrp, c("X", "Y"))
+  expect_true(all(h$null_source == "autosomal_depth_only"))
+  # reference: the autosomal null rows, depth only, one-copy states at their own e, then the budget thresholds
+  x = ff[is_null == TRUE][, `:=`(ploidy = 1L, nA = 0, n_hap = 0, allelic_ok = FALSE)]
+  xs = score_cells(x, st, r$tp, rho = 0.002, params = p1)
+  expect_true(all(xs$al_loss == 0 & xs$al_gain == 0))
+  ref = budget_thresholds(xs, sc_, null = rep(TRUE, nrow(xs)))
+  k = function(t) paste(t$score, t$class, t$stratum, t$fold)
+  for (g in c("X", "Y")) {
+    hg = h[sexgrp == g]
+    expect_equal(hg$thr, ref$thr[match(k(hg), k(ref))])
+    expect_equal(hg$n_null, ref$n_null[match(k(hg), k(ref))])
+  }
+  expect_equal(h[sexgrp == "X"][order(score, class, stratum, fold), thr], h[sexgrp == "Y"][order(score, class, stratum, fold), thr])
+  # calibrated on one-copy rows of the same null: ~1 / 1,000 false calls on the (neutral) sex-chromosome rows
+  a = apply_thresholds(r$sc, rbind(r$thr, h, fill = TRUE), "s_comb")
+  expect_lte(mean(a[sx & eligible == TRUE, call_s_comb]), 0.004)
+  # mosaic loss of Y in 5 % of the cells (all of them null cells): the thresholds do not move, the losses are called
+  f2 = copy(ff)
+  loy = unique(f2$cell)[seq(1, 400, by = 20)]
+  f2[chrom == "chrY" & cell %in% loy, `:=`(x = 0, log2ratio = log2(0.5 / (e + 0.5)))]
+  f2[chrom == "chrY" & cell %in% loy, z := log2ratio / pmax(sd_null, 0.05)]
+  r2 = run(f2)
+  expect_identical(r2$h, h)
+  # with the null-spread scale (robust MAD of the null cells' one-copy z) the losses can only raise the chrY thresholds
+  rs = run(ff, TRUE); rs2 = run(f2, TRUE)
+  expect_equal(rs$hz$scale, pmax(1, rs$hz$mad_h / rs$hz$mad_a))
+  expect_lt(abs(rs2$hz[sexgrp == "Y" & sd_class == "chrom", scale] - rs$hz[sexgrp == "Y" & sd_class == "chrom", scale]), 0.15)
+  expect_identical(rs2$h[sexgrp == "X"], rs$h[sexgrp == "X"])
+  ky = function(t) t[sexgrp == "Y" & score == "s_comb"][order(class, stratum, fold)]
+  expect_true(all(ky(rs2$h)$thr >= ky(rs$h)$thr - 1e-9))
+  a2 = apply_thresholds(r2$sc, rbind(r2$thr, r2$h, fill = TRUE), "s_comb")
+  expect_true(all(a2[chrom == "chrY" & class == "chrom" & cell %in% loy, call_s_comb & state_comb == "loss"]))
+  # haploid_thr = FALSE: the autosomal s_comb thresholds
+  h0 = haploid_thresholds(r$sc, r$thr, sc_, modifyList(p1, list(haploid_thr = FALSE)), st, r$tp)
+  expect_true(all(h0$null_source == "autosomal"))
+  expect_equal(h0[sexgrp == "X"]$thr, r$thr$thr[match(k(h0[sexgrp == "X"]), k(r$thr))])
+})
+
+test_that("haploid_z_scale: robust null spread of one-copy rows vs the autosomes; score_cells divides it out", {
+  set.seed(54)
+  n = 400
+  mk = function(chrom, ploidy, z) data.table(cell = sprintf("c%04d", seq_len(n)), region = chrom, class = "chrom", sd_class = "chrom",
+                                             chrom = chrom, ploidy = ploidy, z = z, null_cell = TRUE, eligible = TRUE,
+                                             is_null = ploidy == 2)
+  d = rbind(mk("chr1", 2L, rt(n, 7)), mk("chr2", 2L, rt(n, 7)), mk("chrX", 1L, 2 * rt(n, 7)), mk("chrY", 1L, 3 * rt(n, 7)))
+  d[chrom == "chrY" & cell %in% sprintf("c%04d", 1:20), z := -80]          # 5 % of the null cells lost Y
+  hz = haploid_z_scale(d)
+  expect_equal(hz$sexgrp, c("X", "Y"))
+  expect_equal(hz$scale, hz$mad_h / hz$mad_a)
+  expect_equal(hz[sexgrp == "X", scale], 2, tolerance = 0.2)
+  expect_equal(hz[sexgrp == "Y", scale], 3, tolerance = 0.35)               # the losses do not inflate it
+  expect_equal(haploid_z_scale(d[chrom != "chrX" | cell %in% sprintf("c%04d", 1:10)])[sexgrp == "X", scale], 1)   # too few rows
+  d2 = copy(d)[chrom == "chrX", z := z / 4]
+  expect_equal(haploid_z_scale(d2)[sexgrp == "X", scale], 1)                # never narrower than the autosomes
+  # score_cells: z_scale k scores the one-copy rows as z / k with sd_null x k
+  rg = fake_regions(tiles = c("10Mb" = 1e7), sex = "male")
+  ff = fake_features(40, rg, seed = 55)
+  ff[chrom == "chrX", `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_, ploidy = 1L)]
+  ff[chrom != "chrX", ploidy := 2L]
+  tp = complete_tpar(ff, fit_depth_null(ff[chrom != "chrX"]))
+  p1 = modifyList(caller_defaults(), list(haploid_model = TRUE))
+  st = caller_states("normal")
+  a = score_cells(copy(ff)[, z_scale := fifelse(ploidy == 1L, 2, NA_real_)], st, tp, rho = 0.002, params = p1)
+  b = score_cells(copy(ff)[ploidy == 1L, `:=`(z = z / 2, sd_null = pmax(sd_null, 0.05) * 2)], st, tp, rho = 0.002, params = p1)
+  expect_equal(a[chrom == "chrX", dl_loss], b[chrom == "chrX", dl_loss])
+  expect_equal(a[chrom == "chrX", dl_gain], b[chrom == "chrX", dl_gain])
+  expect_identical(a[chrom != "chrX", s_comb], b[chrom != "chrX", s_comb])
 })

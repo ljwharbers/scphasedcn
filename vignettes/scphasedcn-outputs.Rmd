@@ -62,7 +62,9 @@ get a column `ploidy`: 1 on chrX / chrY (one copy is the neutral state there), 2
 scored with a complete loss and a 1 -> 2 gain (`params$haploid_shifts`) and a one-sided depth term, so loss of Y and
 male X gains / losses are called per cell. Their per-cell thresholds have their own rows in `thresholds.tsv`: column
 `sexgrp` is `X` / `Y` for them and `A` for the autosomal rows (pooled thresholds use the same column for their sex
-groups). Without the option there is no `ploidy` column, no chrY region and no `sexgrp` on the per-cell thresholds.
+groups), and `null_source` says where they come from: `autosomal_depth_only` (the autosomal null rows scored
+depth-only as one-copy rows; `params$haploid_thr`, the default) or `autosomal` (the autosomal `s_comb` thresholds).
+Without the option there is no `ploidy` column, no chrY region and no `sexgrp` on the per-cell thresholds.
 
 ## Clone segments (tumour mode)
 

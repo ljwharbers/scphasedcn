@@ -358,9 +358,14 @@ test_that("haploid_model = TRUE: loss of Y and male X gains are called per cell;
   expect_equal(cl[chrom %in% c("chrX", "chrY") & !cell %in% c(car$all[[1]], car$all[[2]]), .N], 0L)
   # without the option loss of Y is not callable (no chrY rows)
   expect_equal(r0$calls[chrom == "chrY", .N], 0L)
-  # one-copy rows have thresholds of their own; their realised false-call rate on the null cells stays small
+  # one-copy rows have thresholds of their own (the autosomal null scored depth-only as one-copy rows); their realised
+  # false-call rate on the null cells stays small
   th = r1$thresholds[level == "cell"]
   expect_setequal(unique(th$sexgrp), c("A", "X", "Y"))
+  expect_true(all(th[sexgrp %in% c("X", "Y"), null_source] == "autosomal_depth_only"))
+  hz = r1$null_fit$haploid_z_scale
+  expect_setequal(hz$sexgrp, c("X", "Y"))
+  expect_true(all(hz$scale >= 1))
   sc = r1$scores[ploidy == 1 & null_cell == TRUE & !(chrom == "chrY" & cell %in% car$all[[1]]) & !(chrom == "chrX" & cell %in% car$all[[2]])]
   expect_lte(mean(sc$call_s_comb), 0.01)
   # autosomes: features, scores, thresholds, cell and pooled calls identical to the run without the option

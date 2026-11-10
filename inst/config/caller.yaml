@@ -27,7 +27,8 @@ haploid_model: false        # normal mode, males (opt-in): chrY bins + one-copy 
 haploid_shifts:              # log2 depth shifts on a one-copy region: complete loss (1 -> 0) and gain (1 -> 2), attenuated as `shifts`
   loss: -6.16
   gain: 0.98
-haploid_thr: true            # haploid_model: per-cell thresholds of the one-copy rows from their own null rows (false: the autosomal ones)
+haploid_thr: true            # haploid_model: one-copy thresholds from the autosomal null rows scored depth-only as one-copy rows (false: the autosomal s_comb ones)
+haploid_scale: true          # haploid_model: one-copy rows scored on the autosomal null scale (robust ratio of their null spread of z)
 acrocentric_p: ["chr13p", "chr14p", "chr15p", "chr21p", "chr22p"]   # arms without unique sequence; never regions
 min_null_rows: 5000         # fewer null rows in a class x stratum -> class-wide (pooled) threshold
 tabix: ""                   # tabix binary; "" = the tabix on the PATH (none: R fallback)

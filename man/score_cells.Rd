@@ -35,7 +35,8 @@ per row (e.g. per chromosome, \code{\link[=rho_by_chrom]{rho_by_chrom()}}); rows
 With \code{params$haploid_model} and a \code{ploidy} column, the rows with \code{ploidy} 1 (male chrX / chrY) take the depth term
 of the one-copy states (\code{\link[=caller_states]{caller_states()}} \code{ploidy = 1}): shift \code{h} per row \verb{log2((2^h e + 0.5) / (e + 0.5))} (the
 row's expected count \code{e}; \code{h} when \code{d} has no \code{e}), \code{\link[=ll_depth_shift]{ll_depth_shift()}} with \code{one_sided = TRUE}; states without a
-one-copy row (CN-LOH) are excluded on those rows (\verb{cl_<state>} = -Inf).}
+one-copy row (CN-LOH) are excluded on those rows (\verb{cl_<state>} = -Inf). A column \code{z_scale} (one-copy rows,
+\code{\link[=haploid_z_scale]{haploid_z_scale()}}) widens their null: the depth term uses \code{z / z_scale} and \verb{sd_null x z_scale}.}
 
 \item{keep_rows}{also return per-row allelic LLRs \verb{ar_<row_id>} (and
 per-row depth LLRs \verb{dr_<row_id>} of multi-shift states); needed by \code{\link[=pool_scores]{pool_scores()}}}

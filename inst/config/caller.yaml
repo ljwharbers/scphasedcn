@@ -35,6 +35,7 @@ mask_allelic: false         # normal mode: leave the votes of allelically overdi
 mask_rho_mad: 2             # mask threshold: log tile rho above the genome median by this many MADs
 mask_min_votes: 3           # tiles with fewer mean votes per null row are not assessed
 pool_sex_thr: true          # males: own pooled threshold group for chrX / chrY (class threshold as fallback)
+chrx_allelic: true          # normal mode, females: chrX scored with alleles (true) or on depth only (false: no X-inactivation driven allelic calls)
 pool_tail_q: 0.99           # pooled per-region tail calibration: quantile of the standardised null pools vs the class (0 = off)
 pool_tail_k: 30             # shrinkage pseudo-count of the pooled tail factor (effective pools)
 pool_tail_xfit: true        # cross-fit the pooled tail: region scale and threshold from pools of disjoint halves of the null cells

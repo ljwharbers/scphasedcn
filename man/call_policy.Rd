@@ -29,7 +29,9 @@ Column \code{chrx} says whether rows on chrX are reportable at that level. In
 normal tissue of a female (or unknown sex) chrX pools are not reportable:
 X-inactivation makes neighbouring cells share the active X, so allelic
 imbalance of chrX at neighbourhood (pool) scale is expected biology, not a
-copy-number event; per-cell chrX calls stay reportable. Male chrX is
+copy-number event; per-cell chrX calls stay reportable (scored with
+alleles, or on depth only with \code{caller_defaults()$chrx_allelic = FALSE},
+\code{\link[=caller_normal]{caller_normal()}}). Male chrX is
 depth-only and its pools are reportable. Pass a policy with \code{chrx = TRUE}
 to override.
 }

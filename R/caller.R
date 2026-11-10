@@ -163,8 +163,8 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
     set(d, j = paste0("cl_", s), value = cs)
     cl[[s]] = cs
   }
-  # depth-only rows (allelic_ok FALSE: male chrX / chrY): a purely allelic state (no depth shift, e.g. CN-LOH) has
-  # no evidence there; its LLR would be 0 and could win the argmax over negative depth states, so it is excluded
+  # depth-only rows (allelic_ok FALSE: male chrX / chrY; female chrX with chrx_allelic FALSE): a purely allelic state
+  # (no depth shift, e.g. CN-LOH) has no evidence there; its LLR would be 0 and could win the argmax over negative depth states, so it is excluded
   noal = if ("allelic_ok" %in% names(d)) which(d$allelic_ok %in% FALSE) else integer()
   if (length(noal)) for (s in pure_allelic_states(ns)) {
     cl[[s]][noal] = -Inf
@@ -715,7 +715,9 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
 #' normal tissue of a female (or unknown sex) chrX pools are not reportable:
 #' X-inactivation makes neighbouring cells share the active X, so allelic
 #' imbalance of chrX at neighbourhood (pool) scale is expected biology, not a
-#' copy-number event; per-cell chrX calls stay reportable. Male chrX is
+#' copy-number event; per-cell chrX calls stay reportable (scored with
+#' alleles, or on depth only with `caller_defaults()$chrx_allelic = FALSE`,
+#' [caller_normal()]). Male chrX is
 #' depth-only and its pools are reportable. Pass a policy with `chrx = TRUE`
 #' to override.
 #' @param mode "normal" or "tumour"
@@ -1419,6 +1421,16 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' `s_rob`, thresholded on null pools of the same statistic); chrX pools are
 #' not reportable in females ([call_policy()] `sex`).
 #'
+#' Female chrX (`params$chrx_allelic`): with TRUE (the default) female chrX rows are scored with both channels
+#' and thresholded like autosomal rows. With FALSE the scorer drops their allele votes (`nA`, `nB`, `n_hap`,
+#' `n_blocks` 0, `f` NA, `allelic_ok` FALSE in `scores`; the features are not changed) after the null-cell
+#' selection, so they are scored on depth only as male chrX is (no CN-LOH, gains need depth): X-inactivation
+#' otherwise turns every female cell's chrX into an allelic "gain" / CN-LOH candidate. The null cells, the null
+#' fits, the thresholds and every autosomal score are unchanged (chrX rows are not null rows with the default
+#' `null_chroms`), and female chrX pools stay non-reportable: their pooled null would need female chrX rows of
+#' the null cells (not screened on chrX) in the pooled null, which would also move the autosomal pooled
+#' thresholds through the class-level region scale.
+#'
 #' Opt-in calibrations: `params$calib = "votes"` keys the per-cell thresholds on class x stratum x vote stratum
 #' (`hstratum`, bins of n_hap of the null rows, [vote_bins()]); `params$calib_rho = "chrom"` scores the allele
 #' channel with a per-chromosome rho shrunk to the global ([rho_by_chrom()]). `params$pool_tail_q > 0` (the
@@ -1437,7 +1449,8 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' @param pool_classes region classes that are pooled
 #' @param select_args extra arguments for [select_null_cells()]
 #' @param sex "female", "male" or NULL (inferred: female when chrX rows carry allele votes); sets the
-#'   chrX rule of [call_policy()]
+#'   chrX rule of [call_policy()] and, with `params$chrx_allelic = FALSE`, which chrX rows are depth-only
+#'   (any sex but "male")
 #' @param resolve_gains apply [resolve_nested()] to the per-cell calls
 #' @param gain_min_dl `min_dl_gain` of [resolve_nested()]
 #' @param pool_loo call pools on the leave-one-out robust score `s_rob` ([pool_scores()])
@@ -1448,8 +1461,9 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' @return `scphasedcn` (mode normal) with `scores`, `thresholds` (column `level`:
 #'   cell, pool_type, pool_knn), `calls` (cell and pool level; `resolved` for gains changed by
 #'   [resolve_nested()]), `events`, `pools`, `null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex,
-#'   vote_bins, rho_chrom)` (`vote_bins`: the [vote_bins()] table with `params$calib = "votes"`; `rho_chrom`: the
-#'   [rho_by_chrom()] table with `params$calib_rho = "chrom"`)
+#'   vote_bins, rho_chrom, chrx_allelic)` (`vote_bins`: the [vote_bins()] table with `params$calib = "votes"`;
+#'   `rho_chrom`: the [rho_by_chrom()] table with `params$calib_rho = "chrom"`; `chrx_allelic`: the
+#'   `params$chrx_allelic` of the run)
 #' @export
 caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, multiplets = NULL, regions = NULL, embedding = NULL,
                          null_cells = c("auto", "features", "select"), depth_model = c("t", "gauss"), n_draws = 20000,
@@ -1492,6 +1506,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   }
   d[, is_null := null_cell & !is.na(null_region) & null_region & !is.na(eligible) & eligible]
   if (!is.null(null_chroms)) d[!chrom %in% null_chroms, is_null := FALSE]      # null rows only where the null cells were checked
+  # sex (before the female chrX rule below); female chrX on depth only (params$chrx_allelic FALSE)
+  if (is.null(sex)) sex = infer_sex(d)
+  xm = chrx_depth_only(d, sex, params)
+  d = xm$d
   # 2. null fits
   calib = params$calib %||% "class"
   if (!identical(length(calib), 1L) || !calib %in% c("class", "votes"))
@@ -1520,7 +1538,6 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE)
   thr = budget_thresholds(sc, scores, q = params$null_q, cv = TRUE, min_null = params$min_null_rows, params = params)
   sc = apply_thresholds(sc, thr, scores)
-  if (is.null(sex)) sex = infer_sex(d)
   policy = call_policy("normal", sex)
   calls = call_table(sc, NULL, regions, policy)
   if (resolve_gains) calls = resolve_nested(calls, sc, min_dl_gain = gain_min_dl)
@@ -1578,9 +1595,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
               pools = rbindlist(lapply(names(pools), function(k) pools[[k]][, kind := k]), fill = TRUE),
               null_fit = list(tpar = tpar, rho = rho, null_cells = cells[null_cell == TRUE, cell], selection = sel,
                               pool_scale = if (length(pscale)) rbindlist(lapply(names(pscale), function(k) copy(pscale[[k]])[, kind := k])) else NULL, sex = sex,
-                              vote_bins = vbins, rho_chrom = rho_tab),
+                              vote_bins = vbins, rho_chrom = rho_tab, chrx_allelic = chrx_allelic_param(params)),
               params = params,
               notes = c(sprintf("null cells: %s (%d)", if (use_sel) "select_null_cells" else "features", sum(cells$null_cell)),
+                        chrx_note(sex, params, xm$n),
                         sprintf("rho %.5g", rho),
                         if (!is.null(rho_tab)) sprintf("allelic rho per chromosome (rho_chrom_k %g): %.3g-%.3g (global %.3g)", params$rho_chrom_k %||% 100,
                                                        min(rho_tab$rho), max(rho_tab$rho), rho),
@@ -1598,5 +1616,38 @@ infer_sex = function(d) {
   if (!nrow(x)) return(NULL)
   if ("allelic_ok" %in% names(x) && !all(is.na(x$allelic_ok))) return(if (any(x$allelic_ok %in% TRUE)) "female" else "male")
   if (mean(x$n_hap > 0, na.rm = TRUE) > 0.5) "female" else "male"
+}
+
+# params$chrx_allelic as one TRUE / FALSE (missing = TRUE, the default)
+chrx_allelic_param = function(params) {
+  v = params$chrx_allelic %||% TRUE
+  if (!is.logical(v) || length(v) != 1 || is.na(v)) stop("caller_normal: params$chrx_allelic must be TRUE or FALSE", call. = FALSE)
+  v
+}
+
+# female chrX on depth only (params$chrx_allelic FALSE; sex not "male"): X-inactivation makes every female cell
+# allelically imbalanced on chrX, so its allele votes are dropped from the rows to score (nA, nB, n_hap, n_blocks 0, f NA,
+# as the features of a male chrX) and the rows become depth-only (allelic_ok FALSE: purely allelic states such as CN-LOH
+# are not scored, score_cells() / pool_scores()). `d` is the caller's working copy (never the features); returns
+# list(d, n = masked rows). chrX rows are not null rows with the default null_chroms, so the null fits and every
+# threshold are unchanged.
+chrx_depth_only = function(d, sex, params) {
+  if (chrx_allelic_param(params) || identical(sex, "male")) return(list(d = d, n = 0L))
+  ix = which(d$chrom %in% "chrX")
+  if (!length(ix)) return(list(d = d, n = 0L))
+  if (!"allelic_ok" %in% names(d)) d[, allelic_ok := TRUE]
+  set(d, i = ix, j = "allelic_ok", value = FALSE)
+  for (cn in intersect(c("nA", "nB", "n_hap", "n_blocks"), names(d)))
+    set(d, i = ix, j = cn, value = if (is.integer(d[[cn]])) 0L else 0)
+  if ("f" %in% names(d)) set(d, i = ix, j = "f", value = NA_real_)
+  list(d = d, n = length(ix))
+}
+
+# run note of the chrX rule
+chrx_note = function(sex, params, n_xmask) {
+  if (identical(sex, "male")) return("chrX: depth only (male)")
+  if (chrx_allelic_param(params)) return(sprintf("chrX: allele channel on (chrx_allelic TRUE, sex %s); chrX pools not reportable", sex %||% "unknown"))
+  sprintf("chrX: depth only per cell (chrx_allelic FALSE, sex %s): allele votes of %d chrX cell-regions dropped before scoring; chrX pools not reportable",
+          sex %||% "unknown", as.integer(n_xmask))
 }
 utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo"))

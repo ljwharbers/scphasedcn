@@ -73,3 +73,22 @@ def test_select_hets(tmp_path):
                  "--loci", str(loci) + ".gz"]) == 0
     assert selected(o2) == [1001, 2001]
     assert (tmp_path / "het_loci.vcf.gz.tbi").exists()
+
+
+def test_select_hets_two_records_at_one_position(tmp_path):
+    hdr = ("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n"
+           "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"x\">\n##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"x\">\n"
+           "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"x\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n")
+    raw = tmp_path / "calls.vcf"
+    raw.write_text(hdr + "chr1\t1001\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n"
+                         "chr1\t1001\t.\tA\tT\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n"
+                         "chr1\t2001\t.\tC\tT\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n")
+    loci = tmp_path / "loci.vcf"
+    loci.write_text("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                    "chr1\t1001\t.\tA\tG,T\t.\t.\t.\nchr1\t2001\t.\tC\tT\t.\t.\t.\n")
+    for p in (raw, loci):
+        pysam.tabix_compress(str(p), str(p) + ".gz", force=True); pysam.tabix_index(str(p) + ".gz", preset="vcf", force=True)
+    out = tmp_path / "het.vcf.gz"
+    assert main(["select-hets", "--vcf", str(raw) + ".gz", "--out", str(out), "--contigs", "chr1", "--dp-quantile", "1",
+                 "--loci", str(loci) + ".gz"]) == 0
+    assert [(r.pos, r.alts[0]) for r in pysam.VariantFile(str(out))] == [(1001, "G"), (1001, "T"), (2001, "T")]

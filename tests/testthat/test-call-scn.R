@@ -197,6 +197,53 @@ test_that("call_scn takes precomputed features, explicit null cells and multiple
   expect_null(r3$params$tumour)
 })
 
+test_that("call_scn with mask_f0 runs the bias mask pass and records it; depth is untouched", {
+  res = norm_result()
+  expect_null(res$null_fit$allelic_mask)                                  # default: no mask pass
+  r = call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE,
+               params = modifyList(caller_defaults(), list(mask_f0 = TRUE)))
+  am = r$null_fit$allelic_mask
+  expect_true(all(c("f0", "d0", "z_f0", "masked_rho", "masked_f0") %in% names(am)))
+  expect_identical(am$masked, am$masked_f0)                               # mask_allelic off: the bias rule alone
+  expect_true(all(am$chrom %in% AUTOSOMES_CALLER))
+  expect_true(any(grepl("allelic mask: .*bias rule .*: \\d+", r$notes)))
+  # sim_norm_f has no shared allelic bias: nothing is masked at the default thresholds and the calls are those of
+  # the default run
+  expect_equal(sum(am$masked), 0)
+  expect_identical(r$features$z, res$features$z)
+  expect_identical(r$calls, res$calls)
+  # both rules on, the bias rule forced to fire (thresholds below the simulation's noise): the union is masked,
+  # the run notes give the count per rule, the allele votes of the masked tiles are gone, depth is untouched and
+  # the truth checks of the default run still hold
+  prm = modifyList(caller_defaults(), list(mask_allelic = TRUE, mask_f0 = TRUE, mask_f0_mad = 1.5, mask_f0_min = 0.005))
+  r2 = call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE,
+                params = prm)
+  am2 = r2$null_fit$allelic_mask
+  expect_gt(sum(am2$masked_f0), 0)
+  expect_identical(am2$masked, am2$masked_rho | am2$masked_f0)
+  nt = regmatches(r2$notes, regexpr("overdispersion rule [^;]*: \\d+; bias rule [^;]*: \\d+", r2$notes))
+  expect_length(nt, 1)
+  expect_equal(as.integer(regmatches(nt, gregexpr("\\d+(?=$|;)", nt, perl = TRUE))[[1]]), c(sum(am2$masked_rho), sum(am2$masked_f0)))
+  mt = am2[masked == TRUE, tile]
+  expect_true(all(r2$features[region %in% mt, n_hap] == 0))
+  expect_gt(res$features[region %in% mt, sum(n_hap)], 0)
+  expect_identical(r2$features$z, res$features$z)
+  tr = sim_norm_f$truth
+  cells = sim_norm_f$scn$cells$cell
+  car = lapply(tr$carriers, function(n) unique(cells[tr$nuclei$cell[n]]))
+  cl = r2$calls[level == "cell" & called & reportable]
+  for (k in list(list("chr1p", "loss", 1), list("chr8", "gain", 2), list("chr21", "gain", 4))) {
+    got = unique(cl[region == k[[1]] & state == k[[2]], cell])
+    expect_true(all(got %in% car[[k[[3]]]]), info = k[[1]])
+    expect_gte(length(intersect(got, car[[k[[3]]]])) / length(car[[k[[3]]]]), 0.7)
+  }
+  # the reportable cell calls on chromosomes without a masked tile are those of the default run (here 5 tiles of
+  # chr1, chr2 and chr22 are masked; the 56 calls elsewhere are unchanged)
+  key = function(x) x[level == "cell" & called & reportable & !chrom %in% am2[masked == TRUE, chrom], paste(cell, region, state)]
+  expect_gt(length(key(res$calls)), 0)
+  expect_setequal(key(r2$calls), key(res$calls))
+})
+
 test_that("scn_embedding is reproducible (seeded truncated SVD) and named by cell", {
   res = norm_result()
   d = sim_dir("sim_norm_f")

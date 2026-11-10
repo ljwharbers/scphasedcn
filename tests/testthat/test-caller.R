@@ -898,3 +898,106 @@ test_that("masked atoms are absent from the allele region sums (allelic_features
   expect_true(any(grepl("masked atoms", fu$notes)))
   expect_error(update_allelic_features(fo[setdiff(names(fo), "votes")], ex), "votes")
 })
+
+# ---- shared-bias allelic tile mask (mask_f0) ------------------------------------------------------------------------
+
+# fake_features at rho 0.01 on 5 Mb tiles; two tiles with a shared fraction of 0.7 in every cell, one overdispersed
+# tile (rho 0.3, ~60 votes per row) at mean 0.5, one moderately biased tile (0.55), and one tile biased (0.9) only in
+# 200 non-null carrier cells (a planted clone)
+bias_fake = function(n_cells = 800, seed = 5) {
+  d = fake_features(n_cells, fake_regions(tiles = c("5Mb" = 5e6)), rho = 0.01, seed = seed)
+  set.seed(seed)
+  tiles = list(biased = tile_name("5Mb", c("chr1", "chr2"), c(20e6, 10e6)), noisy = tile_name("5Mb", "chr8", 5e6),
+               moderate = tile_name("5Mb", "chr22", 10e6), clone = tile_name("5Mb", "chr21", 5e6))
+  carriers = sprintf("cell_%04d", 1:200)
+  d[, null_cell := !cell %in% carriers]
+  d[region %in% tiles$biased, nA := as.numeric(rbinom(.N, n_hap, 0.7))]
+  d[region == tiles$moderate, nA := as.numeric(rbinom(.N, n_hap, 0.55))]
+  i = d$region == tiles$noisy
+  d[i, n_hap := as.numeric(rpois(.N, 60))]
+  p = rbeta(sum(i), 0.5 * 0.7 / 0.3, 0.5 * 0.7 / 0.3)
+  d[i, nA := as.numeric(rbinom(.N, n_hap, p))]
+  d[region == tiles$clone & cell %in% carriers, nA := as.numeric(rbinom(.N, n_hap, 0.9))]
+  d[, nB := n_hap - nA]
+  list(d = d[], tiles = tiles)
+}
+
+# allelic_noisy_tiles() as of v0.1.1 (before the bias rule): the reference of the unchanged columns
+allelic_noisy_tiles_v011 = function(feat_long, null = NULL, size = "5Mb", k_mad = 2, min_votes = 3, params = caller_defaults()) {
+  d = as.data.table(feat_long)
+  isn = null_flag(d, null)
+  ch = if ("chrom" %in% names(d)) d$chrom else region_chrom(d$region, d$class)
+  i = which(isn & d$class == size)
+  x = data.table(tile = d$region[i], chrom = ch[i], a = as.numeric(d$nA[i]), n = as.numeric(d$n_hap[i]))
+  x[is.na(n), `:=`(n = 0, a = 0)]
+  t = x[, .(n_rows = .N, votes = sum(n), S = sum((a - n / 2)^2), N4 = sum(n / 4), P = sum(n * (n - 1) / 4)), by = .(tile, chrom)]
+  t[, rho := fifelse(P > 0, pmax((S - N4) / P, 1e-6), NA_real_)]
+  t[, assessed := !is.na(rho) & votes / n_rows >= min_votes]
+  lr = log(t$rho[t$assessed])
+  m = if (length(lr)) stats::median(lr) else NA_real_
+  s = if (length(lr) > 1) stats::mad(lr) else NA_real_
+  t[, z_rho := (log(rho) - m) / s]
+  t[, masked := assessed & is.finite(z_rho) & z_rho > k_mad]
+  t[, start := suppressWarnings(as.numeric(sub("^.*:", "", tile)))]
+  t[, end := start + unname(params$tile_sizes[size])]
+  t = t[, .(tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked)]
+  t[order(match(chrom, paste0("chr", c(1:22, "X", "Y"))), start)]
+}
+
+test_that("allelic_noisy_tiles bias rule (mask_f0) masks shared-bias tiles, the rho rule the overdispersed one, both the union", {
+  expect_false(caller_defaults()$mask_f0)
+  expect_equal(caller_defaults()$mask_f0_mad, 3)
+  expect_equal(caller_defaults()$mask_f0_min, 0.03)
+  bf = bias_fake(); d = bf$d; tl = bf$tiles
+  # default rules ("rho"): the columns of v0.1.1 are unchanged, the bias columns are added
+  m = allelic_noisy_tiles(d, k_mad = 4)
+  ref = allelic_noisy_tiles_v011(d, k_mad = 4)
+  expect_equal(names(m), c(names(ref), "f0", "d0", "z_f0", "masked_rho", "masked_f0"))
+  for (col in names(ref)) expect_identical(m[[col]], ref[[col]], info = col)
+  expect_identical(m$masked, m$masked_rho)
+  expect_identical(allelic_noisy_tiles(d), allelic_noisy_tiles(d, params = modifyList(caller_defaults(), list(mask_f0 = TRUE))))
+  # bias rule: exactly the two shared 0.7 tiles and the moderate 0.55 tile; f0 is the vote-weighted null fraction
+  expect_setequal(m[masked_f0 == TRUE, tile], c(tl$biased, tl$moderate))
+  nd = d[null_cell == TRUE & region %in% tl$biased, .(f0 = sum(nA) / sum(n_hap)), keyby = region]
+  expect_equal(m[match(nd$region, tile), f0], nd$f0)
+  expect_equal(m[tile %in% tl$biased, f0], c(0.7, 0.7), tolerance = 0.02)
+  expect_equal(m$d0, abs(m$f0 - 0.5))
+  # the overdispersed tile (mean 0.5) is a rho outlier, not a bias outlier; the rho rule, measured around 1:1,
+  # also flags the strong 0.7 bias but misses the moderate 0.55 one
+  expect_true(m[tile == tl$noisy, masked_rho] && !m[tile == tl$noisy, masked_f0])
+  expect_true(all(m[tile %in% tl$biased, masked_rho]))
+  expect_false(m[tile == tl$moderate, masked_rho])
+  mr = allelic_noisy_tiles(d, k_mad = 4, rules = "rho")
+  expect_setequal(mr[masked == TRUE, tile], c(tl$biased, tl$noisy))
+  mf = allelic_noisy_tiles(d, k_mad = 4, rules = "f0")
+  expect_setequal(mf[masked == TRUE, tile], c(tl$biased, tl$moderate))
+  mb = allelic_noisy_tiles(d, k_mad = 4, rules = c("rho", "f0"))
+  expect_setequal(mb[masked == TRUE, tile], c(tl$biased, tl$noisy, tl$moderate))
+  expect_identical(mb$masked, mb$masked_rho | mb$masked_f0)
+  # the atoms to drop are the union of the two rules
+  at = fake_atoms()
+  expect_setequal(atoms_in_tiles(at, mb), union(atoms_in_tiles(at, mr), atoms_in_tiles(at, mf)))
+  # anchored orientation: a tile at 1 - f0 is the same bias
+  d2 = copy(d); d2[region == tl$biased[2], nA := n_hap - nA]
+  expect_setequal(allelic_noisy_tiles(d2, rules = "f0")[masked == TRUE, tile], c(tl$biased, tl$moderate))
+  # a threshold above every deviation, or too few votes: nothing masked
+  expect_false(any(allelic_noisy_tiles(d, f0_min = 0.5, rules = "f0")$masked))
+  expect_false(any(allelic_noisy_tiles(d, min_votes = 1000, rules = "f0")$masked))
+  expect_error(allelic_noisy_tiles(d, rules = "mean"), "rules")
+})
+
+test_that("the bias rule ignores a clone biased only in non-null cells; allelic_bias_tiles (all cells) shows it", {
+  bf = bias_fake(); d = bf$d; tl = bf$tiles
+  m = allelic_noisy_tiles(d, rules = "f0")
+  expect_false(m[tile == tl$clone, masked_f0])
+  expect_equal(m[tile == tl$clone, f0], 0.5, tolerance = 0.03)
+  b = allelic_bias_tiles(d)
+  expect_true(b[tile == tl$clone, masked_f0])
+  expect_identical(b$masked, b$masked_f0)
+  expect_equal(b[tile == tl$clone, f0], 0.6, tolerance = 0.03)
+  expect_true(all(b[tile %in% tl$biased, masked_f0]))
+  expect_equal(b$n_rows[1], 800L)                                         # all cells
+  # a features object works as its long table
+  expect_identical(allelic_bias_tiles(list(long = d)), b)
+  expect_error(allelic_bias_tiles(list()), "features")
+})

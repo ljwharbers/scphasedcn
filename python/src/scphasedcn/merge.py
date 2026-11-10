@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -13,11 +14,115 @@ import pysam
 import scipy.sparse as sp
 
 from .qc import finalize_qc
-from .writers import load_csr_dict, concat_bgzf, write_json, FRAGMENT_COLUMNS
+from .writers import load_csr_dict, concat_bgzf, write_json, read_done, LAYER_FILES, FRAGMENT_COLUMNS
 
 
 def _read_cells(pdir: Path) -> list[str]:
     return [l.rstrip("\n") for l in open(pdir / "cells.txt") if l.strip()]
+
+
+def _npz_shapes(path: Path) -> dict[str, tuple]:
+    with np.load(path) as z:
+        return {k[:-len("__shape")]: tuple(int(x) for x in z[k]) for k in z.files if k.endswith("__shape")}
+
+
+def _fmt(v) -> str:
+    s = json.dumps(v, sort_keys=True, default=str)
+    return s if len(s) <= 120 else s[:117] + "..."
+
+
+def check_partials(dirs: list[Path], log) -> None:
+    """Fail (SystemExit) on partials that cannot be merged into one sample: a --region partial, different cell
+    lists, a layer present on some chromosomes only, layer files the DONE metadata does not list (stale), matrices whose
+    shape does not fit the cells or the depth bins, or layers made from different inputs (bin size, assignment, MAPQ,
+    BAM, SNP file, masks; recorded in DONE by extract). Partials of scphasedcn <= 0.1.1 (no DONE metadata) are
+    merged with a warning: only their cells, layer presence and shapes are checked."""
+    first = dirs[0]
+    cells0 = _read_cells(first)
+    metas = {d.name: read_done(d) for d in dirs}
+    for d in dirs:
+        m = metas[d.name]
+        region = m.get("region") if m else None
+        if m is None and (d / "params.json").exists():
+            region = json.load(open(d / "params.json")).get("region")
+        if region:
+            raise SystemExit(f"partial {d.name} is a --region extraction ({region}), not a whole chromosome; "
+                             f"re-extract {d.name} without --region before merging")
+        c = _read_cells(d)
+        if c != cells0:
+            raise SystemExit(f"partials {first.name} and {d.name} have different cell lists ({len(cells0)} vs {len(c)} "
+                             f"cells): they were extracted with different whitelists; re-extract with one whitelist")
+    legacy = [d.name for d in dirs if metas[d.name] is None]
+    if legacy:
+        log(f"warning: partials written by scphasedcn <= 0.1.1 (no DONE metadata): {', '.join(legacy)}; their inputs "
+            f"cannot be checked (re-extract them to be sure they match)")
+    # layer presence: every partial has the same layers
+    has = {L: [d.name for d in dirs if (d / LAYER_FILES[L][0]).exists()] for L in LAYER_FILES}
+    for L, names in has.items():
+        if names and len(names) != len(dirs):
+            lack = [d.name for d in dirs if d.name not in names]
+            raise SystemExit(f"the {L} layer ({LAYER_FILES[L][0]}) is on {', '.join(names)} but not on "
+                             f"{', '.join(lack)}: extract the same layers on every chromosome")
+    for d in dirs:
+        m = metas[d.name]
+        if m is not None:
+            for L, files in LAYER_FILES.items():
+                stale = [f for f in files if (d / f).exists()]
+                if stale and L not in m["layers"]:
+                    raise SystemExit(f"partial {d.name}: {', '.join(stale)} not listed in its DONE (left from an earlier "
+                                     f"run); delete them or re-extract {d.name} with the {L} layer")
+        # shapes: rows = cells; hap layers have the depth bins
+        ncol = None
+        if (d / "layers.npz").exists():
+            sh = _npz_shapes(d / "layers.npz")
+            if any(v[0] != len(cells0) for v in sh.values()):
+                raise SystemExit(f"partial {d.name}: layers.npz has a different number of cells than cells.txt "
+                                 f"(stale depth layer); re-extract {d.name}")
+            ncol = sh["counts"][1]
+        if (d / "alleles.npz").exists():
+            sh = _npz_shapes(d / "alleles.npz")
+            if any(v[0] != len(cells0) for v in sh.values()):
+                raise SystemExit(f"partial {d.name}: alleles.npz has a different number of cells than cells.txt "
+                                 f"(stale allele layer); re-extract {d.name}")
+            if ncol is not None and "hapA" in sh and sh["hapA"][1] != ncol:
+                raise SystemExit(f"partial {d.name}: the hap layers of alleles.npz have {sh['hapA'][1]} bins, "
+                                 f"layers.npz {ncol} (different bin sizes); re-extract {d.name}")
+    # inputs per layer: the same on every partial, and within a partial the cells of the current cells.txt
+    for L in LAYER_FILES:
+        ref_name = ref = None
+        unknown = []
+        for d in dirs:
+            m = metas[d.name]
+            if m is None or L not in m["layers"]:
+                continue
+            inp = m["layers"][L].get("inputs")
+            if inp is None:
+                unknown.append(d.name)
+                continue
+            if inp.get("cells") != m.get("cells"):
+                raise SystemExit(f"partial {d.name}: its {L} layer was extracted for another cell list than its "
+                                 f"cells.txt (kept from an earlier run); re-extract {d.name} with the {L} layer")
+            if ref is None:
+                ref_name, ref = d.name, inp
+                continue
+            diff = sorted(k for k in set(ref) | set(inp) if ref.get(k) != inp.get(k))
+            if diff:
+                k = diff[0]
+                raise SystemExit(f"partials disagree on the inputs of the {L} layer: {k} is {_fmt(ref.get(k))} on "
+                                 f"{ref_name} but {_fmt(inp.get(k))} on {d.name}"
+                                 f"{' (also ' + ', '.join(diff[1:]) + ')' if len(diff) > 1 else ''}; "
+                                 f"re-extract the partials with the same inputs")
+        if unknown:
+            log(f"warning: the {L} layer of {', '.join(unknown)} was kept from an extraction without metadata; "
+                f"its inputs cannot be checked")
+    for d in dirs:   # within a partial, the allele hap layers use the depth bins
+        m = metas[d.name]
+        if m is None:
+            continue
+        b = {L: (m["layers"].get(L) or {}).get("inputs") for L in ("depth", "alleles")}
+        if b["depth"] and b["alleles"] and b["depth"].get("binsize") != b["alleles"].get("binsize"):
+            raise SystemExit(f"partial {d.name}: depth and alleles layers have different bin sizes "
+                             f"({b['depth'].get('binsize')} vs {b['alleles'].get('binsize')}); re-extract {d.name}")
 
 
 def _stack_layers(dirs: list[Path], fname: str) -> dict[str, sp.csr_matrix]:
@@ -87,13 +192,24 @@ def _uns_safe(d):
     return out
 
 
-def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials: bool = True) -> dict:
+def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials: bool = True,
+                 allow_missing: bool = False, log=None) -> dict:
+    """Merge the finished partials of `chroms`. A chromosome without a finished partial (partials/<chrom>/DONE) is an
+    error unless `allow_missing` (then it is listed as `missing` in summary.json). Partials are checked with
+    check_partials() first."""
     t0 = time.time()
+    log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
     out = Path(out); P = out / "partials"
     dirs = [P / c for c in chroms if (P / c / "DONE").exists()]
     missing = [c for c in chroms if not (P / c / "DONE").exists()]
     if not dirs:
         raise SystemExit(f"no finished partials under {P}")
+    if missing and not allow_missing:
+        raise SystemExit(f"merge: no finished partial (partials/<chrom>/DONE) for {', '.join(missing)}; extract them, "
+                         f"or merge without them with --allow-missing (or leave them out of --chroms)")
+    if missing:
+        log(f"warning: merging without {', '.join(missing)} (--allow-missing)")
+    check_partials(dirs, log)
     first = dirs[0]
     cells = _read_cells(first)
     params = json.load(open(first / "params.json"))

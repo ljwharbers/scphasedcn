@@ -26,6 +26,7 @@ class SampleConfig:
     chroms: list[str] = field(default_factory=lambda: list(MAIN_CHROMS))
     snps: str | None = None
     phased: bool = False
+    vcf_sample: str | None = None
     peaks: str | None = None
     barcode_map: str | None = None
     out: str | None = None
@@ -48,6 +49,7 @@ def sample_from_config(cfg: dict, name: str, out_root: str | None = None) -> Sam
         chroms=chroms,
         peaks=s.get("peaks"),
         barcode_map=s.get("barcode_map"),
+        vcf_sample=s.get("vcf_sample"),
         out=str(Path(root) / name / "extract"),
         extra={k: v for k, v in s.items()},
     )
@@ -99,7 +101,8 @@ def read_chrom_sizes(path: str | os.PathLike) -> dict[str, int]:
 
 
 def read_barcodes(path: str | os.PathLike) -> list[str]:
-    """One barcode per line (gz or plain); strips a trailing '-1'; drops '-' and header-like lines."""
+    """One barcode per line (gz or plain); strips a trailing '-1' (the BAM lookup accepts CB with or without it);
+    drops '-' and header-like lines."""
     import gzip
     op = gzip.open if str(path).endswith(".gz") else open
     bcs = []

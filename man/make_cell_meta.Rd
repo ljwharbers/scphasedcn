@@ -19,8 +19,8 @@ cells of the other inputs}
 \item{cell_types}{NULL, a path or table with columns \code{cell} and \code{cell_type} (else the first two columns), or a
 character vector named by cell}
 
-\item{flat}{NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line or a
-\code{cell} column)}
+\item{flat}{NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line, without a
+header unless the first line is \code{cell}, or with a \code{cell} column)}
 
 \item{groups}{NULL, a path or table with \code{cell} and \code{group} (else the first two columns), or a vector named by cell}
 

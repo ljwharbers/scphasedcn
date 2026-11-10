@@ -341,3 +341,15 @@ test_that("params.yaml round-trips empty vectors and strings with backslashes / 
   expect_identical(r2$tumour$allelic_exclude, c("chrX", "chrY"))
   expect_identical(r2$tumour$mix_w, numeric())
 })
+
+test_that("headerless one-column barcode files keep their first barcode (make_cell_meta, cli_cells, call_scn)", {
+  f = tempfile(); writeLines(c("AAAC-1", "AAAG", "AAAT"), f)
+  fh = tempfile(); writeLines(c("cell", "AAAC", "AAAT"), fh)
+  expect_identical(cli_cells(f, c("AAAC-1", "AAAG", "AAAT", "CCCC")), c("AAAC-1", "AAAG", "AAAT"))
+  expect_identical(cli_cells(fh, c("AAAC", "AAAG", "AAAT")), c("AAAC", "AAAT"))
+  m = make_cell_meta(data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = 1e4), flat = f)
+  expect_identical(m$flat, c(TRUE, TRUE, TRUE))
+  expect_identical(make_cell_meta(data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = 1e4), flat = fh)$flat, c(TRUE, FALSE, TRUE))
+  expect_identical(as_cell_vector(f), c("AAAC-1", "AAAG", "AAAT"))
+  expect_identical(multiplet_table(f)$cell, c("AAAC-1", "AAAG", "AAAT"))
+})

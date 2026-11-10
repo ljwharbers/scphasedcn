@@ -157,7 +157,8 @@ as_cell_vector = function(x) {
   as.character(x)
 }
 
-# a one-column file of cells has no header unless its first line is "cell"
+# a one-column file of cells has no header unless its first line is "cell" (fread's header = "auto" takes the first
+# barcode of a headerless one-column file as the column name); used by every reader of cell files
 read_cell_file = function(path) {
   d = fread(path, header = "auto")
   if (ncol(d) == 1 && names(d)[1] != "cell") d = fread(path, header = FALSE)

@@ -15,5 +15,5 @@ cli_cells(path, all)
 character vector
 }
 \description{
-Cell subset from a file (one cell per line or a TSV with a \code{cell} column)
+A one-column file has no header unless its first line is \code{cell} (as \code{\link[=call_scn]{call_scn()}} reads its cell files).
 }

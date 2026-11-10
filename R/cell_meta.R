@@ -25,8 +25,8 @@
 #'   cells of the other inputs
 #' @param cell_types NULL, a path or table with columns `cell` and `cell_type` (else the first two columns), or a
 #'   character vector named by cell
-#' @param flat NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line or a
-#'   `cell` column)
+#' @param flat NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line, without a
+#'   header unless the first line is `cell`, or with a `cell` column)
 #' @param groups NULL, a path or table with `cell` and `group` (else the first two columns), or a vector named by cell
 #' @param qc_args named list of [cell_qc()] arguments for `qc_pass` (e.g. `list(min_frag = 10000)`)
 #' @return data.table `cell`, `cell_type`, `flat`, `group`, plus `qc_pass` ([cell_qc()] on `cells_qc`) when
@@ -60,7 +60,7 @@ make_cell_meta = function(cells_qc = NULL, cell_types = NULL, flat = NULL, group
   fl = NULL
   if (!is.null(flat)) {
     if (is.character(flat) && length(flat) == 1 && file.exists(flat)) {
-      d = fread(flat, header = "auto")
+      d = read_cell_file(flat)                    # a one-column file has no header unless its first line is "cell"
       flat = if ("cell" %in% names(d)) d$cell else d[[1]]
     }
     fl = strip(flat)

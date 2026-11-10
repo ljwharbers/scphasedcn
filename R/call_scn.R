@@ -165,6 +165,9 @@ read_cell_file = function(path) {
   d
 }
 
+# barcodes as the extractor writes them: a trailing "-1" (10x GEM well suffix) removed (NULL stays NULL)
+strip_barcode = function(x) if (is.null(x)) NULL else sub("-1$", "", as.character(x))
+
 #' Multiplet table of the caller
 #'
 #' Normalises the forms a multiplet flag comes in to a table `cell, prob`: a character vector (or a file with
@@ -309,7 +312,9 @@ utils::globalVariables(c("st", "k", "region"))
 #' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
 #'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells are called, those with `qc_pass`
 #'   TRUE when it has that column, else those passing [cell_qc()]; `flat` becomes the features' `null_cell`)
-#' @param cells NULL (QC-pass cells) or the cells to call (vector or file; no cell QC)
+#' @param cells NULL (QC-pass cells) or the cells to call (vector or file; no cell QC). The barcodes of `cells`,
+#'   `cell_meta`, `null_cells`, `multiplets` and named `groups` lose a trailing `-1` (as the extractor writes them);
+#'   the run notes give how many of them match the data's cells, and a warning says when none does
 #' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
 #'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data)
 #' @param events named events: a table `region, chrom, start, end` (0-based half-open), [cli_events()] output or a
@@ -361,14 +366,18 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   t0 = Sys.time()
   mins = function() as.numeric(difftime(Sys.time(), t0, units = "mins"))
   say = function(...) if (verbose) cli_log("[call_scn] ", ...)
+  # barcodes of every input with a trailing "-1" removed, as the extractor writes them (strip_barcode())
   cm = as_input_table(cell_meta, "cell_meta")
-  cells = as_cell_vector(cells)
+  if (!is.null(cm)) cm[, cell := strip_barcode(cell)]
+  cells = strip_barcode(as_cell_vector(cells))
   mult = multiplet_table(multiplets)
+  if (!is.null(mult)) mult[, cell := strip_barcode(cell)]
   nc_mode = "auto"; nc_cells = NULL
   if (!is.null(null_cells)) {
     if (is.character(null_cells) && length(null_cells) == 1 && null_cells %in% c("auto", "features", "select")) nc_mode = null_cells
-    else { nc_cells = as_cell_vector(null_cells); nc_mode = "features" }
+    else { nc_cells = strip_barcode(as_cell_vector(null_cells)); nc_mode = "features" }
   }
+  if (!is.null(groups) && !is.null(names(groups))) names(groups) = strip_barcode(names(groups))
   if (mode == "tumour" && !is.null(nc_cells) && !is.null(cm)) cm[, flat := cell %in% nc_cells]
   # pseudobulk groups as a vector named by cell (cell_features only knows its own meta columns)
   grp = groups
@@ -407,6 +416,19 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   long = features$long
   if (!is.null(nc_cells)) { long = copy(long); long[, null_cell := cell %in% nc_cells] }
   say(sprintf("features: %d cells x %d regions (%.1f min)", nrow(features$cells), nrow(features$regions), mins()))
+  # given barcodes matched against the data (the features' cells): counts in the run notes, a warning when none match
+  fcells = as.character(features$cells$cell)
+  matched = function(what, x, warn = TRUE) {
+    x = unique(x)
+    m = sum(x %in% fcells)
+    if (warn && length(x) && m == 0)
+      warning(sprintf("call_scn: none of the %d %s barcodes (e.g. %s) is a cell of the data (e.g. %s)", length(x), what,
+                      x[1], if (length(fcells)) fcells[1] else "none"), call. = FALSE)
+    sprintf("%s: %d given, %d matched in the data", what, length(x), m)
+  }
+  inputs = c(inputs, if (!is.null(cells)) matched("cells", cells), if (!is.null(nc_cells)) matched("null_cells", nc_cells),
+             if (!is.null(mult)) matched("multiplets", mult$cell),
+             if (!is.null(mult) && any(mult$prob > 0.5)) matched("flagged multiplets (prob > 0.5)", mult[prob > 0.5, cell], warn = FALSE))
   ftab = features$cells
 
   if (mode == "normal") {

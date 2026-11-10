@@ -36,7 +36,7 @@
 #' qc = data.table::data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = c(40000, 25000, 900))
 #' make_cell_meta(qc, cell_types = c(AAAC = "epithelial", AAAG = "immune"), flat = "AAAG")
 make_cell_meta = function(cells_qc = NULL, cell_types = NULL, flat = NULL, groups = NULL, qc_args = list()) {
-  strip = function(x) sub("-1$", "", as.character(x))
+  strip = strip_barcode
   as_map = function(x, col) {
     if (is.null(x)) return(NULL)
     if (is.character(x) && length(x) == 1 && is.null(names(x)) && file.exists(x)) x = fread(x)

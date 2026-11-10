@@ -353,3 +353,19 @@ test_that("headerless one-column barcode files keep their first barcode (make_ce
   expect_identical(as_cell_vector(f), c("AAAC-1", "AAAG", "AAAT"))
   expect_identical(multiplet_table(f)$cell, c("AAAC-1", "AAAG", "AAAT"))
 })
+
+test_that("barcodes of every input lose a trailing -1; matched counts in the notes; a warning when none match", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(120, rg, seed = 9)
+  ids = unique(ff$cell)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  run = function(...) call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, keep_scores = FALSE,
+                               caller_args = list(n_draws = 500), ...)
+  r = run(null_cells = paste0(ids[1:100], "-1"), multiplets = c("cell_0101-1", "nope"))
+  expect_setequal(r$cells[null_cell == TRUE, cell], ids[1:100])
+  expect_true(r$cells[cell == "cell_0101", multiplet])
+  expect_true(any(grepl("null_cells: 100 given, 100 matched", r$notes)))
+  expect_true(any(grepl("multiplets: 2 given, 1 matched", r$notes)))
+  expect_warning(run(multiplets = "AAAC-1"), "none of the 1 multiplets barcodes")
+  expect_identical(cli_cells({ f = tempfile(); writeLines(c("cell_0002-1", "cell_0003"), f); f }, ids[1:4]), ids[2:3])
+})

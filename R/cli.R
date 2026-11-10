@@ -74,7 +74,8 @@ cli_write = function(d, out, name) {
 
 #' Cell subset from a file (one cell per line or a TSV with a `cell` column)
 #'
-#' A one-column file has no header unless its first line is `cell` (as [call_scn()] reads its cell files).
+#' A one-column file has no header unless its first line is `cell` (as [call_scn()] reads its cell files); barcodes
+#' match with or without a trailing `-1`.
 #' @param path file path or NULL
 #' @param all all cell names (returned when `path` is NULL)
 #' @return character vector
@@ -83,7 +84,7 @@ cli_cells = function(path, all) {
   if (is.null(path) || isFALSE(path) || !nzchar(path)) return(all)
   d = read_cell_file(path)
   v = if ("cell" %in% names(d)) d$cell else d[[1]]
-  intersect(all, as.character(v))
+  all[strip_barcode(all) %in% strip_barcode(v)]                    # a trailing -1 on either side does not matter
 }
 
 #' Event regions of a sample (config `events` map, region strings with 0-based half-open coordinates) as a regions table

@@ -15,5 +15,6 @@ cli_cells(path, all)
 character vector
 }
 \description{
-A one-column file has no header unless its first line is \code{cell} (as \code{\link[=call_scn]{call_scn()}} reads its cell files).
+A one-column file has no header unless its first line is \code{cell} (as \code{\link[=call_scn]{call_scn()}} reads its cell files); barcodes
+match with or without a trailing \code{-1}.
 }

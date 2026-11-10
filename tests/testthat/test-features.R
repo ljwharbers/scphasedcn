@@ -230,12 +230,46 @@ test_that("orient_blocks: a cell's own votes never orient its blocks (leak test)
   expect_true(all(mi$f >= 0.5 & mi$f < 1)); expect_equal(mi$orient[1], "none")
 })
 
+test_that("phasing_by_chrom: per-chromosome regimes by the detect_phasing rule", {
+  atoms = fake_atoms()
+  v = fake_votes(40, atoms, clones = rep("A", 40), events = NULL, mol_per_atom = 1)
+  chroms = unique(atoms$chrom)
+  pb = phasing_by_chrom(v, atoms)
+  expect_equal(names(pb), c("chrom", "n_votes", "n_ps", "k", "regime"))
+  expect_equal(pb$chrom, chroms)
+  expect_true(all(pb$regime == "block") && all(pb$k > 2))
+  expect_equal(pb$n_votes, v[, .(n = as.numeric(sum(nA + nB))), by = .(chrom = atoms$chrom[match(atom, atoms$atom)])][match(chroms, chrom), n])
+  expect_equal(pb$n_ps, v[, .(n = uniqueN(ps)), by = .(chrom = atoms$chrom[match(atom, atoms$atom)])][match(chroms, chrom), n])
+  # hybrid-like: one phase set per autosome plus residual small sets, chrX still in blocks
+  vc = copy(v)
+  ch = atoms$chrom[match(vc$atom, atoms$atom)]
+  vc[ch != "chrX", ps := as.numeric(match(ch[ch != "chrX"], chroms))]
+  set.seed(2); i = sample(which(ch != "chrX"), 30); vc[i, ps := 1000 + seq_along(i)]
+  pc = phasing_by_chrom(vc, atoms)
+  expect_equal(pc[chrom != "chrX", unique(regime)], "chromosome")
+  expect_equal(pc[chrom == "chrX", regime], "block")
+  expect_equal(detect_phasing(vc, atoms), "chromosome")
+  expect_equal(detect_phasing(v, atoms), "block")
+  # detect_phasing = the median rule over the per-chromosome k (frac passed through)
+  for (fr in c(0.5, 0.9, 0.99)) {
+    k = phasing_by_chrom(vc, atoms, frac = fr)$k
+    expect_equal(detect_phasing(vc, atoms, frac = fr), if (median(k) <= 2) "chromosome" else "block")
+  }
+  # empty votes
+  e = phasing_by_chrom(v[0], atoms)
+  expect_equal(nrow(e), 0L); expect_equal(names(e), names(pb))
+  expect_equal(detect_phasing(v[0], atoms), "chromosome")
+})
+
 test_that("cell_features on sim_tum2 (male): chrX depth-only, clone-grouped orientation", {
   s = sim_tum2
   fe = sim_features("sim_tum2", method = "celltype", sex = "male", classes = c("arm", "chrom"), groups = "cell_type",
                     null_exclude = c("chr1", "chr2", "chr8", "chr21", "chr22"))
   expect_silent(check_features(fe$long))
   expect_equal(unname(fe$phasing), c("block", "loo"))
+  expect_equal(fe$phasing_chrom$chrom, unique(fe$atoms$chrom))
+  expect_true(all(fe$phasing_chrom$regime == "block"))
+  expect_true(any(grepl("^phasing per chromosome", fe$notes)))
   x = fe$long[chrom == "chrX"]
   expect_gt(nrow(x), 0)
   expect_true(all(!x$allelic_ok) && all(x$n_hap == 0) && all(x$orient == "none"))

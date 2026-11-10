@@ -319,6 +319,11 @@ utils::globalVariables(c("st", "k", "region"))
 #' @param keep_scores keep the per cell x region scores in the result (normal mode; large)
 #' @param caller_args extra arguments for [caller_normal()] / `caller_tumour()` (e.g. `n_draws`, `opts`); they take
 #'   precedence over `params$normal` / `params$tumour` (tumour: `opts` merged key by key)
+#' @param phasing phasing / block orientation of the allele features ([cell_features()]: "auto", "chromosome",
+#'   "block", "loo" or "mirrored"; both modes; ignored with precomputed `features`). Normal mode with `loo` on
+#'   block phasing (read-backed blocks without a population phase) gives a warning and a run note: per-cell allelic
+#'   calls of events carried by few cells need chromosome-scale phasing (`vignette("scphasedcn-inputs")`,
+#'   `scphasedcn hybrid-phase`)
 #' @param ... extra arguments for [cell_features()] (e.g. `centromeres`, `classes`, `qc`)
 #' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, notes), `scores`
 #'   (normal, `keep_scores`), `thresholds`, `calls`, `events`, `pools`, `null_fit`, `false_calls` (normal:
@@ -329,9 +334,10 @@ utils::globalVariables(c("st", "k", "region"))
 call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells = NULL, sex = NULL, events = NULL,
                     null_cells = NULL, multiplets = NULL, control_regions = NULL, groups = NULL,
                     params = caller_defaults(), features = NULL, embedding = TRUE, verbose = TRUE,
-                    keep_scores = TRUE, caller_args = list(), ...) {
+                    keep_scores = TRUE, caller_args = list(), phasing = "auto", ...) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   mode = match.arg(mode)
+  phasing = match.arg(phasing, c("auto", "chromosome", "block", "loo", "mirrored"))
   # caller argument blocks of the parameters (caller_params `normal:` / `tumour:`); caller_args take precedence
   sp = split_params(params)
   params = sp$params
@@ -376,18 +382,19 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     say("cell_features (", if (mode == "normal") "celltype" else "model", " depth)")
     if (mode == "normal") {
       features = cell_features(dir, cells = cells, cell_meta = cm, method = "celltype", sex = sex, events = events, params = params,
-                               verbose = verbose, ...)
+                               phasing = phasing, verbose = verbose, ...)
     } else {
       # chromosomes of the events (null_exclude): from the region strings, so open ends ("chr20:28000000-") and bare
       # chromosomes need no chromosome sizes here (cell_features builds the event table with them)
       nex = if (is.null(events)) character() else
         if (is.data.frame(events)) unique(as.character(events$chrom)) else unique(sub(":.*$", "", unlist(events)))
       features = cell_features(dir, cells = cells, cell_meta = cm, method = "model", sex = sex, events = events, null_exclude = nex,
-                               phasing = "auto", groups = grp, params = params, verbose = verbose, ...)
+                               phasing = phasing, groups = grp, params = params, verbose = verbose, ...)
     }
     t_feat = mins()
   } else {
     if (!is.list(features) || is.null(features$long)) stop("call_scn: `features` must be an scn_features object (cell_features()) or its .rds")
+    if (phasing != "auto") warning("call_scn: `phasing` is ignored with precomputed `features`", call. = FALSE)
     t_feat = 0
     if (!is.null(cells) && mode == "normal") {
       features$long = features$long[cell %in% cells]
@@ -398,6 +405,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   if (!is.null(nc_cells)) { long = copy(long); long[, null_cell := cell %in% nc_cells] }
   say(sprintf("features: %d cells x %d regions (%.1f min)", nrow(features$cells), nrow(features$regions), mins()))
   ftab = features$cells
+  phase_note = phasing_run_note(features$phasing, mode)
+  if (!is.null(phase_note)) warning("call_scn: ", phase_note, call. = FALSE)
 
   if (mode == "normal") {
     if (!is.null(control_regions)) warning("call_scn: `control_regions` is used in tumour mode only", call. = FALSE)
@@ -448,6 +457,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       res$null_fit$allelic_mask = amask
       res$notes = c(res$notes, mask_note)
     }
+    if (!is.null(phase_note)) res$notes = c(res$notes, phase_note)
     fc = null_false_calls(res$scores)
     res$false_calls = fc$rates
     res$false_events = fc$events
@@ -530,6 +540,18 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   res
 }
 utils::globalVariables(c("flat", "cell_type", "multiplet"))
+
+# the run note (and warning text) of normal mode on block phasing: allele features oriented by the other cells'
+# pseudobulk (`loo`) on unoriented read-backed blocks; NULL otherwise (tumour mode, chromosome-wide phasing, other
+# orientations, or features without a phasing record)
+phasing_run_note = function(phasing, mode) {
+  if (mode != "normal" || is.null(phasing) || !all(c("detected", "orientation") %in% names(phasing))) return(NULL)
+  if (!(phasing[["detected"]] == "block" && phasing[["orientation"]] %in% c("loo", "block"))) return(NULL)
+  paste("normal mode on block phasing: the allele features were oriented by the pseudobulk of the other cells (loo),",
+        "which is blind to events carried by few cells and aligns allelic bias shared by all cells. Per-cell allelic",
+        "calls for events carried by few cells are not supported with block-only phasing; use chromosome-scale",
+        "(hybrid) phasing: see vignette(\"scphasedcn-inputs\") and `scphasedcn hybrid-phase`.")
+}
 
 # ---- output ------------------------------------------------------------------------------------------------
 

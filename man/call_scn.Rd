@@ -21,6 +21,7 @@ call_scn(
   verbose = TRUE,
   keep_scores = TRUE,
   caller_args = list(),
+  phasing = "auto",
   ...
 )
 }
@@ -65,6 +66,12 @@ or a cells x components matrix with cell row names}
 
 \item{caller_args}{extra arguments for \code{\link[=caller_normal]{caller_normal()}} / \code{caller_tumour()} (e.g. \code{n_draws}, \code{opts}); they take
 precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts} merged key by key)}
+
+\item{phasing}{phasing / block orientation of the allele features (\code{\link[=cell_features]{cell_features()}}: "auto", "chromosome",
+"block", "loo" or "mirrored"; both modes; ignored with precomputed \code{features}). Normal mode with \code{loo} on
+block phasing (read-backed blocks without a population phase) gives a warning and a run note: per-cell allelic
+calls of events carried by few cells need chromosome-scale phasing (\code{vignette("scphasedcn-inputs")},
+\verb{scphasedcn hybrid-phase})}
 
 \item{...}{extra arguments for \code{\link[=cell_features]{cell_features()}} (e.g. \code{centromeres}, \code{classes}, \code{qc})}
 }

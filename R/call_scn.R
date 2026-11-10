@@ -3,14 +3,14 @@
 #       optional chromatin embedding -> normal-tissue caller, or tumour-mode clone caller), the caller
 #       parameters from inst/config/caller.yaml (caller_params), the output writer / reader
 #       (write_scphasedcn, read_scphasedcn), a headline summary (scphasedcn_summary) and the null false-call
-#       accounting on the null cells (null_false_calls).
+#       accounting on the null cells (null_false_calls; event q-values and expected false events: event_fdr.R).
 # Why: the feature step (features.R), the scorer (caller.R) and the tumour mode (clones_*.R) are separate building
 #      blocks; a user runs one
 #      function (or inst/scripts/call_scn.R) on an extraction directory and gets one result object and one
 #      output directory with flat tables, a parameter file and run notes.
 # Inputs: an extraction directory (read_sample_depth() layout) or a precomputed `scn_features` (cell_features()),
 #         optional cell metadata, null cells, multiplets, events.
-# Outputs: `scphasedcn` objects; <out>/{cells,calls,events,pooled_calls,thresholds,null_fit,false_calls,...}.tsv,
+# Outputs: `scphasedcn` objects; <out>/{cells,calls,events,pooled_calls,thresholds,null_fit,false_calls,expected_false,...}.tsv,
 #          result.rds, params.yaml, NOTES.md.
 
 utils::globalVariables(c("called", "reportable", "level", "cell", "n_calls", "n_events", "prob", "qc_pass",
@@ -317,19 +317,24 @@ utils::globalVariables(c("st", "k", "region"))
 #'   or a cells x components matrix with cell row names
 #' @param verbose log progress
 #' @param keep_scores keep the per cell x region scores in the result (normal mode; large)
+#' @param null_check normal mode: also run the selection-free check of the per-cell null ([null_selection_check()];
+#'   about doubles the scoring time), stored as `null_check` and written as `null_selection_check.tsv`
 #' @param caller_args extra arguments for [caller_normal()] / `caller_tumour()` (e.g. `n_draws`, `opts`); they take
 #'   precedence over `params$normal` / `params$tumour` (tumour: `opts` merged key by key)
 #' @param ... extra arguments for [cell_features()] (e.g. `centromeres`, `classes`, `qc`)
 #' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, notes), `scores`
 #'   (normal, `keep_scores`), `thresholds`, `calls`, `events`, `pools`, `null_fit`, `false_calls` (normal:
-#'   [null_false_calls()]), `embedding`, clone components (tumour), `params` (the caller parameters plus the
+#'   [null_false_calls()]), normal mode: `p`, `q`, `null_borrowed` on the per-cell calls and `null_cell`, `p`, `q`,
+#'   `null_borrowed` on the events ([event_fdr()]), `expected_false` (expected false calls / events per class x
+#'   state, [event_fdr()]), `null_check` ([null_selection_check()], with `null_check = TRUE`), `embedding`, clone
+#'   components (tumour), `params` (the caller parameters plus the
 #'   arguments used: `normal` = every [caller_normal()] argument of the run, `tumour` = the full tumour options) and
 #'   `notes` (run time, host, inputs, git revision)
 #' @export
 call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells = NULL, sex = NULL, events = NULL,
                     null_cells = NULL, multiplets = NULL, control_regions = NULL, groups = NULL,
                     params = caller_defaults(), features = NULL, embedding = TRUE, verbose = TRUE,
-                    keep_scores = TRUE, caller_args = list(), ...) {
+                    keep_scores = TRUE, null_check = FALSE, caller_args = list(), ...) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   mode = match.arg(mode)
   # caller argument blocks of the parameters (caller_params `normal:` / `tumour:`); caller_args take precedence
@@ -341,6 +346,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     topts = utils::modifyList(as.list(sp$tumour %||% list()), as.list(caller_args$opts %||% list()))
     if (length(topts)) caller_args$opts = topts
   }
+  if (mode == "tumour" && isTRUE(null_check)) warning("call_scn: `null_check` is used in normal mode only; ignored", call. = FALSE)
   if (mode == "normal" && !is.null(groups)) {
     warning("call_scn: `groups` (pseudobulk orientation groups) is used in tumour mode only; ignored", call. = FALSE)
     groups = NULL
@@ -451,6 +457,26 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     fc = null_false_calls(res$scores)
     res$false_calls = fc$rates
     res$false_events = fc$events
+    # false-event accounting (output only): the gain gate and null options of the run
+    na_run = normal_arg_defaults()
+    for (k in names(caller_args)) na_run[k] = list(caller_args[[k]])
+    if (isTRUE(null_check)) {
+      t_c = Sys.time()
+      say("null selection check (null cells selected on odd / even autosomes, exceedances on the other half)")
+      res$null_check = null_selection_check(long, params = params, multiplets = mcells, regions = features$regions,
+                                            depth_model = na_run$depth_model[1], select_args = na_run$select_args %||% list(),
+                                            null_chroms = na_run$null_chroms, false_calls = res$false_calls)
+      nca = res$null_check[stratum == "all"]
+      res$notes = c(res$notes, sprintf("null selection check: %s per 1,000 on rows not used for selection (in-sample %s); %.1f min",
+                                       paste(sprintf("%s %.2f", nca$class, nca$per_1000), collapse = ", "),
+                                       paste(sprintf("%.2f", nca$insample_per_1000), collapse = ", "),
+                                       as.numeric(difftime(Sys.time(), t_c, units = "mins"))))
+    }
+    fdr = event_fdr(res, resolve_gains = na_run$resolve_gains, gain_min_dl = na_run$gain_min_dl)
+    res$calls = fdr$calls
+    res$events = fdr$events
+    res$expected_false = fdr$expected_false
+    res$fdr_info = c(fdr$info, list(groups = fdr$groups))
     if (!keep_scores) res["scores"] = list(NULL)
     res$embedding = emb
   } else {
@@ -564,7 +590,8 @@ utils::globalVariables("part")
 #' Flat tables: `cells.tsv` (cell, qc, stratum, fold, null_cell, n_calls, n_events, clone / posterior /
 #' doublet_like / ref_pool when present), `calls.tsv` (cell- and clone-level calls: called rows in normal mode,
 #' all inherited / confirmed rows in tumour mode), `pooled_calls.tsv` (called pool rows), `events.tsv`,
-#' `thresholds.tsv`, `null_fit.tsv` (depth t rows + rho), `false_calls.tsv` + `false_events.tsv` (normal mode),
+#' `thresholds.tsv`, `null_fit.tsv` (depth t rows + rho), `false_calls.tsv` + `false_events.tsv` + `expected_false.tsv`
+#' (normal mode; [event_fdr()]), `null_selection_check.tsv` (normal mode with `call_scn(null_check = TRUE)`),
 #' tumour mode: `clones.tsv`, `assignments.tsv`, `clone_segments.tsv`, `clone_profiles.tsv.gz`,
 #' `reference_pool.txt`; `regions.tsv`; `result.rds` (the object without scores and features), `params.yaml`,
 #' `summary.tsv` ([scphasedcn_summary()]) and `NOTES.md`. Optional: `scores.tsv.gz`, `features.tsv.gz`.
@@ -600,6 +627,8 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
   if (obj$mode == "normal") {
     w(obj$false_calls, "false_calls.tsv")
     w(obj$false_events, "false_events.tsv")
+    w(obj$expected_false, "expected_false.tsv")
+    if (!is.null(obj$null_check)) w(obj$null_check, "null_selection_check.tsv")
   }
   if (obj$mode == "tumour" || !is.null(obj$clones)) {
     w(obj$clones, "clones.tsv")
@@ -676,7 +705,11 @@ read_scphasedcn = function(out) {
 #'   cells, multiplets, cells with a reportable call / event), `calls` (called cell / pool / clone rows per
 #'   level, class and state; `n` = reportable among them), `false_calls` (null false calls per 1,000 per class
 #'   over all strata; `n` = null rows), `false_events` (false autosomal arm calls per null cell, any state and
-#'   per state), `events` (reportable events per cell and per null cell, pooled calls), `clones` (clones,
+#'   per state), `events` (reportable events per cell and per null cell, pooled calls; normal mode with
+#'   [event_fdr()] output: `cell_events_in_null_cells`, `expected_false_cell_events` (per chromosome group when there
+#'   is more than one) and `expected_false_cell_event_fraction` (lower bounds, see [event_fdr()]),
+#'   `cell_events_q_below_0.05`, `empirical_p_floor`; `calls` then also has `expected_false_reportable_cell_calls`),
+#'   `null_check` (selection-free exceedances per 1,000 per class, [null_selection_check()]), `clones` (clones,
 #'   assigned cells, reference pool).
 #' @export
 scphasedcn_summary = function(obj) {
@@ -713,7 +746,36 @@ scphasedcn_summary = function(obj) {
     if ("null_cell" %in% names(ct) && any(ct$null_cell %in% TRUE)) {
       nn = ct[null_cell %in% TRUE, cell]
       add("events", "reportable_cell_events_per_null_cell", sum(ce$cell %in% nn) / length(nn), length(nn))
+      if (!is.null(obj$expected_false))
+        add("events", "cell_events_in_null_cells", sum(ce$cell %in% nn), length(nn), "n = null cells (selected on autosomes; chrX unscreened)")
     }
+  }
+  if (!is.null(obj$expected_false) && nrow(obj$expected_false)) {
+    ef = as.data.table(obj$expected_false)
+    nce = if (nrow(ev)) nrow(ev[level == "cell"]) else 0
+    tot = sum(ef$expected_false_events)
+    add("events", "expected_false_cell_events", tot, nce,
+        sprintf("lower bound (null rate of the selected null cells x rows; chrX borrows the autosomal rate); n = cell events; per class x state: expected_false.tsv"))
+    add("events", "expected_false_cell_event_fraction", if (nce > 0) min(1, tot / nce) else NA_real_, nce, "expected false / cell events (lower bound)")
+    if (length(unique(ef$chrom_group)) > 1) for (g in sort(unique(ef$chrom_group)))
+      add("events", paste0("expected_false_cell_events|", g), sum(ef[chrom_group == g, expected_false_events]),
+          sum(ef[chrom_group == g, n_events]), if (g == "A") "autosomes; n = cell events" else paste(g, "(borrowed autosomal null rate); n = cell events"))
+    add("calls", "expected_false_reportable_cell_calls", sum(ef$expected_false_calls), sum(ef$n_called),
+        "lower bound; n = reportable called cell rows")
+  }
+  if (!is.null(obj$fdr_info)) {
+    fi = obj$fdr_info
+    add("events", sprintf("cell_events_q_below_%g", fi$alpha), fi$n_q_below, fi$n_cell_events,
+        sprintf("BH q over %d tested per-cell rows (tail %s)", as.integer(fi$m), fi$tail))
+    add("events", "empirical_p_floor", fi$p_floor_max, fi$m,
+        sprintf("largest 1 / (n_null + 1) of the null groups; n = tests m; with tail none a lone event's q cannot fall below ~ m x p_floor = %.3g",
+                fi$m * fi$p_floor_max))
+  }
+  if (!is.null(obj$null_check) && nrow(obj$null_check)) {
+    nk = as.data.table(obj$null_check)[stratum == "all"]
+    for (i in seq_len(nrow(nk))) add("null_check", paste0(nk$class[i], "|per_1000"), nk$per_1000[i], nk$n_rows[i],
+                                     sprintf("selection-free; 95%% CI %.2f-%.2f; in-sample %.2f; nominal %g", nk$lo_per_1000[i],
+                                             nk$hi_per_1000[i], nk$insample_per_1000[i], nk$nominal_per_1000[i]))
   }
   if (nrow(calls)) {
     pc = calls[level == "pool"]

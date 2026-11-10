@@ -1,4 +1,4 @@
-"""scphasedcn command line: run | extract | merge | select-hets | index-check.
+"""scphasedcn command line: run | extract | merge | select-hets | hybrid-phase | index-check.
 
 `scphasedcn run` extracts one sample (all chromosomes, then merge) into the directory the scphasedcn R package reads; `extract` (one
 chromosome) + `merge` do the same as separate steps, e.g. one cluster job per chromosome."""
@@ -279,6 +279,16 @@ def cmd_select_hets(a):
     return 0
 
 
+# ----------------------------------------------------------------------------------------------- hybrid-phase
+def cmd_hybrid_phase(a):
+    from .hybrid import hybrid_phase
+    hybrid_phase(a.blocks, a.population, a.out, contigs=[c for c in a.contigs.split(",") if c] if a.contigs else None,
+                 sample=a.sample, population_sample=a.population_sample, imputed_flag=a.imputed_flag or None,
+                 min_votes=a.min_votes, fill_unphased=a.fill_unphased, block_tsv=a.block_tsv, chrom_tsv=a.chrom_tsv,
+                 log=_log)
+    return 0
+
+
 # ----------------------------------------------------------------------------------------------- parser
 def build_parser():
     p = argparse.ArgumentParser(prog="scphasedcn", description=__doc__)
@@ -312,6 +322,23 @@ def build_parser():
     s.add_argument("--min-gq", type=int, default=10); s.add_argument("--min-dp", type=int, default=20)
     s.add_argument("--dp-quantile", type=float, default=0.99); s.add_argument("--stats", help="per-contig counts TSV")
     s.set_defaults(func=cmd_select_hets)
+
+    s = sub.add_parser("hybrid-phase", help="orient read-backed phase blocks with a population-phased VCF: one phase set "
+                                            "per contig (normal-tissue mode; see scphasedcn.hybrid)")
+    s.add_argument("--blocks", required=True, help="read-backed phased VCF (GT | + PS), e.g. longphase or the select-hets "
+                                                   "output")
+    s.add_argument("--population", required=True, help="population-phased VCF of the same sample (e.g. Beagle 5, "
+                                                       "SHAPEIT), or a pattern with {chrom} for one file per contig")
+    s.add_argument("--out", required=True, help="output .vcf.gz (a .tbi is written next to it)")
+    s.add_argument("--contigs", help="comma list of contigs to orient (default all; others are written unchanged)")
+    s.add_argument("--sample", help="sample of --blocks (default: the only one)")
+    s.add_argument("--population-sample", help="sample of --population (default: the --blocks sample, else the only one)")
+    s.add_argument("--imputed-flag", default="IMP", help="INFO flag of imputed population markers, which never vote "
+                                                         "('' for none)")
+    s.add_argument("--min-votes", type=int, default=1, help="minimum voting sites to orient a block")
+    s.add_argument("--fill-unphased", action="store_true", help="hets outside the blocks take the population phase")
+    s.add_argument("--block-tsv", help="per-block report TSV"); s.add_argument("--chrom-tsv", help="per-contig report TSV")
+    s.set_defaults(func=cmd_hybrid_phase)
 
     s = sub.add_parser("merge", help="merge chromosome partials into h5ad / tsv outputs")
     s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out"); s.add_argument("--chroms")

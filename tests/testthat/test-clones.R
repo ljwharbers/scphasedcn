@@ -313,6 +313,21 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
   expect_error(caller_tumour(inp, opts = list(min_bal_len = "x"), verbose = FALSE), "min_bal_len")
 })
 
+test_that("check_clone_opts rejects out-of-range tumour options with a clear error; the defaults pass", {
+  chk = scphasedcn:::check_clone_opts
+  expect_identical(chk(list()), clone_defaults())
+  bad = list(em_rounds = 0, em_rounds = 1.5, q = 1, q = 0, p_switch = -0.1, min_post = 1, mix_w = c(0.5, 1), mix_prior = 1,
+             multiplet_prob = 1.2, min_size = 0, n_perm = NA_real_, min_win = "3", size_small = 0, trunk_dist = -1,
+             depth_delta = -0.1, same_dist = -1, split_depth = NA, repass = "yes", classes = "bogus", classes = character())
+  for (i in seq_along(bad)) {
+    k = names(bad)[i]
+    expect_error(chk(stats::setNames(list(bad[[i]]), k)), paste0("opts\\$", k, " must be"), info = k)
+  }
+  ok = chk(list(em_rounds = 1, q = 0.99, mix_w = 0.5, mix_prior = 0, multiplet_prob = 1, n_nb_trunk = Inf, allelic_exclude = character()))
+  expect_equal(ok$em_rounds, 1)
+  expect_identical(ok$allelic_exclude, character())
+})
+
 test_that("assign_cells keeps the normal clone N0 as a hypothesis when no cell is labelled N0", {
   res = tum2_result()
   inp = tum2_input()

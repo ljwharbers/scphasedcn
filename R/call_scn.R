@@ -321,7 +321,10 @@ utils::globalVariables(c("st", "k", "region"))
 #'   named vector of region strings (`20q_gain = "chr20:28000000-"`; unnamed ones are named after the region, see
 #'   [region_set()]); scored as `event` regions; in tumour mode their chromosomes are excluded from the null rows
 #' @param null_cells NULL / "auto" (the features' `null_cell` when informative, else selected), "features",
-#'   "select" ([select_null_cells()]), or the null cells themselves (vector or file)
+#'   "select" ([select_null_cells()]), or the null cells themselves (vector or file). Tumour mode: given null cells
+#'   (like `flat` cells of `cell_meta`) are the cells whose null rows fit the input depth t null and allelic rho when the
+#'   features carry no `null_fit`; they are not the reference pool (the caller finds and cleans the normal clone
+#'   itself); "select" is ignored with a warning
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
 #'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`
 #' @param control_regions tumour mode: control regions for the null (regions table)
@@ -329,10 +332,12 @@ utils::globalVariables(c("st", "k", "region"))
 #'   by cell, or one label per cell); ignored with a warning in normal mode
 #' @param params [caller_params()] / [caller_defaults()]; its optional `normal` / `tumour` blocks
 #'   ([caller_params()]) are the default arguments of [caller_normal()] / `caller_tumour()` (`opts`)
-#' @param features NULL (computed) or a precomputed `scn_features` (object or .rds path) to skip the feature step
+#' @param features NULL (computed) or a precomputed `scn_features` (object or .rds path) to skip the feature step; the
+#'   arguments of the feature step (`sex`, `events`, `...`; in tumour mode also `cells`, `groups`, `cell_meta`; in normal
+#'   mode `cell_meta` columns other than `cell_type`) are then not used, with a warning
 #' @param embedding TRUE (compute [scn_embedding()] from `dir`; skipped with a warning when that fails), FALSE,
 #'   or a cells x components matrix with cell row names
-#' @param verbose log progress
+#' @param verbose log progress (also of `caller_tumour()`)
 #' @param keep_scores keep the per cell x region scores in the result (normal mode; large)
 #' @param caller_args extra arguments for [caller_normal()] / `caller_tumour()` (e.g. `n_draws`, `opts`); they take
 #'   precedence over `params$normal` / `params$tumour` (tumour: `opts` merged key by key)
@@ -379,6 +384,9 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   }
   if (!is.null(groups) && !is.null(names(groups))) names(groups) = strip_barcode(names(groups))
   if (mode == "tumour" && !is.null(nc_cells) && !is.null(cm)) cm[, flat := cell %in% nc_cells]
+  if (mode == "tumour" && nc_mode == "select")
+    warning("call_scn: null_cells = \"select\" is the null-cell selection of normal mode; tumour mode fits its input null on ",
+            "the features' null cells (`flat` / given null cells) and finds its reference pool itself; ignored", call. = FALSE)
   # pseudobulk groups as a vector named by cell (cell_features only knows its own meta columns)
   grp = groups
   if (!is.null(grp) && is.character(grp) && length(grp) == 1 && is.null(names(grp))) {
@@ -411,6 +419,15 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   } else {
     if (!is.list(features) || is.null(features$long)) stop("call_scn: `features` must be an scn_features object (cell_features()) or its .rds")
     t_feat = 0
+    # arguments of the feature step that precomputed features make unused
+    dots = names(Filter(Negate(is.null), list(...)))
+    cm_unused = if (is.null(cm)) character() else setdiff(names(cm), c("cell", if (mode == "normal") "cell_type"))
+    unused = c(if (!is.null(sex)) "sex", if (!is.null(events)) "events", if (length(dots)) paste0(dots, " (...)"),
+               if (mode == "tumour" && !is.null(cells)) "cells", if (mode == "tumour" && !is.null(groups)) "groups",
+               if (length(cm_unused)) sprintf("cell_meta column(s) %s", paste(cm_unused, collapse = ", ")))
+    if (length(unused))
+      warning("call_scn: with precomputed `features` these inputs of the feature step are not used: ", paste(unused, collapse = "; "),
+              call. = FALSE)
     if (!is.null(cells) && mode == "normal") features = subset_features(features, cells)
   }
   long = features$long
@@ -502,7 +519,11 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
         features$null_fit = list(tpar = tpar, rho = rho)
       }
     }
+    if (!is.null(nc_cells) && !is.null(features$null_fit))
+      warning("call_scn: the features carry their own null fit (features$null_fit); the given null_cells are not used in tumour mode",
+              call. = FALSE)
     args = list(feat = features, params = params, multiplets = mult, control_regions = control_regions)
+    if (is.null(caller_args$verbose)) args$verbose = verbose
     say("caller_tumour")
     res = do.call(caller_tumour, c(args, caller_args))
     res$embedding = NULL

@@ -39,8 +39,9 @@ table with \code{qc_pass} TRUE; without the column, those of the table that pass
 \item \code{cell_type}: the depth reference of normal-tissue mode is matched by cell type (types with fewer than 20 cells,
 and cells with \code{NA}, use the reference of all cells). Without cell types the reference is the all-cell one.
 \item \code{flat}: cells known to be copy-number neutral (e.g. normal cells from an orthogonal assay). Normal mode uses them
-as the null cells with \code{null_cells = "features"}; tumour mode uses them as the reference pool. Without \code{flat},
-use \code{null_cells = "select"} (\verb{--null-cells select}): the caller selects its own null cells.
+as the null cells with \code{null_cells = "features"}; without \code{flat}, use \code{null_cells = "select"} (\verb{--null-cells select}): the caller selects its own null cells. Tumour mode fits its input depth / allelic null on them (when the
+features carry no null fit); its reference pool is not taken from them but is the normal clone the caller finds
+and cleans itself.
 \item \code{group}: tumour mode only, pseudobulk groups of the phase-block orientation (\code{groups = "group"}, \verb{--groups group}), e.g. spatial regions or RNA clusters; NA = all-cell pseudobulk.
 }
 }

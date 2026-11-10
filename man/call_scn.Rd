@@ -44,7 +44,10 @@ named vector of region strings (\verb{20q_gain = "chr20:28000000-"}; unnamed one
 \code{\link[=region_set]{region_set()}}); scored as \code{event} regions; in tumour mode their chromosomes are excluded from the null rows}
 
 \item{null_cells}{NULL / "auto" (the features' \code{null_cell} when informative, else selected), "features",
-"select" (\code{\link[=select_null_cells]{select_null_cells()}}), or the null cells themselves (vector or file)}
+"select" (\code{\link[=select_null_cells]{select_null_cells()}}), or the null cells themselves (vector or file). Tumour mode: given null cells
+(like \code{flat} cells of \code{cell_meta}) are the cells whose null rows fit the input depth t null and allelic rho when the
+features carry no \code{null_fit}; they are not the reference pool (the caller finds and cleans the normal clone
+itself); "select" is ignored with a warning}
 
 \item{multiplets}{NULL or multiplet flags (\code{\link[=multiplet_table]{multiplet_table()}} forms); normal mode: cells with prob > 0.5
 are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}}
@@ -57,12 +60,14 @@ by cell, or one label per cell); ignored with a warning in normal mode}
 \item{params}{\code{\link[=caller_params]{caller_params()}} / \code{\link[=caller_defaults]{caller_defaults()}}; its optional \code{normal} / \code{tumour} blocks
 (\code{\link[=caller_params]{caller_params()}}) are the default arguments of \code{\link[=caller_normal]{caller_normal()}} / \code{caller_tumour()} (\code{opts})}
 
-\item{features}{NULL (computed) or a precomputed \code{scn_features} (object or .rds path) to skip the feature step}
+\item{features}{NULL (computed) or a precomputed \code{scn_features} (object or .rds path) to skip the feature step; the
+arguments of the feature step (\code{sex}, \code{events}, \code{...}; in tumour mode also \code{cells}, \code{groups}, \code{cell_meta}; in normal
+mode \code{cell_meta} columns other than \code{cell_type}) are then not used, with a warning}
 
 \item{embedding}{TRUE (compute \code{\link[=scn_embedding]{scn_embedding()}} from \code{dir}; skipped with a warning when that fails), FALSE,
 or a cells x components matrix with cell row names}
 
-\item{verbose}{log progress}
+\item{verbose}{log progress (also of \code{caller_tumour()})}
 
 \item{keep_scores}{keep the per cell x region scores in the result (normal mode; large)}
 

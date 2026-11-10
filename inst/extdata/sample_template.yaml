@@ -10,7 +10,7 @@ outputs:
   root: /path/to/results                           # per-sample outputs: <root>/<sample>/extract, <root>/<sample>/caller/<tag>
 samples:
   my_sample:
-    type: normal                                   # normal | tumour (the caller's default --mode)
+    type: normal                                   # normal | tumour (or tumor; the caller's default --mode)
     sex: female                                    # female | male
     bam: /path/to/my_sample.dna.bam                # SPLONGGET DNA BAM (coordinate sorted, indexed, CB tag per read)
     barcodes: /path/to/cell_barcodes.tsv.gz        # cell whitelist, one barcode per line (a trailing -1 is stripped)

@@ -32,7 +32,7 @@ usage = paste(
   "  --config <yaml>         sample yaml (layout: system.file('extdata', 'sample_template.yaml', package = 'scphasedcn');",
   "                          default: the SCPHASEDCN_SAMPLE_CONFIG environment variable)",
   "  --sample <key>          sample of the --config yaml (extraction dir, sex, events, type)",
-  "  --mode normal|tumour    default: the sample's `type` (normal when missing)",
+  "  --mode normal|tumour    default: the sample's `type` (tumour / tumor; normal when missing)",
   "  --events <list>         known events, name=region;name=region (e.g. chr5_gain=chr5;20q_gain=chr20:28000000-;",
   "                          0-based half-open, open end = chromosome end); a bare region is named after itself",
   "  --centromeres <tsv>     centromere table (default: the sample yaml's reference.centromeres, else the hg38 table",
@@ -86,7 +86,8 @@ s = if (nzchar(a$sample)) cli_sample(cfg, a$sample) else list(name = "sample")
 dir = if (nzchar(a$dir)) a$dir else s$dir
 if (is.null(dir) || !nzchar(dir)) fail("give --dir <extraction dir> (or --config + --sample)")
 if (!nzchar(a$features) && !file.exists(file.path(dir, "bins_100kb.h5ad"))) fail("no bins_100kb.h5ad in ", dir)
-mode = if (nzchar(a$mode)) a$mode else if (identical(s$type, "tumour")) "tumour" else "normal"
+mode = if (nzchar(a$mode)) a$mode else if (isTRUE(tolower(s$type) %in% c("tumour", "tumor"))) "tumour" else "normal"
+if (identical(tolower(mode), "tumor")) mode = "tumour"
 if (!mode %in% c("normal", "tumour")) fail("--mode must be normal or tumour")
 sex = if (nzchar(a$sex)) a$sex else s$sex
 if (!is.null(sex)) sex = tryCatch(scphasedcn:::check_sex(sex, "--sex"), error = function(e) fail(conditionMessage(e)))
@@ -127,10 +128,12 @@ mult = split_list(a$multiplets)
 ctrl = if (nzchar(a$control_regions)) fread(a$control_regions) else NULL
 cli_log("call_scn: sample ", s$name, ", mode ", mode, ", dir ", dir, ", out ", out)
 
-res = call_scn(dir, mode = mode, cell_meta = cm, cells = cells, sex = sex, events = events, null_cells = null_cells,
+# with --features the feature step is skipped: its inputs (sex, centromeres) are not passed
+pre = nzchar(a$features)
+res = call_scn(dir, mode = mode, cell_meta = cm, cells = cells, sex = if (pre) NULL else sex, events = events, null_cells = null_cells,
                multiplets = mult, control_regions = ctrl, groups = if (nzchar(a$groups)) a$groups else NULL, params = params,
-               features = if (nzchar(a$features)) a$features else NULL, embedding = !isTRUE(a$no_embedding),
-               keep_scores = isTRUE(a$write_scores), caller_args = caller_args, centromeres = cen)
+               features = if (pre) a$features else NULL, embedding = !isTRUE(a$no_embedding),
+               keep_scores = isTRUE(a$write_scores), caller_args = caller_args, centromeres = if (pre) NULL else cen)
 print(res)
 files = write_scphasedcn(res, out, write_scores = isTRUE(a$write_scores), write_features = isTRUE(a$write_features))
 print(scphasedcn_summary(res))

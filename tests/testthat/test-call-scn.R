@@ -387,3 +387,18 @@ test_that("write_scphasedcn clears the files of a previous result and nothing el
   expect_setequal(list.files(out), c(basename(files), "my_notes.txt", "plots"))
   expect_true(all(basename(files) %in% scphasedcn_output_files()))
 })
+
+test_that("precomputed features: unused feature-step inputs warn; tumour-mode null_cells = 'select' warns", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 12)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  cm = data.table(cell = unique(ff$cell), cell_type = "a", flat = TRUE)
+  expect_warning(call_scn(tempdir(), "normal", features = fe, sex = "female", events = c(x = "chr8"), cell_meta = cm,
+                          centromeres = "cen.tsv", embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500)),
+                 "not used: sex; events; centromeres \\(\\.\\.\\.\\); cell_meta column\\(s\\) flat")
+  expect_silent(call_scn(tempdir(), "normal", features = fe, cell_meta = cm[, .(cell, cell_type)], centromeres = NULL,
+                         embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500)))
+  # tumour mode: "select" is a normal-mode selection (the warning comes before any work; the call then fails on the toy)
+  expect_warning(try(call_scn(tempdir(), "tumour", features = fe, null_cells = "select", verbose = FALSE), silent = TRUE),
+                 "tumour mode fits its input null")
+})

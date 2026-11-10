@@ -136,9 +136,9 @@ move them.
 
 Tumour mode needs read-phased alleles (the allele votes drive the clone discovery). Phase blocks of longphase are not
 oriented between blocks; the caller orients them per clone. Optional inputs: cells known to be normal (`flat` in the
-cell metadata; the caller otherwise finds the normal clone itself), groups for the block orientation (`groups`, e.g.
-spatial regions), known events (`events`, reported as their own regions) and multiplet probabilities
-(`multiplets`).
+cell metadata: they set the input depth and allelic null; the reference pool is always the normal clone the caller
+finds), groups for the block orientation (`groups`, e.g. spatial regions), known events (`events`, reported as their
+own regions) and multiplet probabilities (`multiplets`).
 
 ```{r tumour, eval = FALSE}
 res_t = call_scn("results/tumour/extract", mode = "tumour", sex = "male",

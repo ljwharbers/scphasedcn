@@ -745,6 +745,24 @@ feature_cells = function(all, qct, cells = NULL, cell_meta = NULL) {
   list(keep = intersect(all, k), how = if (meta_qc) "cell_meta qc_pass" else "QC pass")
 }
 
+# cell metadata of a feature run: `meta` (one row per kept cell: the QC n_frag / stratum and default labels) with the
+# columns of `cell_meta` used as-is, except that a cell without a value for the QC-derived stratum / n_frag (not in
+# cell_meta, e.g. with `cells` given, or NA there) keeps its QC value
+apply_cell_meta = function(meta, cell_meta) {
+  if (!is.null(cell_meta)) {
+    cm = as.data.table(cell_meta)[match(meta$cell, cell)]
+    for (cn in intersect(c("cell_type", "group", "flat", "fold", "stratum", "n_frag"), names(cm))) {
+      v = cm[[cn]]
+      if (cn == "stratum") v = fifelse(is.na(v), as.character(meta$stratum), as.character(v))
+      if (cn == "n_frag") v = fifelse(is.na(v), as.numeric(meta$n_frag), as.numeric(v))
+      meta[, (cn) := v]
+    }
+  }
+  meta[, `:=`(cell_type = as.character(cell_type), group = as.character(group), flat = as.logical(flat),
+              fold = as.integer(fold), stratum = as.character(stratum), n_frag = as.numeric(n_frag))]
+  meta[]
+}
+
 #' Per-cell per-region features of a sample
 #'
 #' Reads an extraction directory, applies the cell QC ([cell_qc()]; a `qc_pass` column of `cell_meta` replaces it;
@@ -756,7 +774,8 @@ feature_cells = function(all, qct, cells = NULL, cell_meta = NULL) {
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param cells NULL (QC-pass cells) or the cells to use (no QC)
 #' @param cell_meta NULL or a data.table with `cell` and optional `qc_pass, cell_type, flat, fold, group, stratum,
-#'   n_frag` (used as-is; NA cell_type = no type-matched reference). With `cells` NULL only cells of `cell_meta` are
+#'   n_frag` (used as-is; NA cell_type = no type-matched reference; NA or missing `stratum` / `n_frag` keep the QC
+#'   values). With `cells` NULL only cells of `cell_meta` are
 #'   used, and a `qc_pass` column (e.g. [make_cell_meta()]) selects them instead of [cell_qc()] (cells with
 #'   `qc_pass` TRUE)
 #' @param method depth normalisation, "celltype" or "model" (any [normalise_depth()] method is accepted)
@@ -815,12 +834,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   meta = qct[match(keep, cell), .(cell, n_frag, stratum)]
   meta[, `:=`(cell_type = NA_character_, group = NA_character_, flat = NA, fold = NA_integer_)]
   if ("cell_type" %in% names(scn$cells)) meta[, cell_type := as.character(scn$cells$cell_type)]
-  if (!is.null(cell_meta)) {
-    cm = as.data.table(cell_meta)[match(keep, cell)]
-    for (cn in intersect(c("cell_type", "group", "flat", "fold", "stratum", "n_frag"), names(cm))) meta[, (cn) := cm[[cn]]]
-  }
-  meta[, `:=`(cell_type = as.character(cell_type), group = as.character(group), flat = as.logical(flat),
-              fold = as.integer(fold), stratum = as.character(stratum), n_frag = as.numeric(n_frag))]
+  meta = apply_cell_meta(meta, cell_meta)
 
   # bins, usable bins, normalisation
   scn$bins = annotate_arms(scn$bins, centromeres)

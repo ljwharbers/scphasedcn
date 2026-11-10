@@ -33,7 +33,8 @@ cell_features(
 
 \item{cells}{NULL (QC-pass cells) or the cells to use (no QC)}
 
-\item{cell_meta}{NULL or a data.table with \code{cell} and optional \verb{qc_pass, cell_type, flat, fold, group, stratum, n_frag} (used as-is; NA cell_type = no type-matched reference). With \code{cells} NULL only cells of \code{cell_meta} are
+\item{cell_meta}{NULL or a data.table with \code{cell} and optional \verb{qc_pass, cell_type, flat, fold, group, stratum, n_frag} (used as-is; NA cell_type = no type-matched reference; NA or missing \code{stratum} / \code{n_frag} keep the QC
+values). With \code{cells} NULL only cells of \code{cell_meta} are
 used, and a \code{qc_pass} column (e.g. \code{\link[=make_cell_meta]{make_cell_meta()}}) selects them instead of \code{\link[=cell_qc]{cell_qc()}} (cells with
 \code{qc_pass} TRUE)}
 

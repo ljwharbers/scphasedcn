@@ -302,3 +302,15 @@ test_that("sex is validated at the entry points: female / male in any case or F 
   expect_error(call_scn(tempfile(), sex = "boy"), "call_scn: `sex` must be")
   expect_error(caller_normal(data.table(), sex = "Mann"), "caller_normal: `sex` must be")
 })
+
+test_that("cell_meta without some of the given cells keeps their QC stratum / n_frag", {
+  meta = data.table(cell = c("a", "b", "c"), n_frag = c(15000, 30000, 60000), stratum = c("<20k", "20-50k", ">=50k"),
+                    cell_type = NA_character_, group = NA_character_, flat = NA, fold = NA_integer_)
+  cm = data.table(cell = c("c", "a"), stratum = factor(c("x", NA)), n_frag = c(1, NA), cell_type = c("epi", "fib"), fold = c(2, 1))
+  m = apply_cell_meta(copy(meta), cm)
+  expect_identical(m$stratum, c("<20k", "20-50k", "x"))                   # b: not in cell_meta, a: NA there -> QC value
+  expect_identical(m$n_frag, c(15000, 30000, 1))
+  expect_identical(m$cell_type, c("fib", NA, "epi"))                       # labels are used as given
+  expect_identical(m$fold, c(1L, NA, 2L))
+  expect_identical(apply_cell_meta(copy(meta), NULL), meta)
+})

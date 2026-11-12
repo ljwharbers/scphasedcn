@@ -75,7 +75,8 @@ def resolve_inputs(a):
     cfg = load_yaml(a.config) if a.config else {}
     ref = reference_paths(cfg)
     d = {"sample": a.sample, "bam": a.bam, "barcodes": a.barcodes, "snps": a.snps, "phased": a.phased,
-         "peaks": a.peaks, "out": a.out, "chroms": None, "barcode_map": getattr(a, "barcode_map", None),
+         "peaks": a.peaks, "out": a.out, "chroms": None, "chroms_set": False,
+         "barcode_map": getattr(a, "barcode_map", None),
          "vcf_sample": getattr(a, "vcf_sample", None)}
     if a.config and a.sample:
         sc = sample_from_config(cfg, a.sample)
@@ -86,7 +87,7 @@ def resolve_inputs(a):
             d["phased"] = sc.phased
         if d["vcf_sample"] is None and sc.snps and d["snps"] == sc.snps:
             d["vcf_sample"] = sc.vcf_sample
-        d["chroms"] = sc.chroms
+        d["chroms"] = sc.chroms; d["chroms_set"] = sc.chroms_set
     if getattr(a, "no_snps", False):
         d["snps"] = None; d["phased"] = False; d["vcf_sample"] = None
     for k in ("fasta", "blacklist", "trf", "centromeres", "chrom_sizes"):
@@ -306,7 +307,7 @@ def cmd_run(a):
     layers_on = _layers(a.layers)
     d = resolve_inputs(a)
     present = _bam_references(d["bam"], a.index)
-    if a.chroms or d["chroms"]:   # requested explicitly: every one must be a reference of the BAM, checked up front
+    if a.chroms or d["chroms_set"]:   # requested explicitly: every one must be a reference of the BAM, checked up front
         chroms = a.chroms.split(",") if a.chroms else list(d["chroms"])
         absent = [c for c in chroms if c not in present]
         if absent:

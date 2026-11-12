@@ -64,6 +64,14 @@ def test_translate_barcodes(tmp_path):
     assert translate_barcodes(["AAAA"], None) == (["AAAA"], "atac")
 
 
+def test_sample_config_chroms_default_and_set():
+    from scphasedcn.config import MAIN_CHROMS, sample_from_config
+    cfg = {"samples": {"s1": {"bam": "x.bam"}, "s2": {"bam": "x.bam", "chroms": ["chr1", "chr2"]}}}
+    s1, s2 = sample_from_config(cfg, "s1"), sample_from_config(cfg, "s2")
+    assert s1.chroms == MAIN_CHROMS and s1.chroms is not MAIN_CHROMS and not s1.chroms_set
+    assert s2.chroms == ["chr1", "chr2"] and s2.chroms_set
+
+
 def test_translate_barcodes_reports_and_checks_the_match(tmp_path, capsys):
     from scphasedcn.config import translate_barcodes
     m = tmp_path / "map.tsv"

@@ -24,7 +24,8 @@ class SampleConfig:
     barcodes: str | None = None
     sex: str = "unknown"
     type: str = "unknown"
-    chroms: list[str] | None = None   # None: not set in the yaml (`run` takes those of MAIN_CHROMS in the BAM)
+    chroms: list[str] = field(default_factory=lambda: list(MAIN_CHROMS))
+    chroms_set: bool = False   # True when the yaml sample gives `chroms` (else `chroms` is the default list)
     snps: str | None = None
     phased: bool = False
     vcf_sample: str | None = None
@@ -37,7 +38,9 @@ class SampleConfig:
 def sample_from_config(cfg: dict, name: str, out_root: str | None = None) -> SampleConfig:
     """Resolve a sample block of the sample yaml into a SampleConfig (whitelist and VCF rules applied)."""
     s = cfg["samples"][name]
-    chroms = list(s["chroms"]) if s.get("chroms") else None
+    chroms = list(s.get("chroms") or MAIN_CHROMS)
+    if "chroms" in s and s["chroms"]:
+        chroms = list(s["chroms"])
     root = out_root or cfg.get("outputs", {}).get("root", ".")
     sc = SampleConfig(
         name=name,
@@ -46,6 +49,7 @@ def sample_from_config(cfg: dict, name: str, out_root: str | None = None) -> Sam
         sex=s.get("sex", "unknown"),
         type=s.get("type", "unknown"),
         chroms=chroms,
+        chroms_set=bool(s.get("chroms")),
         peaks=s.get("peaks"),
         barcode_map=s.get("barcode_map"),
         vcf_sample=s.get("vcf_sample"),

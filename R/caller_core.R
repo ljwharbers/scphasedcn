@@ -153,7 +153,7 @@ ll_depth_shift = function(z, mu, tpar = NULL) {
 #' takes the better of `f` and `1 - f` (the orientation of the counts is
 #' unknown or may be wrong). With several `f` the best LLR over the grid is
 #' returned (the attenuation-aware 1:0 / 2:0 term over `f_att`). Rows with
-#' `n = 0` (or NA) give 0. The scorer uses llr_20 at
+#' `n = 0` (or NA) give 0; without any vote `rho` is not used (it may be NA). The scorer uses llr_20 at
 #' `f = 1 - eps`, llr_21 at 2/3, llr_31 at 3/4 and the grid form over `f_att`.
 #' @param nA votes for haplotype A
 #' @param n total votes
@@ -166,6 +166,7 @@ ll_depth_shift = function(z, mu, tpar = NULL) {
 #' @return numeric vector (length of n)
 #' @export
 ll_allelic = function(nA, n, f, rho, eps = 0.02, two_sided = TRUE, per_row = FALSE) {
+  if (!any(!is.na(n) & n > 0)) return(rep(0, length(n)))   # no votes: every term is 0, whatever rho (even NA)
   ll0 = bb_loglik(nA, n, 0.5, rho, eps)
   if (per_row) {
     if (!length(f) %in% c(1L, length(n))) stop("ll_allelic: with per_row = TRUE, f needs length 1 or length(n)")

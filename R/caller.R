@@ -1575,7 +1575,18 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   arm = d$is_null & d$class == "arm"
   rho = if (any(arm & d$n_hap > 0, na.rm = TRUE)) fit_allelic_null(d$nA[arm], d$n_hap[arm]) else fit_allelic_null(d$nA[d$is_null], d$n_hap[d$is_null])
   rho_tab = NULL; rho_sc = rho
-  if (calib_rho == "chrom") {                                  # per-chromosome rho, shrunk to the global
+  novotes_note = NULL
+  if (is.na(rho)) {
+    # no null row has an allele vote: without any vote at all (an unphased extraction, a VCF without phase sets, no
+    # allele layer) every allelic term is 0 and the calls are depth-only; votes elsewhere but not on the null rows
+    # cannot be scored without a rho
+    if (any(d$n_hap > 0, na.rm = TRUE))
+      stop("caller_normal: the null rows have no allele votes, so the allelic overdispersion (rho) cannot be fitted",
+           call. = FALSE)
+    novotes_note = "no allele votes (unphased extraction or no phase sets?): the calls are depth-only"
+    warning("caller_normal: ", novotes_note, call. = FALSE)
+  }
+  if (calib_rho == "chrom" && is.null(novotes_note)) {                                  # per-chromosome rho, shrunk to the global
     rho_tab = rho_by_chrom(d, rho, params$rho_chrom_k %||% 100, null = d$is_null, params = params)
     rho_sc = rho_rows(d, rho_tab, rho)
   }
@@ -1663,7 +1674,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                               vote_bins = vbins, rho_chrom = rho_tab),
               params = params,
               notes = c(sprintf("null cells: %s (%d)", if (use_sel) "select_null_cells" else "features", sum(cells$null_cell)),
-                        sprintf("rho %.5g", rho),
+                        sprintf("rho %.5g", rho), novotes_note,
                         if (!is.null(rho_tab)) sprintf("allelic rho per chromosome (rho_chrom_k %g): %.3g-%.3g (global %.3g)", params$rho_chrom_k %||% 100,
                                                        min(rho_tab$rho), max(rho_tab$rho), rho),
                         if (!is.null(vbins)) sprintf("cell thresholds per class x stratum x vote stratum (n_hap bins, up to %d per class x stratum; %d bins)",

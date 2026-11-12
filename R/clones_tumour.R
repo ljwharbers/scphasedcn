@@ -270,6 +270,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   say = function(...) if (verbose) message(format(Sys.time(), "%H:%M:%S"), " [tumour] ", ...)
   opts = check_clone_opts(opts)
   inp = clone_input(feat)
+  if (!nrow(inp$votes) || length(inp$rho) != 1 || !is.finite(inp$rho))
+    stop("caller_tumour: no allele votes (no molecule votes, or none on the null rows to fit rho); the tumour mode needs ",
+         "read-phased allele votes", call. = FALSE)
   cells = inp$cells$cell
   notes = character()
   if (length(opts$allelic_exclude)) {

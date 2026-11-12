@@ -328,6 +328,17 @@ test_that("check_clone_opts rejects out-of-range tumour options with a clear err
   expect_identical(ok$allelic_exclude, character())
 })
 
+test_that("caller_tumour without allele votes stops with a clear error", {
+  inp = tum2_input()
+  i1 = inp
+  i1$votes = i1$votes[0]
+  expect_error(caller_tumour(i1, verbose = FALSE), "caller_tumour: no allele votes")
+  i2 = inp
+  i2$rho = NA_real_
+  i2$features = copy(i2$features)[, `:=`(nA = 0, nB = 0, n_hap = 0)]
+  expect_error(caller_tumour(i2, verbose = FALSE), "caller_tumour: no allele votes")
+})
+
 test_that("check_clone_opts accepts the values the options allow: no cap, zero lengths and sizes", {
   chk = scphasedcn:::check_clone_opts
   for (o in list(list(max_cells = Inf), list(max_leaves = Inf), list(max_leaves_trunk = Inf), list(trunk_dist = 0),

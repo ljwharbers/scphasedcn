@@ -1001,3 +1001,34 @@ test_that("a region left without thresholds after borrowing warns once and is no
   expect_identical(r$calls[region != "ev8_10Mb"], r0$calls)
   expect_false(any(grepl("no threshold", r0$notes)))
 })
+
+test_that("without any allele votes caller_normal runs depth-only with one warning, in every null-cell path", {
+  # an unphased extraction (or a VCF without phase sets): nA = nB = n_hap = 0 everywhere, rho cannot be fitted
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(300, rg, seed = 3)
+  ff[, `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_)]
+  run = function(...) {
+    ws = character()
+    r = withCallingHandlers(caller_normal(ff, regions = rg, n_draws = 500, ...),
+                            warning = function(w) { ws <<- c(ws, conditionMessage(w)); invokeRestart("muffleWarning") })
+    list(r = r, ws = ws)
+  }
+  for (a in list(list(null_cells = "features"), list(null_cells = "select"),
+                 list(null_cells = "select", select_args = list(threshold = "empirical")),
+                 list(null_cells = "features", params = modifyList(caller_defaults(), list(calib_rho = "chrom"))))) {
+    x = do.call(run, a)
+    expect_length(grep("no allele votes", x$ws), 1)
+    expect_length(x$ws, 1)
+    expect_true(any(grepl("no allele votes", x$r$notes)))
+    al = grep("^(al|ar)_", names(x$r$scores), value = TRUE)
+    expect_gt(length(al), 0)
+    expect_true(all(as.matrix(x$r$scores[, al, with = FALSE]) == 0))     # every allelic term is 0: depth-only
+    expect_gt(nrow(x$r$calls), 0)
+  }
+  # ll_allelic without votes does not need rho
+  expect_identical(ll_allelic(c(0, 0), c(0, NA), 2 / 3, NA_real_), c(0, 0))
+  # votes, but none on the null rows: a clear error
+  f2 = copy(ff)[, null_cell := cell != "cell_0001"]
+  f2[cell == "cell_0001", `:=`(nA = 3, nB = 1, n_hap = 4)]
+  expect_error(caller_normal(f2, regions = rg, null_cells = "features", n_draws = 500), "null rows have no allele votes")
+})

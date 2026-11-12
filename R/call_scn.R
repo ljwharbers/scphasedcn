@@ -324,7 +324,8 @@ utils::globalVariables(c("st", "k", "region"))
 #'   block phasing (read-backed blocks without a population phase) gives a warning and a run note: per-cell allelic
 #'   calls of events carried by few cells need chromosome-scale phasing (`vignette("scphasedcn-inputs")`,
 #'   `scphasedcn hybrid-phase`). `chromosome` on block phasing (overall, or on a chromosome with votes) and, in normal
-#'   mode, `mirrored` (a diagnostic orientation) also give a warning and a run note
+#'   mode, `mirrored` (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
+#'   chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)
 #' @param ... extra arguments for [cell_features()] (e.g. `centromeres`, `classes`, `qc`)
 #' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, phasing_chrom (the
 #'   per-chromosome phasing regimes, [phasing_by_chrom()]), notes), `scores`
@@ -408,7 +409,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   if (!is.null(nc_cells)) { long = copy(long); long[, null_cell := cell %in% nc_cells] }
   say(sprintf("features: %d cells x %d regions (%.1f min)", nrow(features$cells), nrow(features$regions), mins()))
   ftab = features$cells
-  phase_note = c(phasing_run_note(features$phasing, mode),
+  phase_note = c(phasing_run_note(features$phasing, mode, features$phasing_chrom),
                  phasing_orientation_notes(features$phasing, features$phasing_chrom, mode, phasing_req))
   for (pn in phase_note) warning("call_scn: ", pn, call. = FALSE)
   # chromosomes whose phasing regime differs from the run's (a note of cell_features() that the run notes repeat)
@@ -549,11 +550,21 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
 }
 utils::globalVariables(c("flat", "cell_type", "multiplet"))
 
-# the run note (and warning text) of normal mode on block phasing: allele features oriented by the other cells'
-# pseudobulk (`loo`) on unoriented read-backed blocks; NULL otherwise (tumour mode, chromosome-wide phasing, other
-# orientations, or features without a phasing record)
-phasing_run_note = function(phasing, mode) {
-  if (mode != "normal" || !phasing_ok(phasing)) return(NULL)
+# the run note (and warning text) of a phasing regime that does not fit the mode. Normal mode on block phasing: allele
+# features oriented by the other cells' pseudobulk (`loo`) on unoriented read-backed blocks. Tumour mode on
+# chromosome-scale phasing: population-merged phase sets, which the clone orientation cannot re-orient (not with an
+# empty per-chromosome table `phasing_chrom`, i.e. no votes). NULL otherwise (other regimes or orientations, or
+# features without a phasing record)
+phasing_run_note = function(phasing, mode, phasing_chrom = NULL) {
+  if (!phasing_ok(phasing)) return(NULL)
+  if (mode == "tumour") {
+    if (phasing[["detected"]] != "chromosome" || (!is.null(phasing_chrom) && !nrow(phasing_chrom))) return(NULL)
+    return(paste("tumour mode on chromosome-scale phasing: the phase sets are merged per chromosome (e.g. by a population",
+                 "phase), and population-merged phase sets cannot be re-oriented per clone; read-based phase blocks, which",
+                 "are oriented by the pseudobulk of each clone, are preferable for tumour mode: see",
+                 "vignette(\"scphasedcn-inputs\")."))
+  }
+  if (mode != "normal") return(NULL)
   if (!(phasing[["detected"]] == "block" && phasing[["orientation"]] %in% c("loo", "block"))) return(NULL)
   paste("normal mode on block phasing: the allele features were oriented by the pseudobulk of the other cells (loo),",
         "which is blind to events carried by few cells and aligns allelic bias shared by all cells. Per-cell allelic",

@@ -347,8 +347,11 @@ test_that("tumour mode dispatches to the tumour mode", {
   d = sim_dir("sim_tum2")
   s = sim_tum2
   cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
-  res = call_scn(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
-                 centromeres = cs_centromeres(s$scn$bins))
+  x = call_w(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
+              centromeres = cs_centromeres(s$scn$bins))
+  res = x$r
+  expect_false(any(grepl("chromosome-scale phasing", x$w, fixed = TRUE)))
+  expect_false(any(grepl("chromosome-scale phasing", res$notes, fixed = TRUE)))
   expect_s3_class(res, "scphasedcn")
   expect_equal(res$mode, "tumour")
   expect_true(all(c("clone", "posterior") %in% names(res$cells)))
@@ -360,6 +363,25 @@ test_that("tumour mode dispatches to the tumour mode", {
   expect_true(all(file.exists(file.path(out, c("clones.tsv", "assignments.tsv", "clone_segments.tsv", "clone_profiles.tsv.gz",
                                                "reference_pool.txt", "cells.tsv", "calls.tsv", "result.rds")))))
   expect_equal(caller_params(file.path(out, "params.yaml")), res$params)
+})
+
+test_that("tumour mode on chromosome-scale phasing warns once and notes it", {
+  s = sim_tum2
+  d = rephased_dir("sim_tum2", unique(s$scn$bins$chrom))
+  cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
+  x = call_w(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
+             centromeres = cs_centromeres(s$scn$bins))
+  expect_equal(x$r$feature_info$phasing[["detected"]], "chromosome")
+  msg = "tumour mode on chromosome-scale phasing"
+  hit = grepl(msg, x$w, fixed = TRUE)
+  expect_equal(sum(hit), 1L)
+  expect_match(x$w[hit], "cannot be re-oriented per clone", fixed = TRUE)
+  out = file.path(tempdir(), "callscn_tum_chrom")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(x$r, out)
+  expect_equal(sum(grepl(msg, readLines(file.path(out, "NOTES.md")), fixed = TRUE)), 1L)
+  expect_type(phasing_run_note(c(detected = "chromosome", orientation = "chromosome"), "tumour"), "character")
+  expect_null(phasing_run_note(c(detected = "chromosome", orientation = "chromosome"), "tumour", phasing_chrom = data.table(chrom = character(), regime = character())))
 })
 
 test_that("inst/scripts/call_scn.R --help exits 0 without data", {

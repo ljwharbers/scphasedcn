@@ -325,7 +325,8 @@ utils::globalVariables(c("st", "k", "region"))
 #'   calls of events carried by few cells need chromosome-scale phasing (`vignette("scphasedcn-inputs")`,
 #'   `scphasedcn hybrid-phase`)
 #' @param ... extra arguments for [cell_features()] (e.g. `centromeres`, `classes`, `qc`)
-#' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, notes), `scores`
+#' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, phasing_chrom (the
+#'   per-chromosome phasing regimes, [phasing_by_chrom()]), notes), `scores`
 #'   (normal, `keep_scores`), `thresholds`, `calls`, `events`, `pools`, `null_fit`, `false_calls` (normal:
 #'   [null_false_calls()]), `embedding`, clone components (tumour), `params` (the caller parameters plus the
 #'   arguments used: `normal` = every [caller_normal()] argument of the run, `tumour` = the full tumour options) and
@@ -407,6 +408,9 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   ftab = features$cells
   phase_note = phasing_run_note(features$phasing, mode)
   if (!is.null(phase_note)) warning("call_scn: ", phase_note, call. = FALSE)
+  # chromosomes whose phasing regime differs from the run's (a note of cell_features() that the run notes repeat)
+  mixed_note = if (phasing_ok(features$phasing))
+    phasing_mixed_note(features$phasing_chrom, features$phasing[["detected"]], features$phasing[["orientation"]])
 
   if (mode == "normal") {
     if (!is.null(control_regions)) warning("call_scn: `control_regions` is used in tumour mode only", call. = FALSE)
@@ -457,7 +461,6 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       res$null_fit$allelic_mask = amask
       res$notes = c(res$notes, mask_note)
     }
-    if (!is.null(phase_note)) res$notes = c(res$notes, phase_note)
     fc = null_false_calls(res$scores)
     res$false_calls = fc$rates
     res$false_events = fc$events
@@ -485,6 +488,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     res = do.call(caller_tumour, c(args, caller_args))
     res$embedding = NULL
   }
+  res$notes = c(res$notes, mixed_note, phase_note)
 
   # cells table: QC, stratum, fold, null cell, number of reportable cell calls, clone columns
   ct = as.data.table(res$cells)
@@ -516,7 +520,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   res$cells = ct
 
   res$features = long
-  res$feature_info = list(path = feat_path, cells = ftab, phasing = features$phasing, notes = features$notes, use = features$use)
+  res$feature_info = list(path = feat_path, cells = ftab, phasing = features$phasing, phasing_chrom = features$phasing_chrom,
+                          notes = features$notes, use = features$use)
   # parameters of the run: the caller's own record (tumour: + the full `tumour` options) over the input parameters,
   # plus every caller_normal() argument (defaults filled in) in normal mode
   rp = res$params %||% list()
@@ -545,13 +550,16 @@ utils::globalVariables(c("flat", "cell_type", "multiplet"))
 # pseudobulk (`loo`) on unoriented read-backed blocks; NULL otherwise (tumour mode, chromosome-wide phasing, other
 # orientations, or features without a phasing record)
 phasing_run_note = function(phasing, mode) {
-  if (mode != "normal" || is.null(phasing) || !all(c("detected", "orientation") %in% names(phasing))) return(NULL)
+  if (mode != "normal" || !phasing_ok(phasing)) return(NULL)
   if (!(phasing[["detected"]] == "block" && phasing[["orientation"]] %in% c("loo", "block"))) return(NULL)
   paste("normal mode on block phasing: the allele features were oriented by the pseudobulk of the other cells (loo),",
         "which is blind to events carried by few cells and aligns allelic bias shared by all cells. Per-cell allelic",
         "calls for events carried by few cells are not supported with block-only phasing; use chromosome-scale",
         "(hybrid) phasing: see vignette(\"scphasedcn-inputs\") and `scphasedcn hybrid-phase`.")
 }
+
+# a phasing record with `detected` and `orientation`
+phasing_ok = function(phasing) !is.null(phasing) && all(c("detected", "orientation") %in% names(phasing))
 
 # ---- output ------------------------------------------------------------------------------------------------
 

@@ -369,11 +369,27 @@ read_fragments = function(file, regions = NULL, cells = NULL) {
   cols = if (startsWith(hdr, "#")) strsplit(sub("^#", "", hdr), "\t")[[1]] else c("chrom", "start", "end", "cell", "strand", "mapq", "flags")
   if (!is.null(regions) && file.exists(paste0(file, ".tbi")) && requireNamespace("Rsamtools", quietly = TRUE)) {
     tb = Rsamtools::TabixFile(file)
-    rr = copy(regions)
+    rr = copy(as.data.table(regions))
     cs = tryCatch(Rsamtools::seqnamesTabix(tb), error = function(e) NULL)
+    if (!is.null(cs)) rr = rr[chrom %in% cs]     # a contig absent from the index has no fragments (as without tabix)
     rr[is.na(end), end := 536870911]            # tabix limit (2^29 - 1), beyond any chromosome
-    gr = GenomicRanges::GRanges(rr$chrom, IRanges::IRanges(rr$start + 1, rr$end))
-    lines = unlist(Rsamtools::scanTabix(tb, param = gr))
+    lines = character()
+    if (nrow(rr)) {
+      # overlapping / adjacent query ranges merged; a fragment spanning two disjoint ranges is returned by both
+      # queries and kept from the first only (start before the end of the previous range on the same contig)
+      gr = GenomicRanges::reduce(GenomicRanges::GRanges(rr$chrom, IRanges::IRanges(rr$start + 1, rr$end)))
+      res = Rsamtools::scanTabix(tb, param = gr)
+      gch = as.character(GenomicRanges::seqnames(gr)); gend = GenomicRanges::end(gr)
+      js = match("start", cols); if (is.na(js)) js = 2L
+      for (i in seq_along(res)) {
+        li = res[[i]]
+        if (i > 1 && length(li) && gch[i] == gch[i - 1]) {
+          st = as.numeric(vapply(strsplit(li, "\t", fixed = TRUE), `[`, "", js))
+          li = li[!(st < gend[i - 1])]
+        }
+        lines = c(lines, li)
+      }
+    }
     d = if (length(lines)) fread(text = lines, header = FALSE, col.names = cols) else as.data.table(setNames(replicate(length(cols), character()), cols))
   } else {
     d = fread(cmd = paste("gzip -dc", shQuote(file)), header = FALSE, skip = if (startsWith(hdr, "#")) 1 else 0, col.names = cols)

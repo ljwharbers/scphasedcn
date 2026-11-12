@@ -1639,6 +1639,20 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   }
   all_calls = rbindlist(c(list(calls), pcalls), fill = TRUE)
   events = consolidate_calls(all_calls, regions)
+  # regions left without any threshold after borrowing (a class without null rows whose sd_class has no thresholds
+  # either, e.g. an event whose sd_class is not among the region classes): scored but never called
+  na_thr = function(x, col) if (is.null(x) || !nrow(x)) character() else x[, .(nothr_ = all(is.na(get(col)))), by = region][nothr_ == TRUE, region]
+  nt_cell = na_thr(sc, "thr_s_comb")
+  nt_pool = na_thr(rbindlist(pcalls, fill = TRUE), "thr")
+  nothr = unique(c(nt_cell, nt_pool))
+  nothr_note = NULL
+  if (length(nothr)) {
+    lab = vapply(nothr, function(r) paste0(r, " (", paste(c(if (r %in% nt_cell) "per cell", if (r %in% nt_pool) "pooled"),
+                                                             collapse = ", "), ")"), character(1))
+    nothr_note = sprintf("no threshold for %d region(s), never called: %s (no null rows in their class or sd_class)",
+                         length(nothr), paste(lab, collapse = ", "))
+    warning("caller_normal: ", nothr_note, call. = FALSE)
+  }
   cells = d[, .(cell_type = cell_type[1], stratum = stratum[1], fold = fold[1], null_cell = null_cell[1]), by = cell]
   cells[, multiplet := cell %in% multiplets]
   new_scphasedcn("normal", cells = cells, regions = regions, scores = sc,
@@ -1657,7 +1671,8 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                         if ((params$pool_tail_q %||% 0) > 0) sprintf("pooled tail calibration q %g (pool_tail_k %g, cross-fitted %s)", params$pool_tail_q,
                                                                 params$pool_tail_k %||% 30, isTRUE(params$pool_tail_xfit %||% TRUE)),
                         sprintf("sex %s; gains resolved %s (min dl_gain %g); pools: region-standardised %s, called on %s",
-                                sex %||% "unknown", resolve_gains, gain_min_dl, pool_standardize, pscore)))
+                                sex %||% "unknown", resolve_gains, gain_min_dl, pool_standardize, pscore),
+                        nothr_note))
 }
 
 # sex for the chrX policy: female when chrX rows have allele votes (males are hemizygous: depth-only chrX), NULL without chrX rows
@@ -1667,4 +1682,4 @@ infer_sex = function(d) {
   if ("allelic_ok" %in% names(x) && !all(is.na(x$allelic_ok))) return(if (any(x$allelic_ok %in% TRUE)) "female" else "male")
   if (mean(x$n_hap > 0, na.rm = TRUE) > 0.5) "female" else "male"
 }
-utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo"))
+utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_"))

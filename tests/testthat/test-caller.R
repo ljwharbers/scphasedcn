@@ -983,3 +983,21 @@ test_that("male sample: an autosomal and a chrX named event are both pooled-thre
   expect_identical(th1, r0$thresholds)
   expect_identical(rB$calls[class != "event"], r0$calls)
 })
+
+test_that("a region left without thresholds after borrowing warns once and is noted; results unchanged", {
+  # an event whose sd_class (10 Mb tiles) is not among the region classes: nothing to borrow, never called
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ev = copy(rg[region == "chr8"])[, `:=`(region = "ev8_10Mb", class = "event", sd_class = "10Mb", null_region = FALSE)]
+  rg2 = rbind(rg, ev)
+  ff = fake_features(200, rg2, events = data.table(cell = 1:10, region = "ev8_10Mb", state = "loss"), seed = 3)
+  ws = character()
+  r = withCallingHandlers(caller_normal(ff, regions = rg2, null_cells = "features", n_draws = 500),
+                          warning = function(w) { ws <<- c(ws, conditionMessage(w)); invokeRestart("muffleWarning") })
+  expect_true(all(is.na(r$scores[region == "ev8_10Mb", thr_s_comb])))
+  expect_length(grep("ev8_10Mb", ws), 1)
+  expect_match(ws[grep("ev8_10Mb", ws)], "ev8_10Mb (per cell", fixed = TRUE)
+  expect_true(any(grepl("no threshold for 1 region(s), never called: ev8_10Mb", r$notes, fixed = TRUE)))
+  r0 = caller_normal(ff[region != "ev8_10Mb"], regions = rg, null_cells = "features", n_draws = 500)
+  expect_identical(r$calls[region != "ev8_10Mb"], r0$calls)
+  expect_false(any(grepl("no threshold", r0$notes)))
+})

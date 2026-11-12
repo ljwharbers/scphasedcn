@@ -339,6 +339,25 @@ test_that("caller_tumour without allele votes stops with a clear error", {
   expect_error(caller_tumour(i2, verbose = FALSE), "caller_tumour: no allele votes")
 })
 
+test_that("caller_tumour notes degenerate nulls: no control rows for the reference cleaning, no or few confirmation null rows", {
+  # the notes themselves
+  cn = scphasedcn:::confirm_null_notes
+  expect_identical(cn(ref_thr = 2.5, n_null = c(a = 20000, b = 15000), q = 0.999), character())
+  expect_identical(cn(ref_thr = NA_real_), character())
+  expect_match(cn(ref_thr = Inf), "no control rows to calibrate the allelic threshold \\(Inf\\), so no cell was removed")
+  expect_match(cn(n_null = c(segment = 0)), "no null rows .* every threshold is Inf and no cell call is confirmed")
+  few = cn(n_null = c(h1 = 20000, h2 = 900, h3 = 0), q = 0.999)
+  expect_length(few, 1)
+  expect_match(few, "2 of 3 hypotheses have fewer than 10000 null rows .*: h2 900, h3 0;")
+  # in the run: control regions that are all filtered out leave the reference cleaning without control rows
+  inp = tum2_input()
+  ctl0 = data.table(region = character(), chrom = character(), start = numeric(), end = numeric())
+  res = caller_tumour(inp, control_regions = ctl0, verbose = FALSE)
+  expect_true(any(grepl("reference pool cleaning: no control rows", res$notes)))
+  expect_true(is.infinite(res$null_fit$ref_thr))
+  expect_false(any(grepl("reference pool cleaning", tum2_result()$notes)))
+})
+
 test_that("check_clone_opts accepts the values the options allow: no cap, zero lengths and sizes", {
   chk = scphasedcn:::check_clone_opts
   for (o in list(list(max_cells = Inf), list(max_leaves = Inf), list(max_leaves_trunk = Inf), list(trunk_dist = 0),

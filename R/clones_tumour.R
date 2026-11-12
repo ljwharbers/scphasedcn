@@ -146,6 +146,32 @@ check_clone_opts = function(opts) {
   opts
 }
 
+# run notes on degenerate nulls of the tumour mode (the calls are not changed): `ref_thr` = the reference-pool
+# cleaning threshold of clean_reference() (Inf: no control rows, nothing removed); `n_null` = null rows per
+# confirmation hypothesis (named; all 0: no null rows at all, every threshold Inf); a hypothesis with fewer than
+# 10 / (1 - q) null rows has a type-7 `q` quantile that is close to the largest null score
+confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
+  out = character()
+  if (length(ref_thr) == 1 && !is.na(ref_thr) && is.infinite(ref_thr))
+    out = c(out, paste("reference pool cleaning: no control rows to calibrate the allelic threshold (Inf), so no cell was",
+                       "removed from the reference pool"))
+  if (length(n_null)) {
+    if (all(n_null == 0)) {
+      out = c(out, paste("per-cell confirmation: no null rows (no reference-pool cell and no control piece): every",
+                         "threshold is Inf and no cell call is confirmed"))
+    } else {
+      n_min = ceiling(10 / (1 - q))
+      few = n_null[n_null < n_min]
+      if (length(few))
+        out = c(out, sprintf(paste("per-cell confirmation: %d of %d hypotheses have fewer than %d null rows (10 / (1 - q), q %g): %s;",
+                                   "their thresholds are close to the largest null score (Inf without null rows), so confirmation",
+                                   "there is conservative"), length(few), length(n_null), n_min, q,
+                             paste(sprintf("%s %d", names(few), as.integer(few)), collapse = ", ")))
+    }
+  }
+  out
+}
+
 # per-cell call scores on a set of regions for cells of clone k (depth + allele under clone k's state)
 cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_cells = NULL) {
   # rows: data.table cell, region, cn, ploidy, f_state, c, a, oclone (orientation clone)
@@ -528,6 +554,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                        min_event = opts$normal_min_event,
                        control = if (is.null(control_regions)) NULL else as.data.table(control_regions)[, .(region, chrom, start, end)])
   ref_pool = cr$pool
+  notes = c(notes, confirm_null_notes(ref_thr = cr$thr))
   say("reference pool: ", length(ref_pool), " cells (normal clone(s) ", paste(cr$normal, collapse = ", "), "; flagged ",
       sum(cr$table$flag %||% FALSE), ", thr ", signif(cr$thr, 3), ")")
   if (opts$repass && length(ref_pool) >= opts$min_ref && uniqueN(members$clone) >= 2) {
@@ -640,6 +667,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       mn = b_matched_null(sc, nsc_rows, tpar_c, rho_c, params)
       sc = mn$sc; nb = mn$nb
       nb[, class := hyp]
+      nb_class = nb$class
       bt = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
                                       null = rep(TRUE, nrow(nb)))
       sc[, class := hyp]
@@ -671,6 +699,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       sc[bs, score := i.s_comb, on = .(cell, region)]
       nb = b_score(nsc_rows, tpar_c, rho_c, params, states = b_fun("caller_states")("tumour", params))
       nb[, class := "segment"]
+      nb_n = nrow(nb)
       bt = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
                                       null = rep(TRUE, nrow(nb)))
       sc[, class := "segment"]
@@ -689,6 +718,12 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       sc[thr_tab, thr := i.thr, on = "stratum"]
       sc[is.na(thr), thr := thr_tab[stratum == "pooled", thr][1]]
     }
+    # degenerate confirmation nulls (notes only): no null rows at all, or hypotheses with too few null rows
+    n_null_h = if (use_b && matched) {
+      hc = table(factor(nb_class, levels = unique(c(nb_class, sc$hyp))))
+      stats::setNames(as.integer(hc), names(hc))
+    } else if (use_b) c(segment = nb_n) else c(segment = nrow(nsc))
+    notes = c(notes, confirm_null_notes(n_null = n_null_h, q = params$null_q))
     sc[is.na(thr), thr := Inf]
     calls = sc[, .(cell, region, class = "segment", chrom, start = ev$start[match(region, ev$region)],
                    end = ev$end[match(region, ev$region)], state = label, score, thr, called = score > thr, level = "cell",

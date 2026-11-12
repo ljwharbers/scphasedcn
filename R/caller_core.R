@@ -140,6 +140,7 @@ ll_depth_shift = function(z, mu, tpar = NULL) {
     if (!all(c("t_m", "t_s", "t_df") %in% names(tpar))) stop("ll_depth_shift: tpar needs t_m, t_s, t_df")
     m = tpar[["t_m"]]; s = tpar[["t_s"]]; df = tpar[["t_df"]]
     for (v in list(m, s, df)) if (!length(v) %in% c(1L, length(z))) stop("ll_depth_shift: tpar must have 1 row or one row per z")
+    if (any(!is.na(s) & s <= 0)) stop("ll_depth_shift: the t scale t_s must be > 0 (a scale of 0 gives NaN depth LLRs)")
     lt = function(x) dt((x - m) / s, df, log = TRUE)
     out = lt(zz - mu) - lt(zz)
   }
@@ -190,7 +191,7 @@ ll_allelic = function(nA, n, f, rho, eps = 0.02, two_sided = TRUE, per_row = FAL
 #'
 #' Location-scale Student-t (`MASS::fitdistr(x, "t")`) of the finite null z
 #' per group, on a seeded subsample of at most `n_max` rows per group;
-#' fallback median / mad / df 30 when the fit fails.
+#' fallback median / mad / df 30 when the fit fails (the scale floored at the sd and at 1e-3).
 #' @param d null rows with `z` and the `by` columns
 #' @param by grouping columns (region class x depth stratum)
 #' @param n_max maximal rows per group used for the fit
@@ -202,7 +203,10 @@ fit_depth_null = function(d, by = c("class", "stratum"), n_max = 20000, seed = 1
   d[is.finite(z), {
     set.seed(seed)
     x = if (.N > n_max) z[sample.int(.N, n_max)] else z
-    f = tryCatch(suppressWarnings(MASS::fitdistr(x, "t")$estimate), error = function(e) c(m = median(x), s = mad(x), df = 30))
+    # fallback when the t fit fails: median / MAD / df 30, the scale floored (a MAD of 0, e.g. mostly tied z, would
+    # make every depth LLR NaN)
+    f = tryCatch(suppressWarnings(MASS::fitdistr(x, "t")$estimate),
+                 error = function(e) c(m = median(x), s = max(mad(x), stats::sd(x), 1e-3, na.rm = TRUE), df = 30))
     list(t_m = f[["m"]], t_s = f[["s"]], t_df = f[["df"]], n = .N)
   }, by = by]
 }

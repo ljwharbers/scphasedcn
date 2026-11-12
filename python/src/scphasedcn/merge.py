@@ -209,11 +209,23 @@ def _uns_safe(d):
     return out
 
 
+def _write_via_tmp(dest: Path, write) -> None:
+    """Write `dest` through a temporary file in the same directory (`write(path)`), then move it into place: an
+    interrupted merge never leaves a cut-off output under its final name. The temporary file is removed on failure."""
+    tmp = dest.with_name(f".tmp.{dest.name}")
+    try:
+        write(tmp)
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials: bool = True,
                  allow_missing: bool = False, log=None) -> dict:
     """Merge the finished partials of `chroms`. A chromosome without a finished partial (partials/<chrom>/DONE) is an
     error unless `allow_missing` (then it is listed as `missing` in summary.json). Partials are checked with
-    check_partials() first."""
+    check_partials() first. Every output is written to a temporary file and moved into place; summary.json is removed
+    at the start and written last, so it is present only after a complete merge."""
     t0 = time.time()
     log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
     out = Path(out); P = out / "partials"
@@ -227,6 +239,7 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
     if missing:
         log(f"warning: merging without {', '.join(missing)} (--allow-missing)")
     check_partials(dirs, log)
+    (out / "summary.json").unlink(missing_ok=True)
     first = dirs[0]
     cells = _read_cells(first)
     params = json.load(open(first / "params.json"))
@@ -253,8 +266,8 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
         a = ad.AnnData(X=X, obs=qc, var=bins, layers=layers, obsm={k: v.astype(np.int32) for k, v in obsm.items()})
         a.uns["params"] = _uns_safe(params)
         a.uns["obsm_layout"] = _uns_safe(obsm_layout())
-        a.write_h5ad(out / f"bins_{tag}.h5ad", compression="gzip")
-        qc.to_csv(out / "cells_qc.tsv", sep="\t")
+        _write_via_tmp(out / f"bins_{tag}.h5ad", lambda p: a.write_h5ad(p, compression="gzip"))
+        _write_via_tmp(out / "cells_qc.tsv", lambda p: qc.to_csv(p, sep="\t"))
         summary["bins"] = {"n_bins": int(a.n_vars), "total_counts": int(X.sum()), "layers": list(layers.keys())}
         for k in ("n_pass", "n_clean"):
             if k in qc:
@@ -266,20 +279,27 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
         snps = _snps(adirs)
         a = ad.AnnData(X=al["DP"], obs=pd.DataFrame(index=cells), var=snps, layers={"AD": al["AD"]})
         a.uns["params"] = _uns_safe(params)
-        a.write_h5ad(out / "alleles_dna.h5ad", compression="gzip")
+        _write_via_tmp(out / "alleles_dna.h5ad", lambda p: a.write_h5ad(p, compression="gzip"))
         summary["alleles_dna"] = {"n_snps": int(a.n_vars), "n_phased": int((snps["hap_of_alt"] > 0).sum()),
                                   "total_dp": int(al["DP"].sum()), "total_ad": int(al["AD"].sum())}
     # --- fragments table ---
     parts = [str(d / "fragments.tsv.gz") for d in dirs if (d / "fragments.tsv.gz").exists()]
     if parts:
         fn = out / "fragments.tsv.gz"
-        concat_bgzf(parts, str(fn), header=FRAGMENT_COLUMNS)
-        if os.path.exists(str(fn) + ".tbi"):
-            os.remove(str(fn) + ".tbi")
-        pysam.tabix_index(str(fn), seq_col=0, start_col=1, end_col=2, zerobased=True, force=True, meta_char="#")
+        tmp = fn.with_name(f".tmp.{fn.name}")
+        tmp_idx = Path(f"{tmp}.tbi")
+        try:   # table and index are built under a temporary name, then moved: data first, then its own index
+            concat_bgzf(parts, str(tmp), header=FRAGMENT_COLUMNS)
+            pysam.tabix_index(str(tmp), seq_col=0, start_col=1, end_col=2, zerobased=True, force=True, meta_char="#")
+            Path(f"{fn}.tbi").unlink(missing_ok=True)   # never the new table next to the old index
+            os.replace(tmp, fn)
+            os.replace(tmp_idx, f"{fn}.tbi")
+        finally:
+            for f in (tmp, tmp_idx, Path(f"{tmp}.hdr")):
+                f.unlink(missing_ok=True)
         summary["fragments"] = str(fn)
     summary["merge_seconds"] = round(time.time() - t0, 1)
-    write_json(out / "summary.json", summary)
+    _write_via_tmp(out / "summary.json", lambda p: write_json(p, summary))
     return summary
 
 

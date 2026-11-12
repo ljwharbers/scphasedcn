@@ -5,6 +5,7 @@ import shutil
 
 import anndata as ad
 import pandas as pd
+import pysam
 import pytest
 
 from conftest import CELL_A, CELL_B, name, rewrite_bam, write_vcf
@@ -147,6 +148,42 @@ def test_merge_after_moving_the_output_and_extracting_out_of_order(genome, bam, 
         assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, bam, o)) == 0
     shutil.move(str(o), str(tmp_path / "moved"))
     assert main(["merge", "--out", str(tmp_path / "moved"), "--chroms", "chr1,chr2"]) == 0
+
+
+
+# --------------------------------------------------------------------------------------------- interrupted merge
+def test_interrupted_merge_leaves_no_summary_and_no_mixed_fragments(genome, bam, vcf, tmp_path, monkeypatch):
+    import scphasedcn.merge as M
+    for ch in ("chr1", "chr2"):
+        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, bam, tmp_path)) == 0
+    assert main(["merge", "--out", str(tmp_path), "--chroms", "chr1,chr2"]) == 0
+    frag, tbi = (tmp_path / "fragments.tsv.gz").read_bytes(), (tmp_path / "fragments.tsv.gz.tbi").read_bytes()
+    files = sorted(p.name for p in tmp_path.iterdir())
+
+    def cut_concat(parts, out, header=None):        # killed while writing the fragments table
+        with open(out, "wb") as fh:
+            fh.write(open(parts[0], "rb").read()[:100])
+        raise KeyboardInterrupt("killed")
+
+    def failed_index(*a, **k):                       # killed while indexing it
+        raise MemoryError("killed")
+
+    for target, attr, fake, err in ((M, "concat_bgzf", cut_concat, KeyboardInterrupt),
+                                    (M.pysam, "tabix_index", failed_index, MemoryError)):
+        with monkeypatch.context() as mp:
+            mp.setattr(target, attr, fake)
+            with pytest.raises(err):
+                M.merge_sample(str(tmp_path), ["chr1", "chr2"], log=lambda *a: None)
+        assert not (tmp_path / "summary.json").exists()
+        # the previous table and its index are intact; no temporary file is left
+        assert (tmp_path / "fragments.tsv.gz").read_bytes() == frag
+        assert (tmp_path / "fragments.tsv.gz.tbi").read_bytes() == tbi
+        assert sorted(p.name for p in tmp_path.iterdir()) == [f for f in files if f != "summary.json"]
+    assert main(["merge", "--out", str(tmp_path), "--chroms", "chr1,chr2"]) == 0
+    assert sorted(p.name for p in tmp_path.iterdir()) == files
+    assert (tmp_path / "fragments.tsv.gz").read_bytes() == frag
+    with pysam.TabixFile(str(tmp_path / "fragments.tsv.gz")) as t:
+        assert len(list(t.fetch("chr2"))) > 0
 
 
 # --------------------------------------------------------------------------------------------- C5 phased without PS

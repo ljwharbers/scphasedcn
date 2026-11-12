@@ -8,7 +8,8 @@ directory the scphasedcn R package reads:
   centromere flags per bin;
 - `fragments.tsv.gz` + `.tbi`: one row per fragment with cell, flags, haplotype (from phased heterozygous SNPs) and
   phase set;
-- `cells_qc.tsv`: per-cell QC; `alleles_dna.h5ad`: allele counts per cell x SNP; `summary.json`.
+- `cells_qc.tsv`: per-cell QC; `alleles_dna.h5ad`: allele counts per cell x SNP; `summary.json` (written last: a
+  directory without it holds an unfinished merge).
 
 ```bash
 pip install ./python            # or: the scphasedcn container / conda environment

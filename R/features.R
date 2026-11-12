@@ -786,6 +786,19 @@ feature_cells = function(all, qct, cells = NULL, cell_meta = NULL) {
   list(keep = intersect(all, k), how = if (meta_qc) "QC pass and cell_meta qc_pass" else "QC pass")
 }
 
+# sex of a sample from its cells' `sex` column: the one value of the non-missing entries ([check_sex()] spellings);
+# NA when there is none (missing or empty everywhere); stops when the cells disagree
+cells_sex = function(x, where = "cell_features") {
+  v = as.character(x)
+  v = unique(v[!is.na(v) & nzchar(trimws(v))])
+  if (!length(v)) return(NA_character_)
+  s = unique(vapply(v, check_sex, character(1), where = where, USE.NAMES = FALSE))
+  if (length(s) > 1)
+    stop(sprintf("%s: the cells' `sex` column mixes both sexes (%s); pass `sex` for the sample", where,
+                 paste(sprintf("\"%s\"", v), collapse = ", ")), call. = FALSE)
+  s
+}
+
 # cell metadata of a feature run: `meta` (one row per kept cell: the QC n_frag / stratum and default labels) with the
 # columns of `cell_meta` used as-is, except that a cell without a value for the QC-derived stratum / n_frag (not in
 # cell_meta, e.g. with `cells` given, or NA there) keeps its QC value
@@ -823,7 +836,8 @@ apply_cell_meta = function(meta, cell_meta) {
 #' @param ref_cells reference cells of the normalisation (selector; NULL = all)
 #' @param min_cells_type celltype: minimal reference cells of a type
 #' @param use NULL or a logical bin filter
-#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' `sex` column)
+#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' `sex` column, whose
+#'   non-missing values must all give the same sex)
 #' @param centromeres centromere table or path (Battenberg layout, see [arm_table()]; NULL: the hg38 table shipped with
 #'   the package, [hg38_centromeres()])
 #' @param classes region classes
@@ -866,7 +880,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   keep = sel$keep
   if (!length(keep)) stop("cell_features: no cells")
   note(sprintf("cells: %d of %d (%s)", length(keep), nrow(scn$cells), sel$how))
-  sex = sex %||% (if ("sex" %in% names(scn$cells)) as.character(scn$cells$sex[1]) else NULL)
+  sex = sex %||% (if ("sex" %in% names(scn$cells)) cells_sex(scn$cells$sex[match(keep, scn$cells$cell)]) else NULL)
   if (is.null(sex) || is.na(sex)) stop("cell_features: `sex` is needed")
   sex = check_sex(sex, "cell_features")
   scn = subset_scn(scn, cells = keep)

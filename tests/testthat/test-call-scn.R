@@ -315,6 +315,22 @@ test_that("cell_features: a cell_meta qc_pass column does not override the `qc` 
   expect_setequal(f$cells$cell, want)
 })
 
+test_that("cell_features: the sample's sex from a cells table must be one sex", {
+  s = sim_norm_f
+  s$scn$cells = copy(s$scn$cells)[, sex := rep(c("F", "male"), length.out = .N)]
+  d = file.path(tempdir(), "mixed_sex")
+  unlink(d, recursive = TRUE)
+  invisible(capture.output(suppressMessages(write_sim_dataset(s, d))))
+  expect_error(cell_features(d, centromeres = cs_centromeres(s$scn$bins), classes = c("arm", "chrom")),
+               "cell_features: the cells' `sex` column mixes both sexes")
+  # spellings normalised, missing / empty values ignored
+  expect_identical(cells_sex(c("F", NA, "female", " ")), "female")
+  expect_identical(cells_sex(c(NA, "M")), "male")
+  expect_identical(cells_sex(c(NA, NA)), NA_character_)
+  expect_error(cells_sex(c("m", "Female")), "mixes both sexes")
+  expect_error(cells_sex(c("m", "x")), "`sex` must be")
+})
+
 test_that("call_scn.R --cell-meta without qc_pass applies the cell QC (as the R API does)", {
   skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
   script = system.file("scripts", "call_scn.R", package = "scphasedcn")

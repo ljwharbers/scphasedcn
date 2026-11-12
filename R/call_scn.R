@@ -316,7 +316,7 @@ utils::globalVariables(c("st", "k", "region"))
 #'   `cell_meta`, `null_cells`, `multiplets` and named `groups` lose a trailing `-1` (as the extractor writes them);
 #'   the run notes give how many of them match the data's cells, and a warning says when none does
 #' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
-#'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data)
+#'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data; its non-missing values must agree)
 #' @param events named events: a table `region, chrom, start, end` (0-based half-open), [cli_events()] output or a
 #'   named vector of region strings (`20q_gain = "chr20:28000000-"`; unnamed ones are named after the region, see
 #'   [region_set()]); scored as `event` regions; in tumour mode their chromosomes are excluded from the null rows

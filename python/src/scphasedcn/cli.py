@@ -175,8 +175,11 @@ def cmd_extract(a):
             _log(f"warning: {snps.n_phased_gt} SNPs on {chrom} have a phased genotype but --phased was not given: "
                  f"their phase is ignored (no haplotype votes)")
         if snps.n_contig_ps:
-            _log(f"note: {snps.n_contig_ps} phased SNPs on {chrom} have no PS: one phase set for the contig "
-                 f"(PS {CONTIG_PS}, VCF specification)")
+            _log(f"warning: {snps.n_contig_ps} phased SNPs on {chrom} have no PS: one phase set per contig is "
+                 f"assumed (PS {CONTIG_PS}, VCF specification), i.e. the whole chromosome is taken as correctly "
+                 f"phased. Population-only (statistical) phasing of one sample carries switch errors every few "
+                 f"megabases, which attenuate the allele signal over large regions; read-based phase sets (PS from "
+                 f"e.g. longphase or WhatsHap) are preferable where available")
 
     # BAM pass
     fr, ctr = scan_chrom(d["bam"], chrom, cells, min_mapq=a.min_mapq, index_filename=a.index,

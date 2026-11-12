@@ -196,6 +196,8 @@ def test_phased_genotypes_without_ps_get_one_phase_set_per_contig(genome, bam, t
     assert s.ps.tolist() == [CONTIG_PS, CONTIG_PS, -1] and s.hap_of_alt.tolist() == [2, 1, 0] and CONTIG_PS > 0
     out = tmp_path / "o"
     assert main(["extract", "--chrom", "chr2", "--snps", str(v), "--phased"] + _common(genome, bam, out)) == 0
+    err = capsys.readouterr().err   # one phase set per contig: warned (long-range switch errors of population phasing)
+    assert "warning: 2 phased SNPs on chr2 have no PS" in err and "switch errors" in err
     f = pd.read_csv(out / "partials" / "chr2" / "fragments.tsv.gz", sep="\t", header=None)
     hap, ps = f[10], f[12]
     assert ((hap == 1) | (hap == 2)).sum() == 2 and (ps[(hap == 1) | (hap == 2)] == CONTIG_PS).all()

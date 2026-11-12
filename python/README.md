@@ -32,7 +32,8 @@ Options worth knowing:
   reads; the per-cell QC tables are written with `depth` and `alleles`, and the old name `qc` is accepted and
   ignored). `--layers alleles,fragments` recomputes the allele layer alone, e.g. with a new VCF.
 - `--snps`: a bgzipped, tabix-indexed VCF whose contig names match the BAM (`chr2`, not `2`); both are checked before
-  the BAM pass. Phased genotypes without a `PS` field (e.g. population phasing) form one phase set per contig.
+  the BAM pass. Phased genotypes without a `PS` field (e.g. population phasing) form one phase set per contig, with
+  a warning: population-only phasing has switch errors every few megabases, so read-based phase sets are preferable.
   A VCF with several samples needs `--vcf-sample` (yaml: `vcf_sample`).
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).

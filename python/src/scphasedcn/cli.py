@@ -303,10 +303,12 @@ def cmd_run(a):
     layers_on = _layers(a.layers)
     d = resolve_inputs(a)
     present = _bam_references(d["bam"], a.index)
-    if a.chroms:
-        chroms = a.chroms.split(",")
-    elif d["chroms"]:
-        chroms = d["chroms"]
+    if a.chroms or d["chroms"]:   # requested explicitly: every one must be a reference of the BAM, checked up front
+        chroms = a.chroms.split(",") if a.chroms else list(d["chroms"])
+        absent = [c for c in chroms if c not in present]
+        if absent:
+            raise SystemExit(f"run: {', '.join(absent)} not in the BAM header (requested with "
+                             f"{'--chroms' if a.chroms else 'the yaml chroms'}); leave them out")
     else:
         chroms = [c for c in MAIN_CHROMS if c in present]
     if not chroms:

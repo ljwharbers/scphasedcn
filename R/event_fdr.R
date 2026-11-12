@@ -18,41 +18,41 @@ utils::globalVariables(c("p", "rep_", "s_", "key_", "grp_", "borrowed_", "n_rows
 
 # ---- calibration groups ----------------------------------------------------------------------------------
 
-# The null rows each scored row's threshold was trained on ([budget_thresholds()] logic): the group class x stratum
-# (x hstratum), or, with fewer than `min_null` null rows, the first coarser level (drop hstratum, then stratum) with
-# `min_null` rows, else the coarsest. A row whose group has no null rows at all (a class without null rows, e.g. named
+# The null rows each scored row's threshold was trained on: the group class x stratum (x hstratum) of the row and
+# the null rows [budget_thresholds()] trained that group's threshold on ([threshold_null_rows()]: its own null rows,
+# or, with fewer than `min_null`, those of the first coarser level (drop hstratum, then stratum) with `min_null`
+# rows, else of the coarsest). A row whose group has no null rows at all (a class without null rows, e.g. named
 # events) takes the group of its `sd_class` and is flagged `borrowed`.
-# Returns list(key = calibration key per row, borrowed = logical per row, groups = one row per key: n_null)
+# Returns list(key = calibration key per row ("<level>\r<group key at that level>"), borrowed = logical per row,
+#              rows = per key the indices (rows of sc) of its null rows)
 calibration_keys = function(sc, min_null) {
   by = c("class", "stratum", if ("hstratum" %in% names(sc)) "hstratum")
   isn = sc$is_null %in% TRUE
-  levs = list(by); cur = by
-  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
   keys_for = function(cls) {
     x = copy(sc[, by, with = FALSE])
     x[, class := cls]
-    kl = lapply(seq_along(levs), function(l) paste0(l, "\r", group_key(x, levs[[l]])))
-    nl = function(l) { tb = table(kl[[l]][isn]); v = as.integer(tb[kl[[l]]]); v[is.na(v)] = 0L; v }
-    key = kl[[1]]
-    if (length(levs) > 1) {
-      fb = nl(1) < min_null
-      for (l in 2:length(levs)) {
-        key[fb] = kl[[l]][fb]
-        if (l < length(levs)) fb = fb & nl(l) < min_null
-      }
-    }
-    key
+    tg = threshold_null_rows(x, by, isn, min_null)
+    gk = vapply(seq_len(nrow(tg$groups)), function(g)
+      paste0(tg$level[g], "\r", group_key(tg$groups[g], tg$levels[[tg$level[g]]])), character(1))
+    gi = match(group_key(x, by), tg$groups$key_)
+    rows = tg$use[!duplicated(gk)]
+    names(rows) = gk[!duplicated(gk)]
+    list(key = gk[gi], rows = rows)
   }
   k1 = keys_for(as.character(sc$class))
-  has = k1 %in% unique(k1[isn])
+  key = k1$key
+  rows = k1$rows
+  has = lengths(rows)[key] > 0
   borrowed = rep(FALSE, nrow(sc))
   if (any(!has) && "sd_class" %in% names(sc)) {
     k2 = keys_for(as.character(sc$sd_class))
-    b = !has & k2 %in% unique(k2[isn]) & sc$sd_class != sc$class
-    k1[b] = k2[b]
+    b = !has & lengths(k2$rows)[k2$key] > 0 & sc$sd_class != sc$class
+    key[b] = k2$key[b]
     borrowed[b] = TRUE
+    add = setdiff(unique(k2$key[b]), names(rows))
+    rows[add] = k2$rows[add]
   }
-  list(key = k1, borrowed = borrowed)
+  list(key = key, borrowed = borrowed, rows = rows)
 }
 
 # Empirical (conformal) p-value of reportable scores `s` (-Inf = not reportable) against the calibration rows: `cal`
@@ -181,15 +181,17 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
   x[, `:=`(key_ = ck$key[k], borrowed_ = ck$borrowed[k])]
   null_chroms = unique(sc$chrom[sc$is_null %in% TRUE])
   x[, null_borrowed := borrowed_ | !chrom %in% null_chroms]
-  # p-values per calibration group x fold: the null rows of the other folds (all folds for rows without one)
+  # p-values per calibration group x fold: the group's null rows (those its threshold was trained on) of the other
+  # folds (all folds for rows without one)
   folds = sort(unique(x$fold[!is.na(x$fold) & x$fold != 0L]))
   x[, p := NA_real_]
   tn = if (tail == "exponential") tail_n else 0
+  xi = rep(NA_integer_, nrow(sc)); xi[k] = seq_along(k)      # the call row of each scored row
   grp = list()
   for (g in unique(x$key_[tested])) {
-    ig = which(x$key_ == g)
-    nul = ig[x$is_null[ig]]
-    tg = ig[tested[ig]]
+    nul = xi[ck$rows[[g]]]
+    nul = nul[!is.na(nul)]
+    tg = which(x$key_ == g & tested)
     grp[[length(grp) + 1]] = data.table(gkey = g, n_null = length(nul))
     for (fo in unique(x$fold[tg])) {
       t_ = tg[x$fold[tg] %in% fo]

@@ -26,6 +26,10 @@ def _npz_shapes(path: Path) -> dict[str, tuple]:
         return {k[:-len("__shape")]: tuple(int(x) for x in z[k]) for k in z.files if k.endswith("__shape")}
 
 
+# DONE inputs that describe the SNPs a layer was made from (fragments: haplotype votes; alleles: allele counts)
+SNP_INPUTS = ("snps", "phased", "vcf_sample", "min_bq")
+
+
 def _fmt(v) -> str:
     s = json.dumps(v, sort_keys=True, default=str)
     return s if len(s) <= 120 else s[:117] + "..."
@@ -35,7 +39,8 @@ def check_partials(dirs: list[Path], log) -> None:
     """Fail (SystemExit) on partials that cannot be merged into one sample: a --region partial, different cell
     lists, a layer present on some chromosomes only, layer files the DONE metadata does not list (stale), matrices whose
     shape does not fit the cells or the depth bins, or layers made from different inputs (bin size, assignment, MAPQ,
-    BAM, SNP file, masks; recorded in DONE by extract). Partials of scphasedcn <= 0.1.1 (no DONE metadata) are
+    BAM, SNP file, masks; recorded in DONE by extract), or, within a partial, a fragments table whose haplotype votes
+    come from other SNP inputs than its alleles layer. Partials of scphasedcn <= 0.1.1 (no DONE metadata) are
     merged with a warning: only their cells, layer presence and shapes are checked."""
     first = dirs[0]
     cells0 = _read_cells(first)
@@ -123,6 +128,18 @@ def check_partials(dirs: list[Path], log) -> None:
         if b["depth"] and b["alleles"] and b["depth"].get("binsize") != b["alleles"].get("binsize"):
             raise SystemExit(f"partial {d.name}: depth and alleles layers have different bin sizes "
                              f"({b['depth'].get('binsize')} vs {b['alleles'].get('binsize')}); re-extract {d.name}")
+        # the caller takes haplotype votes from the fragments table and allele counts from the alleles layer: both
+        # must come from the same SNPs (a layer kept from an extraction without metadata was warned about above)
+        f, al = (m["layers"].get(L, {}).get("inputs") for L in ("fragments", "alleles"))
+        if f and al:
+            if f.get("snps") is None and al.get("snps") is not None:
+                raise SystemExit(f"partial {d.name}: its fragments layer was made without SNPs (no haplotype votes) "
+                                 f"but its alleles layer with SNPs; re-extract {d.name} with --layers alleles,fragments")
+            diff = [k for k in SNP_INPUTS if f.get(k) != al.get(k)]
+            if diff:
+                raise SystemExit(f"partial {d.name}: its fragments layer (haplotype votes) and its alleles layer were "
+                                 f"made from different SNP inputs ({', '.join(diff)}); re-extract {d.name} with "
+                                 f"--layers alleles,fragments")
 
 
 def _stack_layers(dirs: list[Path], fname: str) -> dict[str, sp.csr_matrix]:

@@ -109,6 +109,46 @@ def test_merge_checks_the_inputs_of_the_partials(genome, bam, vcf, tmp_path):
     assert any("no DONE metadata): chr1" in m for m in msgs) and (o / "bins_100kb.h5ad").exists()
 
 
+
+# --------------------------------------------------------------------------------------------- SNP inputs within a partial
+def test_merge_refuses_fragments_and_alleles_from_different_snp_inputs(genome, bam, vcf, tmp_path):
+    c = lambda out, *x: _common(genome, bam, out, *x)
+    flip = write_vcf(tmp_path / "flip.vcf", [("chr2", 1001, "A", "G", "PASS", ["1|0:1000"]),
+                                             ("chr2", 1501, "C", "T", "PASS", ["0|1:1000"])])
+    # an allele-only rerun with another VCF: the fragments keep the phase of the first one
+    o = tmp_path / "newvcf"
+    assert main(["extract", "--chrom", "chr2", "--snps", str(vcf), "--phased"] + c(o)) == 0
+    assert main(["extract", "--chrom", "chr2", "--layers", "alleles", "--snps", str(flip), "--phased"] + c(o)) == 0
+    with pytest.raises(SystemExit, match="chr2: .*snps.*re-extract chr2 with --layers alleles,fragments"):
+        main(["merge", "--out", str(o), "--chroms", "chr2"])
+    assert not (o / "summary.json").exists()
+    # the documented rerun of both layers merges
+    assert main(["extract", "--chrom", "chr2", "--layers", "alleles,fragments", "--snps", str(flip), "--phased"] + c(o)) == 0
+    assert main(["merge", "--out", str(o), "--chroms", "chr2"]) == 0
+    # fragments made without SNPs, alleles added later: every fragment would have hap 0
+    o = tmp_path / "later"
+    assert main(["extract", "--chrom", "chr2", "--layers", "depth,fragments"] + c(o)) == 0
+    assert main(["extract", "--chrom", "chr2", "--layers", "alleles", "--snps", str(vcf), "--phased"] + c(o)) == 0
+    with pytest.raises(SystemExit, match="fragments layer was made without SNPs.*--layers alleles,fragments"):
+        main(["merge", "--out", str(o), "--chroms", "chr2"])
+    # a fragments layer kept from an extraction without metadata cannot be checked: warned, not refused
+    done = json.load(open(o / "partials" / "chr2" / "DONE"))
+    done["layers"]["fragments"]["inputs"] = None
+    (o / "partials" / "chr2" / "DONE").write_text(json.dumps(done))
+    from scphasedcn.merge import merge_sample
+    msgs = []
+    merge_sample(str(o), ["chr2"], log=msgs.append)
+    assert any("fragments layer of chr2 was kept" in m for m in msgs)
+
+
+def test_merge_after_moving_the_output_and_extracting_out_of_order(genome, bam, vcf, tmp_path):
+    o = tmp_path / "o"
+    for ch in ("chr2", "chr1"):
+        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, bam, o)) == 0
+    shutil.move(str(o), str(tmp_path / "moved"))
+    assert main(["merge", "--out", str(tmp_path / "moved"), "--chroms", "chr1,chr2"]) == 0
+
+
 # --------------------------------------------------------------------------------------------- C5 phased without PS
 def test_phased_genotypes_without_ps_get_one_phase_set_per_contig(genome, bam, tmp_path, capsys):
     from scphasedcn.alleles import CONTIG_PS, load_snps

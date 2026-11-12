@@ -91,8 +91,18 @@ above 1 on real data). Beyond the (51st) largest null score of the group, `p` th
 fitted to the top 50 null scores times the reportable share of that tail (`event_fdr(tail = "none")` gives the plain
 conformal p-value; `summary.tsv` `events | empirical_p_floor` reports the floor). `q` is the Benjamini-Hochberg
 q-value over all tested rows, called or not. In `events.tsv`, `p` / `q` / `null_borrowed` are those of the event's
-top region and `null_cell` says whether the event is in a selected null cell. The same caveats apply: q-values are
-relative to the selected null, and rows of one cell are positively dependent (a chromosome and its arms).
+top region and `null_cell` says whether the event is in a selected null cell. Two limits:
+
+- *Relative to the selected null.* `p`, and the exponential tail beyond the largest null scores, are computed against
+  the selected null cells. The selection removes the cells with the heaviest tails (e.g. cells with more allelic
+  overdispersion than modelled), so for cells like those `p` is too small and the tail model extrapolates a truncated
+  distribution; the tail is conservative only for a correctly specified null with light tails. In a sample where
+  part of the cells are noisier than the null cells, the default tail can give false events a small `q` that
+  `event_fdr(tail = "none")` does not; compare the two when the null is in doubt.
+- *Rows, not events.* Benjamini-Hochberg runs over rows, and one real event usually rejects several nested rows
+  (chromosome, arms, tiles), while rows of one cell are positively dependent. A cut on `q` in `events.tsv` is
+  therefore not an event-level false discovery rate: the share of false events below the cut can be well above it.
+  The same holds for `summary.tsv` `events | cell_events_q_below_0.05`, a count of events at a row-level `q`.
 
 **Selection-free check** (`null_selection_check.tsv`, `call_scn(null_check = TRUE)` / `--null-check`; it costs about
 one more scoring pass). The autosomes are split into odd and even chromosomes; null cells are selected on one half

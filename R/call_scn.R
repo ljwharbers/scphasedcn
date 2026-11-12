@@ -709,7 +709,8 @@ read_scphasedcn = function(out) {
 #'   per state), `events` (reportable events per cell and per null cell, pooled calls; normal mode with
 #'   [event_fdr()] output: `cell_events_in_null_cells`, `expected_false_cell_events` (per chromosome group when there
 #'   is more than one) and `expected_false_cell_event_fraction` (lower bounds, see [event_fdr()]),
-#'   `cell_events_q_below_0.05`, `empirical_p_floor`; `calls` then also has `expected_false_reportable_cell_calls`),
+#'   `cell_events_q_below_0.05` (a count at a row-level q, not an event-level FDR, see [event_fdr()]),
+#'   `empirical_p_floor`; `calls` then also has `expected_false_reportable_cell_calls`),
 #'   `null_check` (selection-free exceedances per 1,000 per class, an upper bound of the null rate: real events
 #'   count too, [null_selection_check()]), `clones` (clones,
 #'   assigned cells, reference pool).
@@ -768,7 +769,8 @@ scphasedcn_summary = function(obj) {
   if (!is.null(obj$fdr_info)) {
     fi = obj$fdr_info
     add("events", sprintf("cell_events_q_below_%g", fi$alpha), fi$n_q_below, fi$n_cell_events,
-        sprintf("BH q over %d tested per-cell rows (tail %s)", as.integer(fi$m), fi$tail))
+        sprintf(paste("cell events whose top region has a row-level BH q below %g (over %d tested per-cell rows, tail %s);",
+                      "not an event-level FDR; relative to the selected null cells"), fi$alpha, as.integer(fi$m), fi$tail))
     add("events", "empirical_p_floor", fi$p_floor_max, fi$m,
         sprintf("largest 1 / (n_null + 1) of the null groups; n = tests m; with tail none a lone event's q cannot fall below ~ m x p_floor = %.3g",
                 fi$m * fi$p_floor_max))

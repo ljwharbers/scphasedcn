@@ -187,6 +187,9 @@ test_that("write_scphasedcn writes every file, read_scphasedcn round-trips, scph
                     "cell_events_q_below_0.05", "empirical_p_floor") %in% sm[section == "events", item]))
   expect_equal(sm[item == "expected_false_cell_events", value], sum(res$expected_false$expected_false_events))
   expect_equal(sm[item == "cell_events_in_null_cells", value], res$events[level == "cell", sum(null_cell)])
+  # the q count is of events at a row-level q, and its note says so
+  expect_equal(sm[item == "cell_events_q_below_0.05", value], res$events[level == "cell", sum(q < 0.05, na.rm = TRUE)])
+  expect_match(sm[item == "cell_events_q_below_0.05", note], "not an event-level FDR", fixed = TRUE)
   expect_equal(sm[item == "expected_false_reportable_cell_calls", section], "calls")
   ef = fread(file.path(out, "expected_false.tsv"))
   expect_equal(nrow(ef), nrow(res$expected_false))

@@ -168,6 +168,15 @@ h5_write_df = function(df, file, name, index_col) {
   invisible(TRUE)
 }
 
+# an HDF5 vector as rhdf5 reads it, made a plain R vector: no dim, raw -> integer, and an enum {FALSE, TRUE} (how h5py /
+# anndata write a boolean array; read as a factor) -> logical. Other enums keep their labels (character).
+h5_plain = function(v) {
+  if (is.factor(v) && length(levels(v)) && all(levels(v) %in% c("FALSE", "TRUE"))) return(as.logical(as.character(v)))
+  if (is.array(v)) v = as.vector(v)
+  if (is.raw(v)) v = as.integer(v)
+  v
+}
+
 h5_read_df = function(file, name) {
   at = tryCatch(rhdf5::h5readAttributes(file, name), error = function(e) list())
   index_col = as.character(at[["_index"]] %||% "_index")
@@ -185,14 +194,13 @@ h5_read_df = function(file, name) {
         v = cats[codes + 1L]
         v[codes < 0] = NA
       } else if (all(c("values", "mask") %in% sub)) {
-        v = rhdf5::h5read(file, paste0(path, "/values"), bit64conversion = "double")
-        mask = as.logical(rhdf5::h5read(file, paste0(path, "/mask")))
-        v[mask] = NA
+        # nullable integer / boolean / string array: values with a mask of the missing entries
+        v = h5_plain(rhdf5::h5read(file, paste0(path, "/values"), bit64conversion = "double"))
+        mask = as.logical(h5_plain(rhdf5::h5read(file, paste0(path, "/mask"))))
+        v[mask %in% TRUE] = NA
       } else next
     } else {
-      v = rhdf5::h5read(file, path, bit64conversion = "double")
-      if (is.array(v)) v = as.vector(v)
-      if (is.raw(v)) v = as.integer(v)
+      v = h5_plain(rhdf5::h5read(file, path, bit64conversion = "double"))
     }
     out[[nm]] = v
   }

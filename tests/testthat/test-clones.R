@@ -162,7 +162,7 @@ test_that("two_means separates a bimodal vector and finds little in a unimodal o
   x = c(rnorm(100, -3), rnorm(60, 0))
   tm = two_means(x)
   expect_gt(tm$sep, 2.5)
-  expect_equal(sum(tm$g == tm$g[1]), 100, tolerance = 5)
+  expect_lte(abs(sum(tm$g == tm$g[1]) - 100), 5)                  # the first group: the 100 draws around -3, within 5
   expect_lt(two_means(rnorm(200))$sep, 3)
 })
 

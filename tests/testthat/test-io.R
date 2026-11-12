@@ -121,6 +121,11 @@ test_that("the fallback yaml parser handles the config subset", {
   expect_equal(cfg$samples$S1$n, 3)
   if (requireNamespace("yaml", quietly = TRUE)) {
     ref = yaml::read_yaml(f)
-    expect_equal(ref$samples$S1$events$c21, cfg$samples$S1$events$c21)
+    expect_false(is.null(cfg$samples$S1$events$c5))
+    expect_equal(cfg$samples$S1$events$c5, ref$samples$S1$events$c5)
+    # where the two parsers agree (yaml reads the key `n` as FALSE and a flow sequence as a vector)
+    expect_equal(cfg$samples$S1$events, ref$samples$S1$events)
+    expect_equal(cfg[c("reference", "outputs")], ref[c("reference", "outputs")])
+    expect_equal(unlist(cfg$samples$S1$chroms), ref$samples$S1$chroms)
   }
 })

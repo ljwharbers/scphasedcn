@@ -288,6 +288,52 @@ test_that("chromosomes left in blocks under chromosome-scale phasing reach the r
   expect_equal(sum(grepl(msg, readLines(file.path(out, "NOTES.md")), fixed = TRUE)), 1L)
 })
 
+test_that("chromosome orientation on block phasing and mirrored orientation in normal mode warn", {
+  s = sim_norm_blk
+  d = sim_dir("sim_norm_blk")
+  run = function(ph) call_w(d, "normal", sex = "female", centromeres = cs_centromeres(s$scn$bins), embedding = FALSE,
+                            verbose = FALSE, keep_scores = FALSE, phasing = ph)
+  forced = 'phasing = "chromosome" on block phasing'
+  mirr = 'normal mode with phasing = "mirrored"'
+  # `chromosome` forced on unoriented blocks: one warning, one run note in NOTES.md
+  x = run("chromosome")
+  expect_equal(unname(x$r$feature_info$phasing), c("block", "chromosome"))
+  hit = grepl(forced, x$w, fixed = TRUE)
+  expect_equal(sum(hit), 1L)
+  expect_match(x$w[hit], "carries no signal", fixed = TRUE)
+  expect_false(any(grepl(mirr, x$w, fixed = TRUE)))
+  out = file.path(tempdir(), "callscn_forced")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(x$r, out)
+  expect_equal(sum(grepl(forced, readLines(file.path(out, "NOTES.md")), fixed = TRUE)), 1L)
+  # `mirrored`: one warning, one run note
+  y = run("mirrored")
+  hit = grepl(mirr, y$w, fixed = TRUE)
+  expect_equal(sum(hit), 1L)
+  expect_match(y$w[hit], "not calibrated for calling", fixed = TRUE)
+  expect_false(any(grepl(forced, y$w, fixed = TRUE)))
+  expect_equal(sum(grepl(mirr, y$r$notes, fixed = TRUE)), 1L)
+  # valid cases are silent: auto on chromosome-wide phasing (sim_norm_f) and on blocks (loo note only), chromosome
+  # requested on chromosome-wide phasing
+  res = norm_result()
+  expect_false(any(grepl(paste0(forced, "|", mirr), call_cache$norm_warnings)))
+  z = run("auto")
+  expect_false(any(grepl(forced, z$w, fixed = TRUE) | grepl(mirr, z$w, fixed = TRUE)))
+  expect_length(phasing_orientation_notes(res$feature_info$phasing, res$feature_info$phasing_chrom, "normal", "chromosome"), 0L)
+  # one chromosome in blocks: `chromosome` requested names it, `auto` does not warn
+  pc = data.table(chrom = c("chr1", "chr2", "chrX"), n_votes = c(100, 80, 40), n_ps = c(1L, 2L, 30L), k = c(1L, 1L, 20L),
+                  regime = c("chromosome", "chromosome", "block"))
+  ph = c(detected = "chromosome", orientation = "chromosome")
+  n1 = phasing_orientation_notes(ph, pc, "normal", "chromosome")
+  expect_length(n1, 1L)
+  expect_match(n1, paste0(forced, " (chrX)"), fixed = TRUE)
+  expect_length(phasing_orientation_notes(ph, pc, "normal", "auto"), 0L)
+  expect_length(phasing_orientation_notes(ph, pc[regime == "chromosome"], "normal", "chromosome"), 0L)
+  # tumour mode: the forced warning applies, mirrored is not flagged
+  expect_length(phasing_orientation_notes(c(detected = "block", orientation = "chromosome"), NULL, "tumour", "chromosome"), 1L)
+  expect_length(phasing_orientation_notes(c(detected = "block", orientation = "mirrored"), NULL, "tumour", "mirrored"), 0L)
+})
+
 test_that("scn_embedding is reproducible (seeded truncated SVD) and named by cell", {
   res = norm_result()
   d = sim_dir("sim_norm_f")

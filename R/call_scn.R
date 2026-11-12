@@ -310,8 +310,8 @@ utils::globalVariables(c("st", "k", "region"))
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
 #' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
-#'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells are called, those with `qc_pass`
-#'   TRUE when it has that column, else those passing [cell_qc()]; `flat` becomes the features' `null_cell`)
+#'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells that pass [cell_qc()] are called,
+#'   and with a `qc_pass` column only those that also have `qc_pass` TRUE; `flat` becomes the features' `null_cell`)
 #' @param cells NULL (QC-pass cells) or the cells to call (vector or file; no cell QC). The barcodes of `cells`,
 #'   `cell_meta`, `null_cells`, `multiplets` and named `groups` lose a trailing `-1` (as the extractor writes them);
 #'   the run notes give how many of them match the data's cells, and a warning says when none does

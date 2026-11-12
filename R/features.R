@@ -774,14 +774,16 @@ read_sample_depth = function(dir, layers = character()) {
 }
 
 # cells of a feature run, in the order of `all` (the sample's cells): `cells` as given (no QC); else the cells that pass
-# QC (a `qc_pass` column of `cell_meta` when it has one, else cell_qc()'s), restricted to the cells of `cell_meta`.
+# cell_qc() (`qct`, with the run's `qc` arguments), restricted to the cells of `cell_meta` and, when it has a `qc_pass`
+# column, to those with `qc_pass` TRUE (both must pass: the table's QC never overrides the run's `qc`).
 # The R API and the CLI (which passes --cell-meta as `cell_meta`) select the same cells from the same table.
 feature_cells = function(all, qct, cells = NULL, cell_meta = NULL) {
   if (!is.null(cells)) return(list(keep = intersect(all, cells), how = "given"))
   meta_qc = !is.null(cell_meta) && "qc_pass" %in% names(cell_meta)
-  k = if (meta_qc) as.character(cell_meta$cell)[as.logical(cell_meta$qc_pass) %in% TRUE] else qct[qc_pass == TRUE]$cell
+  k = qct[qc_pass == TRUE]$cell
+  if (meta_qc) k = intersect(k, as.character(cell_meta$cell)[as.logical(cell_meta$qc_pass) %in% TRUE])
   if (!is.null(cell_meta)) k = intersect(k, cell_meta$cell)
-  list(keep = intersect(all, k), how = if (meta_qc) "cell_meta qc_pass" else "QC pass")
+  list(keep = intersect(all, k), how = if (meta_qc) "QC pass and cell_meta qc_pass" else "QC pass")
 }
 
 # cell metadata of a feature run: `meta` (one row per kept cell: the QC n_frag / stratum and default labels) with the
@@ -804,8 +806,8 @@ apply_cell_meta = function(meta, cell_meta) {
 
 #' Per-cell per-region features of a sample
 #'
-#' Reads an extraction directory, applies the cell QC ([cell_qc()]; a `qc_pass` column of `cell_meta` replaces it;
-#' `cells` restricts the run to a set of cells instead, without QC), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
+#' Reads an extraction directory, applies the cell QC ([cell_qc()]; with a `qc_pass` column of `cell_meta` a cell must
+#' also have `qc_pass` TRUE; `cells` restricts the run to a set of cells instead, without QC), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
 #' and chrX), normalises depth ([normalise_depth()]: `celltype` for normal tissue, `model` for tumours), builds the
 #' regions ([region_set()]), the depth features ([depth_features()]), the molecule votes
 #' ([read_votes()]) and the oriented allele features ([allelic_features()]), and joins them into the
@@ -815,8 +817,8 @@ apply_cell_meta = function(meta, cell_meta) {
 #' @param cell_meta NULL or a data.table with `cell` and optional `qc_pass, cell_type, flat, fold, group, stratum,
 #'   n_frag` (used as-is; NA cell_type = no type-matched reference; NA or missing `stratum` / `n_frag` keep the QC
 #'   values). With `cells` NULL only cells of `cell_meta` are
-#'   used, and a `qc_pass` column (e.g. [make_cell_meta()]) selects them instead of [cell_qc()] (cells with
-#'   `qc_pass` TRUE)
+#'   used, and with a `qc_pass` column (e.g. [make_cell_meta()]) only those with `qc_pass` TRUE that also pass
+#'   [cell_qc()] with the `qc` arguments
 #' @param method depth normalisation, "celltype" or "model" (any [normalise_depth()] method is accepted)
 #' @param ref_cells reference cells of the normalisation (selector; NULL = all)
 #' @param min_cells_type celltype: minimal reference cells of a type

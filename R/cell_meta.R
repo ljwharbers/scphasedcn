@@ -11,7 +11,7 @@
 #' Builds the `cell_meta` table of [call_scn()] (the `--cell-meta` TSV of `call_scn.R`). Every column but `cell` is
 #' optional for the caller:
 #' * `qc_pass`: the cells to call. [call_scn()] (and `call_scn.R --cell-meta`) without `cells` calls the cells of the
-#'   table with `qc_pass` TRUE; without the column, those of the table that pass [cell_qc()].
+#'   table that pass [cell_qc()] (with the run's `qc` arguments) and, with this column, also have `qc_pass` TRUE.
 #' * `cell_type`: the depth reference of normal-tissue mode is matched by cell type (types with fewer than 20 cells,
 #'   and cells with `NA`, use the reference of all cells). Without cell types the reference is the all-cell one.
 #' * `flat`: cells known to be copy-number neutral (e.g. normal cells from an orthogonal assay). Normal mode uses them

@@ -40,7 +40,7 @@ usage = paste(
   "  --caller-config <yaml>  caller parameters (default: the package's caller.yaml; its normal: / tumour: blocks are",
   "                          the caller_normal() arguments / tumour-mode options clone_defaults())",
   "  --cell-meta <tsv>       cell + optional qc_pass/cell_type/flat/fold/group/stratum/n_frag (see make_cell_meta();",
-  "                          only its cells are called: qc_pass TRUE when it has that column, else the cell QC;",
+  "                          only its cells that pass the cell QC are called, and qc_pass TRUE when it has that column;",
   "                          cell_type 'unknown' = no type)",
   "  --cells <file|list>     cells to call, without cell QC (default: QC pass, and in cell-meta when given)",
   "  --null-cells <x>        auto | features | select | a file or ';' list of null cells",
@@ -119,8 +119,8 @@ if (nzchar(a$cell_meta)) {
   keep = intersect(c("cell", "qc_pass", "cell_type", "flat", "fold", "group", "stratum", "n_frag", a$groups), names(cm))
   cm = cm[, keep, with = FALSE]
 }
-# --cells bypasses the cell QC; otherwise call_scn() selects the cells of --cell-meta that pass QC (its qc_pass column,
-# else cell_qc() on cells_qc.tsv), exactly as the R API does with the same table
+# --cells bypasses the cell QC; otherwise call_scn() selects the cells of --cell-meta that pass cell_qc() on
+# cells_qc.tsv and, when the table has a qc_pass column, have qc_pass TRUE, exactly as the R API does with the same table
 cells = split_list(a$cells)
 nc = a$null_cells
 null_cells = if (nc %in% c("auto", "features", "select")) nc else split_list(nc)

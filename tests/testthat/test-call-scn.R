@@ -283,7 +283,7 @@ test_that("make_cell_meta builds the cell metadata from cells_qc and user labels
   expect_error(make_cell_meta(), "no cells")
 })
 
-test_that("cell selection: cell_meta qc_pass replaces the cell QC, without it the QC applies; `cells` bypasses QC", {
+test_that("cell selection: the cell QC applies, a cell_meta qc_pass column restricts it further; `cells` bypasses QC", {
   all = paste0("c", 1:6)
   qct = data.table(cell = all, qc_pass = c(TRUE, TRUE, TRUE, FALSE, FALSE, TRUE))
   expect_identical(feature_cells(all, qct)$keep, c("c1", "c2", "c3", "c6"))
@@ -292,13 +292,27 @@ test_that("cell selection: cell_meta qc_pass replaces the cell QC, without it th
   s = feature_cells(all, qct, cell_meta = m)
   expect_identical(s$keep, c("c2", "c6"))
   expect_identical(s$how, "QC pass")
-  # with qc_pass: the table's QC decides (as make_cell_meta() wrote it)
+  # with qc_pass: a cell must pass both the QC and the table's qc_pass (c4 fails the QC, c2 / c1 the table)
   m2 = data.table(cell = c("c6", "c4", "c2", "c1"), qc_pass = c(TRUE, TRUE, FALSE, NA))
   s2 = feature_cells(all, qct, cell_meta = m2)
-  expect_identical(s2$keep, c("c4", "c6"))
-  expect_identical(s2$how, "cell_meta qc_pass")
+  expect_identical(s2$keep, "c6")
+  expect_identical(s2$how, "QC pass and cell_meta qc_pass")
   # explicit cells: no QC, in the sample's order
   expect_identical(feature_cells(all, qct, cells = c("c5", "c4", "zz"), cell_meta = m2)$keep, c("c4", "c5"))
+})
+
+test_that("cell_features: a cell_meta qc_pass column does not override the `qc` argument", {
+  # make_cell_meta() writes qc_pass with its own QC arguments; a stricter `qc` of the run still applies
+  d = sim_dir("sim_norm_f")
+  m = make_cell_meta(d)
+  expect_true("qc_pass" %in% names(m))
+  qc = list(min_frag = 20000)
+  qct = do.call(cell_qc, c(list(read_sample_depth(d)), qc))
+  want = intersect(qct[qc_pass == TRUE, cell], m[qc_pass %in% TRUE, cell])
+  expect_lt(length(want), sum(m$qc_pass))                            # the stricter QC removes cells
+  f = suppressWarnings(cell_features(d, cell_meta = m, sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins),
+                                     qc = qc, classes = c("arm", "chrom")))
+  expect_setequal(f$cells$cell, want)
 })
 
 test_that("call_scn.R --cell-meta without qc_pass applies the cell QC (as the R API does)", {

@@ -402,6 +402,32 @@ test_that("write_scphasedcn clears the files of a previous result and nothing el
   expect_true(all(basename(files) %in% scphasedcn_output_files()))
 })
 
+test_that("write_scphasedcn: rewriting a read-back result into its own directory keeps its scores and features", {
+  # result.rds is stored without scores / features, so they cannot be written again from a read-back object
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 10)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  res = call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500))
+  out = file.path(tempdir(), "write_roundtrip")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(res, out, write_scores = TRUE, write_features = TRUE)
+  big = file.path(out, c("scores.tsv.gz", "features.tsv.gz"))
+  expect_true(all(file.exists(big)))
+  md5 = unname(tools::md5sum(big))
+  back = read_scphasedcn(out)
+  expect_null(back$scores)
+  expect_null(back$features)
+  write_scphasedcn(back, out, write_scores = TRUE, write_features = TRUE)
+  expect_true(all(file.exists(big)))
+  expect_identical(unname(tools::md5sum(big)), md5)
+  # an object that carries them: written again when asked, cleared as stale when not
+  write_scphasedcn(res, out, write_scores = TRUE)
+  expect_true(file.exists(big[1]))
+  expect_false(file.exists(big[2]))
+  write_scphasedcn(res, out)
+  expect_false(file.exists(big[1]))
+})
+
 test_that("precomputed features: unused feature-step inputs warn; tumour-mode null_cells = 'select' warns", {
   rg = fake_regions(tiles = c("20Mb" = 2e7))
   ff = fake_features(100, rg, seed = 12)

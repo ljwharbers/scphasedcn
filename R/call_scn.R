@@ -623,7 +623,8 @@ utils::globalVariables("part")
 #' `summary.tsv` ([scphasedcn_summary()]) and `NOTES.md`. Optional: `scores.tsv.gz`, `features.tsv.gz`.
 #' The files of a previous result in `out` (the names above) are removed first, so a re-run never leaves stale
 #' tables behind (e.g. `clones.tsv` of a tumour run, `scores.tsv.gz` of a run with `write_scores`); other files in
-#' `out` are left alone.
+#' `out` are left alone. An object without scores (or features), e.g. one read back with [read_scphasedcn()],
+#' leaves an existing `scores.tsv.gz` (`features.tsv.gz`) in place: it cannot write them again.
 #' @param obj `scphasedcn` from [call_scn()]
 #' @param out output directory (created)
 #' @param write_scores also write the per cell x region scores
@@ -634,8 +635,10 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
   obj = relabel_legacy(obj)
   if (!inherits(obj, "scphasedcn")) stop("write_scphasedcn: not a scphasedcn object")
   dir.create(out, recursive = TRUE, showWarnings = FALSE)
-  # the files this writer owns: clear those of a previous result (never anything else)
-  old = file.path(out, scphasedcn_output_files())
+  # the files this writer owns: clear those of a previous result (never anything else). The scores / features
+  # files stay when the object carries none (result.rds is stored without them): they could not be rewritten
+  keep = c(if (is.null(obj$scores)) "scores.tsv.gz", if (is.null(obj$features)) "features.tsv.gz")
+  old = file.path(out, setdiff(scphasedcn_output_files(), keep))
   old = old[file.exists(old) & !dir.exists(old)]
   if (length(old)) unlink(old)
   files = character()

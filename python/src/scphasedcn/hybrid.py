@@ -30,6 +30,8 @@ oriented, flipped, output PS. Per contig: population markers used, blocks orient
 rate (switches / consecutive vote pairs inside blocks) and the minority fraction (votes against the majority in oriented
 blocks / votes in oriented blocks). Both measure how often the population phase disagrees with the reads: the
 switch rate is roughly the population phaser's switch-error rate at the spacing of the voting sites.
+A contig of the blocks file with no record in the population input (e.g. chrX missing from the panel) keeps its
+blocks; it is named in a `[warn]` line and counted in the log's total line (`contigs_without_markers`).
 
 Inputs. `blocks`: the read-backed phased VCF (plain or bgzip, indexed or not; sorted). `population`: one phased VCF, or a
 pattern with `{chrom}` for one file per contig (the contig name is tried as in the blocks file, then with / without the
@@ -304,13 +306,16 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
     vf = pysam.VariantFile(blocks)
     si = _sample_index(vf, sample, "blocks")
     pop = Population(population, sample=population_sample, prefer_sample=si, imputed_flag=imputed_flag, log=log)
-    dec, rows, chrom_rows, seen = {}, [], [], []
+    dec, rows, chrom_rows, seen, no_markers = {}, [], [], [], []
     n_rec = Counter()
 
     def finish(c, sites, other_ps):
         mk, st, fname = pop.markers(c)
         if fname is None:
             log(f"[warn] {c}: no population file ({population}); blocks kept as they are")
+        elif st["markers"] == 0:
+            no_markers.append(c)
+            log(f"[warn] {c}: no markers in the population file {fname}; blocks kept as they are")
         d = _decide(c, sites, mk, min_votes, other_ps)
         dec[c] = d
         rows.extend(d["rows"])
@@ -433,7 +438,7 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
     sums["switch_rate"] = round(sums["switches"] / sums["vote_pairs"], 5) if sums["vote_pairs"] else 0
     log("[total] " + " ".join(f"{k}={sums[k]}" for k in CHROM_KEYS[2:-1]) +
         f" sites_oriented={tot['sites_oriented']} sites_kept={tot['sites_kept']} sites_filled={tot['sites_filled']}"
-        f" other_oriented={tot['other_oriented']}")
+        f" other_oriented={tot['other_oriented']} contigs_without_markers={len(no_markers)}")
     if chrom_tsv:
         with open(chrom_tsv, "w") as fh:
             fh.write("\t".join(CHROM_KEYS) + "\n")
@@ -445,4 +450,4 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
             fh.write("\t".join(BLOCK_KEYS) + "\n")
             for r in rows:
                 fh.write("\t".join(str(x) for x in r) + "\n")
-    return dict(sums) | dict(tot)
+    return dict(sums) | dict(tot) | {"contigs_without_markers": len(no_markers)}

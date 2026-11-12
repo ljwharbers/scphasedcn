@@ -262,3 +262,17 @@ def test_non_snv_records_follow_their_oriented_block(tmp_path):
     # the tie block keeps its own PS, and its indel is untouched
     assert o[("chr1", 1150)]["gt"] == (1, 0) and o[("chr1", 1150)]["ps"] == 1000 and o[("chr1", 1150)]["src"] is None
 
+
+def test_contig_without_population_markers_warns(tmp_path):
+    blocks = write_blocks(tmp_path / "blocks.vcf.gz")
+    pop = write_pop(tmp_path / "pop1.vcf.gz", rows=[r for r in POP_ROWS if r[0] == "1"])   # no chr2 markers
+    out = tmp_path / "h.vcf.gz"
+    msgs = []
+    tot = hybrid_phase(str(blocks), str(pop), str(out), log=lambda *a: msgs.append(" ".join(map(str, a))))
+    warn = [m for m in msgs if m.startswith("[warn]")]
+    assert len([m for m in warn if "chr2" in m]) == 1 and "no markers" in warn[0]
+    assert not any("chr1" in m for m in warn)
+    assert tot["contigs_without_markers"] == 1
+    assert any(m.startswith("[total]") and "contigs_without_markers=1" in m for m in msgs)
+    o = read_out(out)
+    assert o[("chr2", 500)]["ps"] == 500 and o[("chr2", 500)]["src"] == "B"

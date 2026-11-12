@@ -949,3 +949,37 @@ test_that("named event regions borrow the thresholds of their sd_class (per cell
   tv = rv$thresholds[level == "cell" & class == "chrom" & score == "s_comb"]
   expect_identical(sv$thr_s_comb, tv$thr[match(paste(sv$stratum, sv$hstratum, sv$fold), paste(tv$stratum, tv$hstratum, tv$fold))])
 })
+
+test_that("male sample: an autosomal and a chrX named event are both pooled-thresholded; other classes unchanged", {
+  # male: chrX is depth-only and its rows of the null cells join the pooled null in their own sex group. A named
+  # event never has null rows of its own, so an autosomal event borrows its sd_class threshold of the autosomal
+  # group and a chrX event the one of the X group, whether or not the other event is present.
+  rg0 = fake_regions(tiles = c("20Mb" = 2e7), sex = "male")
+  mk = function(src, name) copy(rg0[region == src])[, `:=`(region = name, class = "event", sd_class = "chrom", null_region = FALSE)]
+  rgA = rbind(rg0, mk("chr8", "ev8"))
+  rgB = rbind(rgA, mk("chrX", "evX"))
+  ffB = fake_features(300, rgB, events = data.table(cell = 1:12, region = "ev8", state = "loss"), seed = 21)
+  ffB[chrom == "chrX", `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_)]
+  ffB[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  run = function(ff, rg) caller_normal(ff, regions = rg, null_cells = "features", n_draws = 1500, sex = "male")
+  rB = run(ffB, rgB)
+  rA = run(ffB[region != "evX"], rgA)
+  r0 = run(ffB[class != "event"], rg0)
+  pt = rB$thresholds[level == "pool_type"]
+  pe = rB$calls[level == "pool" & class == "event"]
+  expect_setequal(unique(pe$region), c("ev8", "evX"))
+  expect_false(anyNA(pe$thr))
+  # each event is thresholded in the sex group of its chromosome, with its sd_class threshold
+  te = pt[class == "event" & fold == 0L & score == "s_rob"]
+  tc = pt[class == "chrom" & fold == 0L & score == "s_rob"]
+  expect_true(all(te$borrowed_from == "chrom"))
+  expect_true(all(pe[region == "ev8", thr] == tc[sexgrp == "A", thr]))
+  expect_true(all(pe[region == "evX", thr] == tc[sexgrp == "X", thr]))
+  # the autosomal event's pools are called as without the chrX event
+  expect_identical(rB$calls[level == "pool" & region == "ev8"], rA$calls[level == "pool" & region == "ev8"])
+  expect_gt(sum(rB$calls[level == "pool" & region == "ev8", called]), 0)
+  # other classes: identical thresholds and calls without any event
+  th1 = rB$thresholds[class != "event"][, borrowed_from := NULL]
+  expect_identical(th1, r0$thresholds)
+  expect_identical(rB$calls[class != "event"], r0$calls)
+})

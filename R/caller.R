@@ -1436,7 +1436,11 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
   # borrowed thresholds (a class without null pools, borrow_thresholds()) are matched on the rows' sd_class
   brw = "borrowed_from" %in% names(thr) && any(!is.na(thr$borrowed_from)) && "sd_class" %in% names(d)
   ps = pool_scores(d, pools, states, by = c("region", "class", if (brw) "sd_class"), loo = loo, scale = scale)
-  if ("sexgrp" %in% names(thr) && !all(is.na(thr$sexgrp))) ps[, sexgrp := sex_group(region_chrom(region, class))]
+  if ("sexgrp" %in% names(thr) && !all(is.na(thr$sexgrp))) {
+    # the rows' chromosome (a named event has none in its name)
+    ch = if ("chrom" %in% names(d)) d$chrom[match(ps$region, d$region)] else region_chrom(ps$region, ps$class)
+    ps[, sexgrp := sex_group(ch)]
+  }
   ps = apply_thresholds(ps, thr, score)
   pol = as.data.table(policy)[level == "pool"]
   sc = sub("^s_", "state_", score)
@@ -1592,8 +1596,11 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   ct = setNames(ctype$cell_type, ctype$cell)
   sp = sc[class %in% pool_classes]
   # pooled null: the null rows, plus for a male the chrX / chrY rows of the null cells (one copy is their null state),
-  # so that the sex-chromosome pools get their own region scale instead of the autosomal class fallback
-  sexnull = identical(sex, "male") & sp$chrom %in% c("chrX", "chrY") & sp$null_cell %in% TRUE & sp$eligible %in% TRUE
+  # so that the sex-chromosome pools get their own region scale instead of the autosomal class fallback. Only classes
+  # with null rows take part: a class without any (named events) borrows the thresholds of its sd_class in every sex
+  # group (borrow_thresholds()) instead of holding sex-chromosome null pools that would stop it from borrowing
+  sexnull = identical(sex, "male") & sp$chrom %in% c("chrX", "chrY") & sp$null_cell %in% TRUE & sp$eligible %in% TRUE &
+    sp$class %in% sp$class[sp$is_null %in% TRUE]
   pnull = sp[is_null == TRUE | sexnull]
   # male: the sex chromosomes get their own pooled threshold group (class x {autosome, X, Y}); their depth-only,
   # neighbourhood-sensitive null is heavier-tailed than the autosomal one that sets the class threshold

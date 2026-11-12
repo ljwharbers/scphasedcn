@@ -210,11 +210,16 @@ test_that("tumour mode dispatches to the tumour mode", {
   d = sim_dir("sim_tum2")
   s = sim_tum2
   cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
+  # multiplet scores between 0.5 and the tumour mode's multiplet_prob (0.9) are not flagged: the cells are used as singlets
+  mult = data.table(cell = cm$cell[1:4], prob = c(0.6, 0.85, 0.95, 1))
   res = call_scn(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
-                 centromeres = cs_centromeres(s$scn$bins))
+                 centromeres = cs_centromeres(s$scn$bins), multiplets = mult)
   expect_s3_class(res, "scphasedcn")
   expect_equal(res$mode, "tumour")
   expect_true(all(c("clone", "posterior") %in% names(res$cells)))
+  expect_identical(res$cells[match(mult$cell, cell), multiplet], c(FALSE, FALSE, TRUE, TRUE))
+  asg = as.data.table(res$assignments)
+  expect_identical(res$cells[match(asg$cell, cell), multiplet], asg$multiplet)
   # the tumour options of the run are kept in params (call_scn no longer replaces the caller's record)
   expect_identical(res$params$tumour, clone_defaults())
   expect_null(res$params$normal)

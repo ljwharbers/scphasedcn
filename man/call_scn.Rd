@@ -50,7 +50,9 @@ features carry no \code{null_fit}; they are not the reference pool (the caller f
 itself); "select" is ignored with a warning}
 
 \item{multiplets}{NULL or multiplet flags (\code{\link[=multiplet_table]{multiplet_table()}} forms); normal mode: cells with prob > 0.5
-are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}}
+are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}, which sets aside the cells
+above its \code{multiplet_prob} option (default 0.9). The \code{multiplet} column of the cells table flags the cells each
+mode set aside}
 
 \item{control_regions}{tumour mode: control regions for the null (regions table)}
 

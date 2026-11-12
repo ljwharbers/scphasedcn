@@ -326,7 +326,9 @@ utils::globalVariables(c("st", "k", "region"))
 #'   features carry no `null_fit`; they are not the reference pool (the caller finds and cleans the normal clone
 #'   itself); "select" is ignored with a warning
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
-#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`
+#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`, which sets aside the cells
+#'   above its `multiplet_prob` option (default 0.9). The `multiplet` column of the cells table flags the cells each
+#'   mode set aside
 #' @param control_regions tumour mode: control regions for the null (regions table)
 #' @param groups tumour mode: pseudobulk groups of the block orientation (a column of `cell_meta`, a vector named
 #'   by cell, or one label per cell); ignored with a warning in normal mode
@@ -553,7 +555,12 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     for (cn in intersect(c("clone", "posterior", "doublet_like", "ref_pool", "assigned"), names(asg))) if (!cn %in% names(ct))
       set(ct, j = cn, value = asg[[cn]][match(ct$cell, as.character(asg$cell))])
   }
-  if (!is.null(mult) && !"multiplet" %in% names(ct)) ct[, multiplet := cell %in% mult[prob > 0.5, cell]]
+  if (!is.null(mult) && !"multiplet" %in% names(ct)) {
+    # the flag the caller used: normal mode sets it itself (cells with prob > 0.5); tumour mode excludes the cells
+    # above its `multiplet_prob` option (its assignments' `multiplet`)
+    mthr = if (mode == "tumour") res$params$tumour$multiplet_prob %||% clone_defaults()$multiplet_prob else 0.5
+    ct[, multiplet := cell %in% mult[prob > mthr, cell]]
+  }
   lead = intersect(c("cell", "qc", "stratum", "fold", "null_cell", "n_calls", "n_events", "clone", "posterior", "doublet_like", "ref_pool"), names(ct))
   setcolorder(ct, lead)
   res$cells = ct

@@ -328,6 +328,21 @@ test_that("check_clone_opts rejects out-of-range tumour options with a clear err
   expect_identical(ok$allelic_exclude, character())
 })
 
+test_that("check_clone_opts accepts the values the options allow: no cap, zero lengths and sizes", {
+  chk = scphasedcn:::check_clone_opts
+  for (o in list(list(max_cells = Inf), list(max_leaves = Inf), list(max_leaves_trunk = Inf), list(trunk_dist = 0),
+                 list(small_clone = 0), list(control_min_len = 0), list(member_post = 0), list(member_post = 1)))
+    expect_no_error(chk(o))
+  for (k in c("max_cells", "trunk_dist", "small_clone", "control_min_len", "member_post"))
+    for (bad in list(-1, NA_real_, c(1, 2), numeric()))
+      expect_error(chk(stats::setNames(list(bad), k)), paste0("opts\\$", k, " must be"), info = k)
+  expect_error(chk(list(max_cells = 2.5)), "opts\\$max_cells must be one whole number >= 1 or Inf")
+  expect_error(chk(list(small_clone = 1.5)), "opts\\$small_clone must be one whole number >= 0")
+  expect_error(chk(list(member_post = 1.5)), "opts\\$member_post must be one number in \\[0, 1\\]")
+  expect_error(chk(list(min_size = 0)), "opts\\$min_size must be one whole number >= 1, not 0")
+  expect_error(chk(list(mix_w = c(0.5, 1))), "opts\\$mix_w must be numbers strictly between 0 and 1")
+})
+
 test_that("assign_cells keeps the normal clone N0 as a hypothesis when no cell is labelled N0", {
   res = tum2_result()
   inp = tum2_input()

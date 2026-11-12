@@ -68,9 +68,11 @@ utils::globalVariables(c(
 #' hypothesis in `null_fit$confirm_null`; the default). The refitted value is `null_fit$rho_confirm`.
 #'
 #' A key that is not one of these defaults stops [caller_tumour()] with an error, and so does a value outside its range:
-#' `q`, `p_switch`, `trunk_post`, `min_post`, `member_post`, `ref_post`, `max_mix_prior` and every `mix_w` strictly
-#' between 0 and 1, `mix_prior` in \[0, 1), `multiplet_prob` and `deep_q` in \[0, 1\], counts (`em_rounds`, `min_size`,
-#' `n_perm`, `min_win`, `min_ref`, ...) whole numbers >= 1, sizes / lengths > 0, the other tolerances >= 0.
+#' `q`, `p_switch`, `trunk_post`, `min_post`, `ref_post`, `max_mix_prior` and every `mix_w` strictly
+#' between 0 and 1, `mix_prior` in \[0, 1), `multiplet_prob`, `deep_q` and `member_post` in \[0, 1\], counts (`em_rounds`,
+#' `min_size`, `n_perm`, `min_win`, `min_ref`, ...) whole numbers >= 1, the caps `max_cells`, `max_leaves` and
+#' `max_leaves_trunk` whole numbers >= 1 or `Inf` (no cap), `small_clone` a whole number >= 0, `trunk_dist` and
+#' `control_min_len` >= 0, the other sizes / lengths > 0, the other tolerances >= 0.
 #' @return named list (see [caller_tumour()])
 #' @export
 clone_defaults = function() {
@@ -108,22 +110,27 @@ check_clone_opts = function(opts) {
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
       stop("caller_tumour: opts$", k, " (segment_clone() rule) must be one number >= 0, not ", paste(format(v), collapse = ", "), call. = FALSE)
   }
-  # ranges of the other numeric options: `what` names the allowed range in the error
-  chk = function(keys, ok, what, n = 1) for (k in keys) {
+  # ranges of the other numeric options: `what` names the allowed range in the error ("one <noun> <what>")
+  chk = function(keys, ok, what, n = 1, noun = "number") for (k in keys) {
     v = opts[[k]]
     good = is.numeric(v) && (is.null(n) || length(v) == n) && length(v) >= 1 && !anyNA(v) && all(ok(v))
-    if (!good) stop("caller_tumour: opts$", k, " must be ", if (is.null(n)) "numbers " else "one number ", what, ", not ",
-                    if (length(v)) paste(format(v), collapse = ", ") else "empty", call. = FALSE)
+    if (!good) stop("caller_tumour: opts$", k, " must be ", if (is.null(n)) paste0(noun, "s ") else paste0("one ", noun, " "), what,
+                    ", not ", if (length(v)) paste(format(v), collapse = ", ") else "empty", call. = FALSE)
   }
   whole = function(v) is.finite(v) & v == round(v)
-  chk(c("q", "p_switch", "trunk_post", "min_post", "member_post", "ref_post", "max_mix_prior"), function(v) v > 0 & v < 1,
+  chk(c("q", "p_switch", "trunk_post", "min_post", "ref_post", "max_mix_prior"), function(v) v > 0 & v < 1,
       "strictly between 0 and 1")
   chk("mix_w", function(v) v > 0 & v < 1, "strictly between 0 and 1", n = NULL)
   chk("mix_prior", function(v) v >= 0 & v < 1, "in [0, 1)")
-  chk(c("multiplet_prob", "deep_q"), function(v) v >= 0 & v <= 1, "in [0, 1]")
-  chk(c("em_rounds", "min_size", "min_n", "n_pc", "k", "max_leaves", "max_leaves_trunk", "n_perm", "max_cells", "small_clone",
-        "split_max", "split_cand", "min_win", "min_ref"), function(v) whole(v) & v >= 1, "a whole number >= 1")
-  chk(c("cap", "size_small", "trunk_dist", "split_min_len", "control_min_len", "n_nb_trunk"), function(v) v > 0, "> 0")
+  chk(c("multiplet_prob", "deep_q", "member_post"), function(v) v >= 0 & v <= 1, "in [0, 1]")   # member_post: posterior >= it
+  chk(c("em_rounds", "min_size", "min_n", "n_pc", "k", "n_perm", "split_max", "split_cand", "min_win", "min_ref"),
+      function(v) whole(v) & v >= 1, ">= 1", noun = "whole number")
+  # caps on a count: Inf = no cap (no subsampling / no limit on the leaves of the over-cut)
+  chk(c("max_leaves", "max_leaves_trunk", "max_cells"), function(v) (whole(v) & v >= 1) | v == Inf, ">= 1 or Inf",
+      noun = "whole number")
+  chk("small_clone", function(v) whole(v) & v >= 0, ">= 0", noun = "whole number")   # 0: no clone is small
+  chk(c("cap", "size_small", "split_min_len", "n_nb_trunk"), function(v) v > 0, "> 0")
+  chk(c("trunk_dist", "control_min_len"), function(v) v >= 0, ">= 0")   # 0: every clone its own trunk / every piece a control
   chk(c("depth_delta", "disp_min", "imb_min", "depth_w", "split_sep", "split_min_df", "split_min_excess", "min_llr", "mix_margin",
         "mix_rel", "mix_min_dist", "same_dist", "doublet_delta", "normal_min_event"), function(v) v >= 0, ">= 0")
   for (k in c("split_depth", "repass", "normal_hypothesis")) {

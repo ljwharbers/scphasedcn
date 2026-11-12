@@ -147,5 +147,14 @@ res_t$clones
 head(res_t$segments)
 ```
 
-MEDICC2 trees of the clones: `medicc2_pieces()` and `medicc2_table()` write MEDICC2's input from the clone
-segments.
+MEDICC2 trees of the clones: `medicc2_pieces()` cuts the clone segments into common pieces,
+`orient_clone_states()` assigns each clone's allele-specific copy numbers (`cn_a`, `cn_b`) from the molecule votes of
+the features, and `medicc2_table()` makes MEDICC2's input table (write it yourself):
+
+```{r medicc2, eval = FALSE}
+feat = cell_features("results/tumour/extract", method = "model", sex = "male")
+res_t = call_scn("results/tumour/extract", mode = "tumour", features = feat)
+pcs = medicc2_pieces(res_t$segments, res_t$clones)
+ori = orient_clone_states(pcs, feat, res_t$assignments, res_t$clones)
+data.table::fwrite(medicc2_table(ori), "medicc2_input.tsv", sep = "\t")
+```

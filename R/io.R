@@ -368,7 +368,8 @@ write_fragments = function(fr, file, extra = NULL) {
 #' @param file fragments.tsv.gz
 #' @param regions optional data.table (chrom, start, end) from [parse_region()]; uses the tabix index
 #' @param cells optional character vector of cells to keep
-#' @return data.table chrom, start, end, cell, strand, mapq, flags (+ extras), hap decoded from flags when absent
+#' @return data.table chrom, start, end, cell, strand, mapq, flags (+ extras), `hap` (the file's `hap` column as U / A / B /
+#'   N labels; "U" for every fragment when the file has none, nothing is decoded from `flags`), `len` (end - start when absent)
 #' @export
 read_fragments = function(file, regions = NULL, cells = NULL) {
   con = gzfile(file)

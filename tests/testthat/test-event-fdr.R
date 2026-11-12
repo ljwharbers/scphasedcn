@@ -176,11 +176,20 @@ test_that("event_fdr without fallback: each group's calibration rows are its cla
   expect_equal(x$q[tst], stats::p.adjust(pe[tst], "BH"))
 })
 
+# null_selection_check on a small genome (8 autosomes + chrX), 1,200 cells: a pure null (cached)
+nsc_genome = function() fake_regions(sim_genome(setNames(rep(3e7, 9), c(paste0("chr", 1:8), "chrX"))), tiles = c("10Mb" = 1e7))
+nsc_null = function() {
+  if (is.null(fdr_cache$nsc0)) {
+    rg = nsc_genome()
+    f0 = fake_features(1200, rg, seed = 71)
+    fdr_cache$nsc0 = list(rg = rg, f0 = f0, n0 = null_selection_check(f0, regions = rg, select_args = list(n_sim = 2e4)))
+  }
+  fdr_cache$nsc0
+}
+
 test_that("null_selection_check: ~1 / 1,000 on a pure null, clearly higher when the null is too thin for a subset of cells", {
-  gen = sim_genome(setNames(rep(3e7, 9), c(paste0("chr", 1:8), "chrX")))
-  rg = fake_regions(gen, tiles = c("10Mb" = 1e7))
-  f0 = fake_features(1200, rg, seed = 71)
-  n0 = null_selection_check(f0, regions = rg, select_args = list(n_sim = 2e4))
+  x0 = nsc_null()
+  rg = x0$rg; f0 = x0$f0; n0 = x0$n0
   expect_true(all(c("class", "stratum", "n_rows", "n_exceed", "per_1000", "lo_per_1000", "hi_per_1000", "nominal_per_1000",
                     "insample_per_1000", "cv_per_1000") %in% names(n0)))
   hv = attr(n0, "halves")
@@ -203,4 +212,20 @@ test_that("null_selection_check: ~1 / 1,000 on a pure null, clearly higher when 
   expect_gt(ch1$per_1000, 2.5 * ch0$per_1000)
   expect_lt(ch1$insample_per_1000, 2)
   expect_error(null_selection_check(f0[chrom %in% c("chr1", "chr3")], regions = rg), "odd and even")
+})
+
+test_that("null_selection_check counts real events on the measured half: per_1000 bounds the null rate from above", {
+  # 24 of 1,200 cells carry a whole-chromosome gain of chr2 (even half): selected as null cells on the odd half, their
+  # chr2 rows are measured and exceed the thresholds, although the null itself is correct
+  x0 = nsc_null()
+  car = sprintf("cell_%04d", 1:24)
+  ev = CJ(cell = car, region = x0$rg[chrom == "chr2", region])[, state := "gain"]
+  f3 = fake_features(1200, x0$rg, events = ev, seed = 71)
+  n3 = null_selection_check(f3, regions = x0$rg, select_args = list(n_sim = 2e4))
+  ch0 = x0$n0[class == "chrom" & stratum == "all"]; ch3 = n3[class == "chrom" & stratum == "all"]
+  expect_gt(ch3$per_1000, 2 * ch0$per_1000)
+  expect_gt(ch3$lo_per_1000, ch0$per_1000)
+  # the excess is about the carriers' chr2 rows over the measured rows, not a worse null on the selection half
+  expect_lt(ch3$insample_per_1000, 2)
+  expect_gt(ch3$n_exceed - ch0$n_exceed, 0.5 * length(car))
 })

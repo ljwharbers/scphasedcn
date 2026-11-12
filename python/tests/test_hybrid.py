@@ -130,9 +130,10 @@ def test_orientation_tie_no_overlap_imputed(inputs, tmp_path):
     # imputed markers never vote: one agreeing vote orients PS 3000 unflipped into the merged set
     assert all(o[("chr1", p)]["ps"] == 100 and o[("chr1", p)]["gt"] == (0, 1) for p in (3000, 3100, 3200))
     assert [o[("chr1", p)]["vote"] for p in (3000, 3100, 3200)] == ["A", ".", "."]
-    # untouched records: unphased het without --fill-unphased, the indel (keeps its own PS), hom alt
+    # the indel of PS 3000 follows its oriented block into the merged phase set (unflipped, no vote)
+    assert o[("chr1", 4500)]["ps"] == 100 and o[("chr1", 4500)]["gt"] == (0, 1) and o[("chr1", 4500)]["src"] == "O"
+    # untouched records: unphased het without --fill-unphased, hom alt
     assert o[("chr1", 4000)]["phased"] is False and o[("chr1", 4000)]["src"] is None
-    assert o[("chr1", 4500)]["ps"] == 3000 and o[("chr1", 4500)]["src"] is None
     assert o[("chr1", 4600)]["gt"] == (1, 1)
     # chr2: PS 500 flipped, both blocks in one phase set
     assert {o[("chr2", p)]["ps"] for p in (10, 20, 500, 600)} == {10}
@@ -235,3 +236,29 @@ def test_extractor_reads_one_phase_set_per_contig(inputs, tmp_path):
     assert set(s1.ps[s1.hap_of_alt > 0].tolist()) == {100, 1000, 2000}       # tie and no-overlap blocks keep their PS
     before = load_snps(str(blocks), "chr2", phased=True)
     assert set(before.ps.tolist()) == {10, 500}
+
+
+def test_non_snv_records_follow_their_oriented_block(tmp_path):
+    # PS 100: SNVs at 100, 200, 300 disagree with the population -> flipped; the indel (150) and the multi-allelic
+    # het (250) of the same block carry no vote but must be flipped with it and take the merged PS.
+    # PS 1000: a tie -> kept; its indel (1150) stays as it was.
+    rows = [("chr1", 100, "A", "C", "0|1", 100), ("chr1", 150, "AT", "A", "0|1", 100),
+            ("chr1", 200, "G", "T", "1|0", 100), ("chr1", 250, "A", "C,G", "1|2", 100),
+            ("chr1", 300, "C", "T", "0|1", 100),
+            ("chr1", 1000, "A", "C", "0|1", 1000), ("chr1", 1100, "A", "C", "0|1", 1000),
+            ("chr1", 1150, "AT", "A", "1|0", 1000)]
+    blocks = write_blocks(tmp_path / "blocks.vcf.gz", rows=rows)
+    pop = write_pop(tmp_path / "pop.vcf.gz", rows=[
+        ("1", 100, "A", "C", "1|0", False), ("1", 200, "G", "T", "0|1", False), ("1", 300, "C", "T", "1|0", False),
+        ("1", 1000, "A", "C", "0|1", False), ("1", 1100, "A", "C", "1|0", False)])
+    out = tmp_path / "h.vcf.gz"
+    hybrid_phase(str(blocks), str(pop), str(out), log=lambda *a: None)
+    o = read_out(out)
+    assert o[("chr1", 100)]["gt"] == (1, 0) and o[("chr1", 200)]["gt"] == (0, 1)
+    # the indel and the multi-allelic het are flipped with their block and carry its merged PS
+    assert o[("chr1", 150)]["gt"] == (1, 0) and o[("chr1", 150)]["ps"] == 100 and o[("chr1", 150)]["src"] == "O"
+    assert o[("chr1", 250)]["gt"] == (2, 1) and o[("chr1", 250)]["ps"] == 100 and o[("chr1", 250)]["src"] == "O"
+    assert o[("chr1", 150)]["vote"] == "." and o[("chr1", 250)]["vote"] == "."
+    # the tie block keeps its own PS, and its indel is untouched
+    assert o[("chr1", 1150)]["gt"] == (1, 0) and o[("chr1", 1150)]["ps"] == 1000 and o[("chr1", 1150)]["src"] is None
+

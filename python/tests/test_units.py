@@ -3,6 +3,7 @@ import subprocess
 import sys
 
 import numpy as np
+import pytest
 
 from scphasedcn.names import parse_name
 from scphasedcn.bins import Tiling, merge_intervals, in_intervals, overlap_bp
@@ -61,3 +62,27 @@ def test_translate_barcodes(tmp_path):
     assert translate_barcodes(["CCCC", "TTTT", "NNNN"], str(m)) == (["AAAA", "GGGG"], "rna->atac")
     assert translate_barcodes(["AAAA", "GGGG"], str(m)) == (["AAAA", "GGGG"], "atac")
     assert translate_barcodes(["AAAA"], None) == (["AAAA"], "atac")
+
+
+def test_translate_barcodes_reports_and_checks_the_match(tmp_path, capsys):
+    from scphasedcn.config import translate_barcodes
+    m = tmp_path / "map.tsv"
+    m.write_text("atac_barcode\trna_barcode\n" + "".join(f"A{i}-1\tR{i}-1\n" for i in range(20)))
+    # no whitelist barcode in either column: a wrong map
+    with pytest.raises(SystemExit, match="none of the 2 whitelist barcodes"):
+        translate_barcodes(["X1", "X2"], str(m))
+    # a tie: warned, used as is (ATAC space) as before
+    capsys.readouterr()
+    assert translate_barcodes(["A1", "R2"], str(m)) == (["A1", "R2"], "atac")
+    err = capsys.readouterr().err
+    assert "warning" in err and "tie" in err
+    # RNA whitelist, all in the map: translated, both counts logged, no warning
+    rna = [f"R{i}" for i in range(20)]
+    assert translate_barcodes(rna, str(m)) == (sorted(f"A{i}" for i in range(20)), "rna->atac")
+    err = capsys.readouterr().err
+    assert "0 of 20" in err and "20 of 20" in err and "warning" not in err
+    # RNA whitelist, 15 of 20 in the map: 5 dropped, warned
+    out, space = translate_barcodes(rna[:15] + [f"Z{i}" for i in range(5)], str(m))
+    err = capsys.readouterr().err
+    assert space == "rna->atac" and len(out) == 15
+    assert "5 whitelist barcodes not in the map are dropped" in err and "warning" in err and "75%" in err

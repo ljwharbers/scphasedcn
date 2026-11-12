@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -115,20 +116,42 @@ def read_barcodes(path: str | os.PathLike) -> list[str]:
     return sorted(set(bcs))
 
 
-def translate_barcodes(bcs: list[str], barcode_map: str | None) -> tuple[list[str], str]:
+MIN_MAP_MATCH = 0.9   # warn when the chosen barcode space holds fewer of the whitelist barcodes than this
+
+
+def translate_barcodes(bcs: list[str], barcode_map: str | None, log=None) -> tuple[list[str], str]:
     """A whitelist may be in RNA-barcode space (e.g. 10x Multiome GEX barcodes) while the BAM `CB` is the ATAC
     barcode. With a barcode map (a TSV with columns atac_barcode, rna_barcode; `--barcode-map`) whitelist entries are
-    matched against both columns; when more are found in the RNA column they are translated to the ATAC column.
-    Returns (barcodes, space) with space "atac" (used as is) or "rna->atac" (translated)."""
+    matched against both columns; when more are found in the RNA column they are translated to the ATAC column
+    (whitelist barcodes not in the map are then dropped). Returns (barcodes, space) with space "atac" (used as is) or
+    "rna->atac" (translated). Both match counts are logged; a map matching no whitelist barcode is an error, and a tie
+    or a chosen column holding fewer than MIN_MAP_MATCH of the whitelist is warned about."""
     if not barcode_map:
         return bcs, "atac"
+    log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
     import pandas as pd
     m = pd.read_csv(barcode_map, sep="\t", usecols=["atac_barcode", "rna_barcode"])
     strip = lambda x: x[:-2] if x.endswith("-1") else x
     atac = {strip(x) for x in m["atac_barcode"]}
     rna2atac = {strip(r): strip(a) for a, r in zip(m["atac_barcode"], m["rna_barcode"])}
     n_atac = sum(b in atac for b in bcs); n_rna = sum(b in rna2atac for b in bcs)
-    if n_atac >= n_rna:
+    n = len(bcs)
+    if n_atac == 0 and n_rna == 0:
+        raise SystemExit(f"--barcode-map {barcode_map}: none of the {n} whitelist barcodes is in its atac_barcode or "
+                         f"rna_barcode column; is it the map of this sample's whitelist?")
+    space = "atac" if n_atac >= n_rna else "rna->atac"
+    n_hit = n_atac if space == "atac" else n_rna
+    log(f"barcode map: {n_atac} of {n} whitelist barcodes in its atac_barcode column, {n_rna} of {n} in its "
+        f"rna_barcode column: " + ("whitelist used as is (ATAC barcodes)" if space == "atac" else
+                                   f"translated to ATAC barcodes; {n - n_rna} whitelist barcodes not in the map "
+                                   f"are dropped"))
+    if n_atac == n_rna:
+        log(f"warning: barcode map: a tie ({n_atac} whitelist barcodes in each column); the whitelist is used as is "
+            f"(ATAC barcodes): check that it is the map of this whitelist")
+    if n_hit < MIN_MAP_MATCH * n:
+        log(f"warning: barcode map: only {n_hit} of {n} whitelist barcodes ({100 * n_hit / n:.0f}%) are in its "
+            f"{'atac' if space == 'atac' else 'rna'}_barcode column: check that it is the map of this whitelist")
+    if space == "atac":
         return bcs, "atac"
     out = sorted({rna2atac[b] for b in bcs if b in rna2atac})
     return out, "rna->atac"

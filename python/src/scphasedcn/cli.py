@@ -138,7 +138,7 @@ def cmd_extract(a):
     chrom = reg[0] if reg else a.chrom
     if chrom is None:
         raise SystemExit("need --chrom or --region")
-    cells, space = translate_barcodes(read_barcodes(d["barcodes"]), d["barcode_map"])
+    cells, space = translate_barcodes(read_barcodes(d["barcodes"]), d["barcode_map"], log=_log)
     if space != "atac":
         _log(f"whitelist translated {space} via {d['barcode_map']}: {len(cells)} cells")
     sizes = read_chrom_sizes(d["ref"]["chrom_sizes"])

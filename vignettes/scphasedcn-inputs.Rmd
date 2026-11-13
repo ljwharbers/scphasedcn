@@ -18,7 +18,7 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 | DNA BAM | yes | coordinate sorted and indexed, GRCh38 / hg38 with `chr` names, the cell barcode in the `CB` tag; duplicates flagged or removed |
 | cell whitelist | yes | one barcode per line (a trailing `-1` is stripped) |
 | reference FASTA | yes | the FASTA the reads were aligned to (GC content per bin), with its `.fai` |
-| phased heterozygous SNPs | for the allele channel; required in tumour mode | VCF with `GT` phased (`0|1`) and a `PS` phase-set tag, e.g. Clair3 + longphase, selected with `scphasedcn select-hets` |
+| phased heterozygous SNPs | for the allele channel; required in tumour mode | VCF with `GT` phased (`0|1`) and a `PS` phase-set tag, e.g. Clair3 + longphase, selected with `scphasedcn select-hets`; normal-tissue mode: preferably joined into chromosome-wide haplotypes with `scphasedcn hybrid-phase` (section 1) |
 | sex | yes | `female` or `male` (chrX / chrY copy number) |
 | cell metadata | no | cell types (normal tissue), cells known to be copy-number neutral, groups; see below |
 | known events | no | regions reported as their own calls (e.g. a known trisomy; `name=chr:start-end`, 0-based half-open, an open end = the chromosome end); normal mode calls them per cell, in pools only with `pool_events` (off by default, experimental) |
@@ -66,17 +66,68 @@ sites in regions of LOH or amplification in tumours. `--loci` (recommended) inte
 SNV panel, e.g. the 1000 Genomes sites on GRCh38 (position, REF and ALT must match), which removes most systematic
 long-read genotyping errors; chrX is kept without the intersect by default (`--no-loci-contigs`).
 
-longphase phase blocks are not oriented relative to each other. The caller handles that: normal-tissue mode orients
-each block of a cell on the pseudobulk of the other cells (leave-one-out), tumour mode per clone. Population
-(reference-panel) phasing that joins the blocks into chromosome-wide haplotypes is not needed. It is used when
-present (one phase set per chromosome), but statistical phasing flips a fraction of the block junctions, which tumour
-mode then has to undo.
+longphase phase blocks (typically tens to a few hundred kb) are not oriented relative to each other. What the caller
+needs on top of them depends on the mode.
+
+**Normal tissue: chromosome-scale haplotypes are recommended.** With blocks alone, `call_scn()` orients each block
+of a cell by the pseudobulk of the other cells (`loo`). The orientation of a block is then set by the majority of the
+cells, so an event carried by few cells is averaged away (its oriented allele fraction stays near 0.5), and allelic
+bias shared by all cells (germline copy-number variants, mapping bias, X inactivation) is aligned the same way in
+every cell, which produces false per-cell events. In one normal-tissue sample, per-cell events on the autosomes fell
+from 258 to 129 when the same sample was phased with the recipe below. Join the blocks with a population
+(reference-panel) phase of the same sample's genotypes (what this does for per-cell losses and copy-neutral LOH is
+limited by the population phase's switch errors; see the limits below):
+
+```bash
+# 5. population phasing of the sample's heterozygous SNVs, one chromosome at a time (here Beagle 5 with the
+#    1000 Genomes GRCh38 panel and its genetic maps; SHAPEIT works as well). The panel's contig names must match
+#    the VCF's; impute=false keeps the output to the sample's own sites.
+for c in $(echo chr{1..22} chrX); do
+  java -jar beagle.jar gt=pass_het.vcf.gz ref=panel/1kGP_${c}.vcf.gz map=maps/${c}.GRCh38.map \
+      chrom=${c} impute=false nthreads=8 out=popphased_${c}
+  tabix -p vcf popphased_${c}.vcf.gz
+done
+
+# 6. orient the longphase blocks by the population phase: one phase set per chromosome
+scphasedcn hybrid-phase --blocks het_phased.vcf.gz --population 'popphased_{chrom}.vcf.gz' \
+    --out het_hybrid.vcf.gz --block-tsv hybrid_blocks.tsv --chrom-tsv hybrid_chroms.tsv
+```
+
+and extract with the hybrid VCF (`--snps het_hybrid.vcf.gz --phased`, section 2). `hybrid-phase` lets every
+heterozygous SNV that both files phase (same REF / ALT; imputed markers excluded) vote on its block's orientation,
+flips the blocks whose majority disagrees with the population phase and gives all oriented blocks one phase set per
+chromosome; blocks without votes or with a tie keep their own phase set. `call_scn()` then sums the votes per region
+(`chromosome` orientation). It warns in normal mode when the allele features were oriented `loo` on block phasing,
+and `cell_features()` notes chromosomes whose phasing differs from the rest (e.g. chrX left in blocks when the panel
+has no chrX; the unoriented blocks of such a chromosome are summed as they are, so its allele channel carries little
+or no signal).
+
+**Tumour mode keeps the block-only recipe (steps 1-4).** It orients each block by the pseudobulk of the cell's clone,
+which is the right reference for events shared by a clone, and it does not need the population phase: the junction
+flips of statistical phasing (below) would only add switch errors that the clone orientation has to undo.
+
+Limits:
+
+- Statistical phasing flips a fraction of the block junctions (switch errors). A flipped block puts its votes on the
+  wrong haplotype in every cell, so the oriented allele fraction of a real event moves towards 0.5. Normal mode
+  scores losses and copy-neutral LOH at a major-haplotype fraction of 0.98; at an attenuated fraction a gain state
+  can fit better, and the event is not called. In simulations, per-cell recall of an arm loss fell from 1.00 without
+  switch errors to 0.88, 0.65 and 0.00 with a switch error every 20, 10 and 2 Mb, with a large spread between
+  simulated genomes. Copy-neutral LOH, which has no depth signal, fell further (0.53 and 0.00 at 20 and 10 Mb):
+  losses with a clear depth shift (whole chromosomes, large losses) are less affected than copy-neutral events, but
+  not immune. Per-cell recall of losses and copy-neutral LOH on hybrid phasing therefore depends on the switch-error
+  rate of the population phase and has not been validated on real data. An attenuation-aware state set for normal
+  mode is planned. The `--chrom-tsv` report gives, per chromosome, how often the population phase disagrees with the
+  reads inside blocks (`switch_rate`, `minority_frac`).
+- With blocks alone, only events shared by several percent of the cells are visible in the allele channel. The depth
+  channel does not depend on phasing.
 
 ## 2. Extraction (`scphasedcn`)
 
 ```bash
+# normal tissue: the hybrid VCF of step 6; tumour: het_phased.vcf.gz of step 4
 scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
-    --snps het_phased.vcf.gz --phased --out results/sample/extract --jobs 8
+    --snps het_hybrid.vcf.gz --phased --out results/sample/extract --jobs 8
 ```
 
 `run` extracts every chromosome in parallel (`--jobs`; a deep chromosome takes a few GB of memory) and merges. On a
@@ -101,8 +152,14 @@ tables; a tandem-repeat BED (`--trf`) is optional (it adds the repeat fraction o
 - `fragments.tsv.gz` + `.tbi` (bgzipped, tabix-indexed, one header line starting with `#`): one row per fragment
   with columns `chrom, start, end, cell, strand, mapq, flags, len, piece, npieces, hap, nsnp, ps, read_id`. `hap` is
   the fragment's haplotype from the phased SNPs it covers (0 none, 1 haplotype A, 2 haplotype B, 3 ambiguous) and `ps`
-  the phase set of its first phased SNP (-1 none). The caller collapses a cell's fragments closer than `mol_gap`
-  (2 kb) into one molecule with one vote.
+  the phase set of its first phased SNP (-1 none). With the extractor option `--vote-ps majority` only the SNPs of
+  the phase set holding most of the fragment's phased SNPs vote and `ps` is that phase set (a tie between phase sets
+  is ambiguous). `flags` is a bit field: 1 supplementary alignment (SA tag), 2 MAPQ 60, 4 piece of a multi-piece
+  read, 8 start in the blacklist, 16 start in a tandem repeat, 32 overlaps the centromere, 64 overlaps a peak.
+  Fragments without bit 8 are the clean fragments of the depth layers. The caller collapses a cell's fragments
+  closer than `mol_gap` (2 kb) into one molecule with one vote. Two opt-in caller parameters change the votes:
+  `mol_split_ps = TRUE` gives a molecule whose fragments lie in different phase sets one vote per phase set (instead
+  of one vote under the phase set of its first fragment), and `votes_clean = TRUE` lets only clean fragments vote.
 - `cells_qc.tsv`: per cell `n_pass` (passing records), `n_clean` (outside the blacklist), `frac_mapq60`, `frac_chrM`,
   ... The caller's cell QC (`cell_qc()`) keeps cells with at least 5,000 clean fragments, at least half of them at
   MAPQ 60 and at most 20 % on chrM.

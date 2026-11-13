@@ -20,7 +20,8 @@ merge_clones(
   max_cells = 250,
   cdata = NULL,
   depth_delta = 0.2,
-  n_nb = 3
+  n_nb = 3,
+  perm_decision = c("quantile", "pvalue")
 )
 }
 \arguments{
@@ -51,21 +52,29 @@ merge_clones(
 \item{depth_delta}{minimal depth effect (log2) of the contrast}
 
 \item{n_nb}{nearest clones tested per clone and round}
+
+\item{perm_decision}{decision of each test: \code{"quantile"} (default) = the observed contrast above the type-7
+\code{q}-quantile of the \code{n_perm} permutations (at 200 permutations and \code{q = 0.999} it must beat about the null maximum:
+~6 false splits per 1,000 tests, not 1); \code{"pvalue"} = permutation p-value \verb{(1 + #null >= observed) / (1 + permutations) <= 1 - q} over \code{max(n_perm, ceiling(1 / (1 - q)) - 1)} permutations, exact early stop for "same"
+(the \code{tests} table then has \code{p})}
 }
 \value{
-list(clones = named integer labels, tests = data.table of all tests)
+list(clones = named integer labels, tests = data.table of all tests: stat, thr (the \code{q}-quantile of the
+permutations run; with \code{perm_decision = "pvalue"} for information only, \code{differ} is decided by \code{p}), n_perm
+(permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (\code{p} with \code{perm_decision = "pvalue"}),
+key, l1, l2)
 }
 \description{
 Bottom-up: each round, every clone's \code{n_nb} nearest clones (Ward distance between the clones' centroids in
 the smoothed PC space) are candidate pairs; the pairs are tested in order of distance with the clone contrast (\code{split_test})
 against the \code{q}-quantile of the same statistic on random splits of the pooled pair at matching sizes
-(\code{n_perm} permutations, sequential early stop), and non-different pairs are merged (each clone at most once
-per round). Stops when every candidate pair of the remaining clones differs at the budget (\code{q = 0.999}, aimed at 1
-false split per 1,000 tests; with \code{n_perm = 200} the type-7 0.999 quantile of the permutations sits near their
-maximum, so the quantile rule alone splits a null pair at about 1 / 201 per test, and the early "different" stop
-(observed statistic above 3 x the null maximum after 20 / 50 / 100 permutations) adds about 0.0006-0.001 per test
-at the minimum leaf size, 20 against 20 cells; there is no correction for the number of tests). Each half is
-subsampled to \code{max_cells} cells (observed and null alike).
+(\code{n_perm} permutations, sequential early stop; or on the permutation p-value, \code{perm_decision}), and non-different
+pairs are merged (each clone at most once per round). Stops when every candidate pair of the remaining clones
+differs at the budget (\code{q = 0.999}: about 1 false split per 1,000 tests with \code{perm_decision = "pvalue"}, about 6
+with the default \code{"quantile"}: the 0.999 quantile of 200 permutations sits near their maximum, about 1 / 201 per
+test, and the early "different" stop, observed above 3 x the null maximum after 20 / 50 / 100 permutations, adds
+about 0.6-1 per 1,000 at the minimum leaf size, 20 against 20 cells; no correction for the number of tests). Each
+half is subsampled to \code{max_cells} cells (observed and null alike).
 Nearest neighbours rather than Ward siblings only: once two sibling clones differ, a sibling-only rule never
 compares either of them with any other clone.
 }

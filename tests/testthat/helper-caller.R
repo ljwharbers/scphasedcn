@@ -3,6 +3,7 @@
 #       two cached simulations and generators of fake caller tables.
 #       - sim_norm_f: normal tissue, female, 3 cell types, hybrid-like phasing (one block per chromosome),
 #         cell-private events only.
+#       - sim_norm_blk: sim_norm_f with unoriented 200 kb phase blocks (block-only phasing).
 #       - sim_tum2: male tumour, two clones with a shared trunk, unoriented short phase blocks.
 #       - sim_tum3: sim_tum2 at half the depth with in-block switch errors (clone allele attenuation a ~ 0.7).
 #       - fake_regions(), fake_features(), fake_atoms(), fake_votes(): tables in the package's table
@@ -42,6 +43,13 @@ lazy_cached("sim_norm_f", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
   multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 101))
+
+# sim_norm_blk: sim_norm_f with block-only phasing (unoriented 200 kb read-backed blocks, each flipped with
+# probability 0.5; default switch_rate), i.e. longphase blocks without a population phase: normal mode warns.
+lazy_cached("sim_norm_blk", function() simulate_scn(
+  n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
+  depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 101))
 
 # Clone truth of the tumour simulation: `type` = the cell type (clone) that carries the event. The
 # simulator applies one event row to one cell type, so the trunk event (chr8 distal 3:1 in both clones)
@@ -154,6 +162,32 @@ fake_features = function(n_cells, regions, events = NULL, tdf = 7, rho = 0.002, 
                    "n_hap", "n_blocks", "f", "orient", "stratum", "n_frag", "cell_type", "fold", "null_cell",
                    "null_region", "eligible", "truth"))
   d[]
+}
+
+#' Features for the gain depth gate (resolve_nested gate "z"): fake_features() on arms + chromosomes with depth-tied
+#' noise (sd_null x 2 sqrt(3e4 / n_frag): a chromosome sd_null ~0.4 at 10k fragments, ~0.12 at 100k) and planted
+#' whole-chromosome rows in distinct cells: `n_false` allele-only "gains" (votes at f 2/3, null depth) and `n_true` true
+#' gains (votes at f 2/3 and z shifted by the gain shift). The planted cells are not null cells.
+#' @return list(ff = features, rg = regions, pl = planted rows: cell, region, kind allele_only | true_gain)
+gate_fake = function(n = 3000, seed = 7, n_false = 1000, n_true = 600, hap_frac = 0.08, rho = 0.002) {
+  rg = fake_regions()[class %in% c("arm", "chrom")]
+  ff = fake_features(n, rg, seed = seed, hap_frac = hap_frac, rho = rho)
+  set.seed(seed + 1)
+  ff[, sd_null := sd_null * 2 * sqrt(3e4 / n_frag)]
+  auto = c("chr1", "chr2", "chr8", "chr21", "chr22")
+  pl = data.table(cell = sample(unique(ff$cell), n_false + n_true), region = sample(auto, n_false + n_true, replace = TRUE),
+                  kind = rep(c("allele_only", "true_gain"), c(n_false, n_true)))
+  ff[pl, kind := i.kind, on = .(cell, region)]
+  i = which(!is.na(ff$kind))
+  p = rbeta(length(i), (2 / 3) * (1 - rho) / rho, (1 / 3) * (1 - rho) / rho)
+  ff[i, nA := as.numeric(rbinom(length(i), n_hap, p))]
+  ff[i, `:=`(nB = n_hap - nA, f = fifelse(n_hap > 0, nA / n_hap, NA_real_))]
+  ff[kind %in% "true_gain", z := z + caller_defaults()$shifts[["gain"]] / pmax(sd_null, 0.05)]
+  ff[, log2ratio := z * pmax(sd_null, 0.05)]
+  ff[, x := (e + 0.5) * 2^log2ratio - 0.5]
+  ff[, null_cell := !cell %in% pl$cell]
+  ff[, kind := NULL]
+  list(ff = ff[], rg = rg, pl = pl)
 }
 
 #' Allele atoms (check_atoms schema): one atom per bin of a simulated genome.

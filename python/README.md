@@ -19,7 +19,9 @@ scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
 
 `scphasedcn run` extracts every chromosome in parallel and merges; `scphasedcn extract --chrom <c>` and
 `scphasedcn merge` are the same steps for one cluster job per chromosome. `scphasedcn select-hets` selects the
-heterozygous SNVs of a phased VCF (Clair3 + longphase) for `--snps`. `scphasedcn index-check` checks the BAM index
+heterozygous SNVs of a phased VCF (Clair3 + longphase) for `--snps`. `scphasedcn hybrid-phase` orients those
+read-backed phase blocks with a population-phased VCF of the same sample and writes one phase set per chromosome
+(recommended for the normal-tissue mode of the caller; see below). `scphasedcn index-check` checks the BAM index
 (exit status 1 when it is missing or older than the BAM) and can write a fresh one to a separate path (`--reindex`,
 then `--index` in `extract` / `run`).
 See `scphasedcn <command> --help` and the scphasedcn documentation for the input requirements and the phasing recipe.
@@ -36,11 +38,39 @@ Options worth knowing:
   the BAM pass. Phased genotypes without a `PS` field (e.g. population phasing) form one phase set per contig, with
   a warning: population-only phasing has switch errors every few megabases, so read-based phase sets are preferable.
   A VCF with several samples needs `--vcf-sample` (yaml: `vcf_sample`).
+- `--vote-ps first|majority`: how a fragment's haplotype vote treats phase sets. `first` (default): the majority over
+  all phased SNPs the fragment covers, filed under the phase set of the first one. Phase sets are not oriented
+  relative to each other, so a fragment across a phase-block junction mixes unrelated haplotype labels; `majority`
+  lets only the SNPs of the phase set holding most of the fragment's phased SNP observations vote and files the
+  fragment under that phase set (a tie between phase sets: ambiguous, hap 3). Recorded in `params.json` and in
+  `DONE` with the inputs of the alleles and fragments layers: `merge` refuses partials with different `--vote-ps`.
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).
 - `merge` fails when a chromosome has no finished partial (`--allow-missing` merges without it) and when the partials
-  were extracted from different inputs (cells, bin size, BAM, SNP file, masks: recorded in each partial's `DONE`).
-  `--region` writes `partials/region_<chrom>_<start>-<end>`, which `merge` does not merge.
+  were extracted from different inputs (cells, bin size, BAM, SNP file, `--vote-ps`, masks: recorded in each
+  partial's `DONE`). `--region` writes `partials/region_<chrom>_<start>-<end>`, which `merge` does not merge.
+
+Fragments whose start lies in the blacklist are flagged (`flags` bit 8) and left out of the depth layers (the
+"clean" fragments, `n_clean`), but their SNP observations stay in the allele counts and their `hap` / `ps` in the
+fragments table; the R caller's `votes_clean` parameter drops them from the molecule votes.
+
+`scphasedcn hybrid-phase`:
+
+```bash
+scphasedcn hybrid-phase --blocks hets.vcf.gz --population popphased_{chrom}.vcf.gz --out hybrid.vcf.gz \
+    --block-tsv hybrid_blocks.tsv --chrom-tsv hybrid_chroms.tsv
+```
+
+- `--blocks`: the read-backed phased VCF (GT `|` + PS, e.g. longphase or the `select-hets` output).
+- `--population`: the same sample's genotypes phased with a reference panel (e.g. Beagle 5 or SHAPEIT), one VCF or a
+  pattern with `{chrom}` for one file per chromosome. Contig names may differ by the `chr` prefix; plain, gzip or bgzip,
+  with or without an index.
+- A site votes when it is a heterozygous biallelic SNV with the same REF / ALT in both files; population markers with
+  the INFO flag `--imputed-flag` (default `IMP`) never vote. Each block takes the majority orientation and joins the
+  chromosome's phase set; blocks with a tie or fewer than `--min-votes` votes keep their own PS. `--fill-unphased`
+  gives hets outside the blocks the population phase. INFO `PHASE_SRC` / `POP_VOTE` record the source and the vote of
+  each site; the TSV reports give per block and per chromosome the votes, blocks oriented / flipped, the
+  switch-disagreement rate and the minority fraction.
 
 Genome: GRCh38 / hg38 with `chr` names (bundled chromosome sizes, ENCODE blacklist v2 and centromeres; see
 `src/scphasedcn/resources/README.md`).

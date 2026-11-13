@@ -89,7 +89,7 @@ allelic_classes = function(ns) {
 #' `mu = shift / pmax(ifelse(is.na(sd_null), 1, sd_null), sd_floor)` under the
 #' Student-t null of the row's class x stratum ([match_depth_null()]) or
 #' N(0, 1); allelic term = best of the state's rows of [ll_allelic()]
-#' (two-sided); combined = sum (missing channels contribute 0). A state whose
+#' (two-sided, or one-sided with `sided = "one"`); combined = sum (missing channels contribute 0). A state whose
 #' rows have different shifts (tumour `amp`) takes the best row of depth +
 #' alleles and reports that row's two terms.
 #' @param d table with `z`, `sd_null`, `nA`, `n_hap` (or `nB`), and `class`,
@@ -103,6 +103,10 @@ allelic_classes = function(ns) {
 #' @param params [caller_defaults()] (`sd_floor`, `eps`)
 #' @param keep_rows also return per-row allelic LLRs `ar_<row_id>` (and
 #'   per-row depth LLRs `dr_<row_id>` of multi-shift states); needed by [pool_scores()]
+#' @param sided allelic term: `"two"` (default) = the better of `f` and `1 - f` per allelic row (votes in an arbitrary
+#'   orientation); `"one"` = `f` on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
+#'   clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
+#'   every allelic row, including the per-row columns of `keep_rows`
 #' @return copy of `d` with `dl_<state>`, `al_<state>`, `cl_<state>` per
 #'   non-neutral state, `s_comb` (best combined LLR), `state_comb` (argmax,
 #'   ties to the first state in table order), `s_depth` (|z|), `state_depth`
@@ -110,8 +114,9 @@ allelic_classes = function(ns) {
 #'   class, e.g. `loss_or_cnloh`)
 #' @export
 score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, eps = params$eps,
-                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE) {
+                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE, sided = c("two", "one")) {
   depth_model = match.arg(depth_model)
+  two = match.arg(sided) == "two"
   d = copy(as.data.table(d))
   n = nrow(d)
   if (!"z" %in% names(d)) d[, z := NA_real_]
@@ -135,9 +140,9 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
   rgrp = if (length(rho) > 1 && length(unique(rho)) > 1) split(seq_len(n), rho) else NULL   # per-row rho: score by group
   if (length(rho) > 1 && is.null(rgrp)) rho = rho[1]
   for (f in unique(ns$f)) {
-    if (is.null(rgrp)) a = ll_allelic(nA, nh, f, rho, eps) else {
+    if (is.null(rgrp)) a = ll_allelic(nA, nh, f, rho, eps, two_sided = two) else {
       a = numeric(n)
-      for (g in rgrp) a[g] = ll_allelic(nA[g], nh[g], f, rho[g[1]], eps)
+      for (g in rgrp) a[g] = ll_allelic(nA[g], nh[g], f, rho[g[1]], eps, two_sided = two)
     }
     acache[[fk(f)]] = fifelse(is.na(a), 0, a)
   }
@@ -246,6 +251,46 @@ group_key = function(d, by) {
   do.call(paste, c(lapply(by, function(b) as.character(d[[b]])), sep = "\r"))
 }
 
+# The null rows a group's threshold is trained on ([budget_thresholds()]; also the calibration rows of [event_fdr()]).
+# Levels: 1 = the `by` group, then `by` without the vote stratum (`hstratum`), then without the depth stratum
+# (`stratum`). A group with fewer than `min_null` null rows at level 1 takes the first coarser level with `min_null`
+# rows, else the coarsest (by = class x stratum: the class). `isn` = null flag per row of `d`. A class without null
+# rows whose rows have an `sd_class` with null rows (named events; when `d` has `sd_class`) borrows the null rows
+# (and the fallback levels) of that sd_class: its groups carry `borrowed_from`.
+# Returns list(levels = the `by` columns per level, groups = unique `by` rows of d (+ `borrowed_from` when a class
+#              borrows) with key_ (their level-1 key; that of the sd_class for borrowed groups), level = the level
+#              used per group, use = per group the indices (rows of d) of its null rows, borrowed = a class borrows)
+threshold_null_rows = function(d, by, isn, min_null) {
+  levs = list(by); cur = by
+  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
+  # classes without null rows (named events) borrow the null rows of their sd_class
+  src = NULL
+  if ("class" %in% by && "sd_class" %in% names(d)) {
+    cls = as.character(d$class); sdc = as.character(d$sd_class)
+    has = unique(cls[isn])
+    b = !cls %in% has & !is.na(sdc) & sdc != cls & sdc %in% has
+    if (any(b)) src = fifelse(b, sdc, NA_character_)
+  }
+  groups = if (is.null(src)) unique(d[, by, with = FALSE]) else unique(cbind(d[, by, with = FALSE], borrowed_from = src))
+  gsrc = groups
+  if (!is.null(src)) gsrc = copy(groups)[!is.na(borrowed_from), class := borrowed_from]
+  groups[, key_ := group_key(gsrc, by)]
+  ni = which(isn)
+  idx_l = lapply(levs, function(l) split(ni, group_key(d, l)[ni]))
+  key_l = lapply(levs, function(l) group_key(gsrc, l))
+  level = integer(nrow(groups)); use = vector("list", nrow(groups))
+  for (g in seq_len(nrow(groups))) {
+    l = 1L
+    u = idx_l[[1]][[key_l[[1]][g]]] %||% integer()
+    while (length(u) < min_null && l < length(levs)) {
+      l = l + 1L
+      u = idx_l[[l]][[key_l[[l]][g]]] %||% integer()
+    }
+    level[g] = l; use[[g]] = u
+  }
+  list(levels = levs, groups = groups, level = level, use = use, borrowed = !is.null(src))
+}
+
 #' Null thresholds at the false-call budget
 #'
 #' Type-7 quantile `q` of each score on the null rows ([budget_threshold()]
@@ -284,36 +329,12 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
   isn = null_flag(d, null)
   fold = if (cv && "fold" %in% names(d)) as.integer(d$fold) else rep(0L, nrow(d))
   folds = setdiff(sort(unique(fold[!is.na(fold)])), 0L)
-  gk = group_key(d, by)
-  # fallback levels for groups with fewer than min_null null rows: drop the vote stratum, then the depth stratum;
-  # the first level with min_null rows is used, else the coarsest (by = class x stratum: the class, as before)
-  levs = list(); cur = by
-  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
-  # classes without null rows (named events) borrow the null rows of their sd_class
-  src = NULL
-  if ("class" %in% by && "sd_class" %in% names(d)) {
-    cls = as.character(d$class); sdc = as.character(d$sd_class)
-    has = unique(cls[isn])
-    b = !cls %in% has & !is.na(sdc) & sdc != cls & sdc %in% has
-    if (any(b)) src = fifelse(b, sdc, NA_character_)
-  }
-  groups = if (is.null(src)) unique(d[, by, with = FALSE]) else unique(cbind(d[, by, with = FALSE], borrowed_from = src))
-  gsrc = groups
-  if (!is.null(src)) gsrc = copy(groups)[!is.na(borrowed_from), class := borrowed_from]
-  groups[, key_ := group_key(gsrc, by)]
-  ni = which(isn)
-  idx_g = split(ni, gk[ni])
-  idx_l = lapply(levs, function(l) split(ni, group_key(d, l)[ni]))
-  key_l = lapply(levs, function(l) group_key(gsrc, l))
+  tg = threshold_null_rows(d, by, isn, min_null)
+  groups = tg$groups
   out = list()
   for (g in seq_len(nrow(groups))) {
-    ig = idx_g[[groups$key_[g]]] %||% integer()
-    fb = length(ig) < min_null && length(levs) > 0
-    use = ig
-    if (fb) for (l in seq_along(levs)) {
-      use = idx_l[[l]][[key_l[[l]][g]]] %||% integer()
-      if (length(use) >= min_null) break
-    }
+    use = tg$use[[g]]
+    fb = tg$level[g] > 1L
     fu = fold[use]
     for (fo in c(0L, folds)) {
       tr = if (fo == 0L) rep(TRUE, length(use)) else !is.na(fu) & fu != fo
@@ -323,7 +344,7 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
     }
   }
   res = rbindlist(out)
-  res = cbind(groups[res$g, c(by, if (!is.null(src)) "borrowed_from"), with = FALSE], res[, !"g"])
+  res = cbind(groups[res$g, c(by, if (tg$borrowed) "borrowed_from"), with = FALSE], res[, !"g"])
   if (!"stratum" %in% by) res[, stratum := "all"]
   if (!"class" %in% by) res[, class := "all"]
   res[, `:=`(q = q, n_null = as.integer(n_null), fold = as.integer(fold))]
@@ -937,10 +958,28 @@ utils::globalVariables("size_")
 #' of the nested event dominates while its depth contrast is diluted, and the
 #' gain state (f 2/3) fits a diluted haplotype fraction better than 1:0 / 2:0.
 #' Per cell, a reportable `gain` call of a `classes` region therefore needs
-#'   1. depth support: the gain depth LLR of the row itself is positive
-#'      (`dl_gain > min_dl_gain`; for the Student-t null, z above the midpoint
-#'      between neutral and the gain shift), so the allelic term alone cannot
-#'      carry a gain label; and
+#'   1. depth support, so that the allelic term alone cannot carry a gain label:
+#'      * `gate = "dl"` (default): the gain depth LLR of the row itself is
+#'        positive (`dl_gain > min_dl_gain`; for the Student-t null, z above
+#'        the midpoint between neutral and the gain shift, `t_m + mu / 2` with
+#'        `mu = shifts["gain"] / pmax(sd_null, sd_floor)`). For a noisy cell
+#'        (large `sd_null`) `mu` is small and the gate is weak;
+#'      * `gate = "z"` (opt-in): the row's z exceeds
+#'        `max(t_m + mu / 2, t_m + t_s * qt(gate_q, t_df))` with the Student-t
+#'        null of the row's class x stratum (`tpar`, [match_depth_null()]; with
+#'        `tpar = NULL` the Gaussian null, `max(mu / 2, qnorm(gate_q))`): the
+#'        midpoint stays as a floor and the null quantile is added on top.
+#'        Over all null-depth rows the gate passes about `1 - gate_q` of them
+#'        whatever their `sd_null`; this level is unconditional. Among rows
+#'        already called as gains (weak allelic support), and on female chrX
+#'        (no null rows of its own), the pass rate of null-depth rows is
+#'        higher: up to about two to three times `1 - gate_q` in simulation.
+#'        The gate is opt-in and has not been benchmarked on real data as a
+#'        default. A row with NA z has no depth support.
+#'        `min_dl_gain` is not used. The gate is on z, not on `dl_gain`: the
+#'        Student-t LLR falls back towards 0 for very large z
+#'        ([ll_depth_shift()]), so a quantile on `dl_gain` would reject the
+#'        strongest gains; and
 #'   2. (class `chrom`) no nested explanation: no called loss / CN-LOH row of
 #'      the same cell and chromosome in `nested` classes (arm, 50 Mb, 20 Mb)
 #'      with a higher score.
@@ -949,29 +988,52 @@ utils::globalVariables("size_")
 #' `nested <region> <state>`). With `promote`, the best (highest-score) nested
 #' loss / CN-LOH call that explains a dropped chromosome gain is made
 #' reportable (`resolved = "replaces <region> gain"`; arm and 50 Mb losses are
-#' reportable anyway, a 20 Mb one is promoted).
+#' reportable anyway, a 20 Mb one is promoted). Losses are not gated: the
+#' loss vs CN-LOH label is decided by the scores ([score_cells()]).
 #' @param calls cell-level calls table ([call_table()])
-#' @param scores scored rows (`cell`, `region`, `dl_gain`); NULL when `calls` has `dl_gain`
-#' @param min_dl_gain minimal gain depth LLR of a reportable gain
+#' @param scores scored rows (`cell`, `region`, `dl_gain`; with `gate = "z"` also `z`, `sd_null` and, with
+#'   `tpar`, `class`, `stratum`); NULL when `calls` has these columns
+#' @param min_dl_gain minimal gain depth LLR of a reportable gain (`gate = "dl"`)
 #' @param classes classes whose reportable gains need depth support
 #' @param nested classes of the nested calls that can explain a chromosome gain
 #' @param promote make the explaining nested call reportable
-#' @return `calls` with column `resolved` (NA = unchanged) and updated `reportable`
+#' @param gate depth gate of a gain: `"dl"` (gain depth LLR above `min_dl_gain`) or `"z"` (z above the
+#'   midpoint and above the `gate_q` quantile of the row's depth null)
+#' @param gate_q null quantile of the `"z"` gate (0.95: about 5 % of all null-depth rows pass; more among rows
+#'   already called as gains and on female chrX, see Details)
+#' @param tpar `"z"` gate: the Student-t fits per class x stratum ([fit_depth_null()], completed as in
+#'   [caller_normal()]); NULL = the Gaussian depth null N(0, 1). A gated row whose class x stratum has no fit (a named
+#'   `event`: no null rows) takes the fit of its `sd_class` (a `scores` column) in that stratum; without one it is an
+#'   error ([match_depth_null()]); a row with NA class or stratum has no depth support
+#' @param params [caller_defaults()] (`shifts`, `sd_floor`; the `"z"` gate)
+#' @return `calls` with column `resolved` (NA = unchanged) and updated `reportable`; with `gate = "z"` also
+#'   `gate_z` (the z the gate used) and `gate_thr` (its z threshold), set on the gated gain rows and NA elsewhere
 #' @export
 resolve_nested = function(calls, scores = NULL, min_dl_gain = 0, classes = c("chrom", "event"), nested = c("arm", "50Mb", "20Mb"),
-                          promote = TRUE) {
+                          promote = TRUE, gate = c("dl", "z"), gate_q = 0.95, tpar = NULL, params = caller_defaults()) {
+  gate = match.arg(gate)
+  if (gate == "z" && (!is.numeric(gate_q) || length(gate_q) != 1 || is.na(gate_q) || gate_q <= 0 || gate_q >= 1))
+    stop("resolve_nested: gate_q must be one number in (0, 1)")
   x = copy(as.data.table(calls))
   if (!"resolved" %in% names(x)) x[, resolved := NA_character_]
+  if (gate == "z") x[, `:=`(gate_z = NA_real_, gate_thr = NA_real_)]
   lv = if ("level" %in% names(x)) x$level else rep("cell", nrow(x))
   g = which(lv == "cell" & x$class %in% classes & x$state == "gain" & x$called %in% TRUE & x$reportable %in% TRUE)
   if (!length(g)) return(x[])
   key2 = function(a, b) paste(a, b, sep = "|")
-  dl = if (!is.null(scores)) {
-    sc = as.data.table(scores)
-    if (!"dl_gain" %in% names(sc)) stop("resolve_nested: `scores` has no dl_gain column (score_cells)")
-    sc$dl_gain[match(key2(x$cell[g], x$region[g]), key2(sc$cell, sc$region))]
-  } else if ("dl_gain" %in% names(x)) x$dl_gain[g] else stop("resolve_nested: need `scores` or a dl_gain column")
-  no_depth = !is.na(dl) & dl <= min_dl_gain
+  if (gate == "dl") {
+    dl = if (!is.null(scores)) {
+      sc = as.data.table(scores)
+      if (!"dl_gain" %in% names(sc)) stop("resolve_nested: `scores` has no dl_gain column (score_cells)")
+      sc$dl_gain[match(key2(x$cell[g], x$region[g]), key2(sc$cell, sc$region))]
+    } else if ("dl_gain" %in% names(x)) x$dl_gain[g] else stop("resolve_nested: need `scores` or a dl_gain column")
+    no_depth = !is.na(dl) & dl <= min_dl_gain
+  } else {
+    zg = gain_gate_z(x[g], scores, gate_q, tpar, params)
+    no_depth = !(zg$z > zg$thr) %in% TRUE                       # NA z (or no null fit): no depth support
+    set(x, i = g, j = "gate_z", value = zg$z)
+    set(x, i = g, j = "gate_thr", value = zg$thr)
+  }
   # best nested loss / CN-LOH call of the same cell x chromosome
   ni = which(lv == "cell" & x$class %in% nested & x$state %in% c("loss", "cnloh") & x$called %in% TRUE)
   nst = x[ni, .(cell, chrom, region, state, score)][, row_ := ni]
@@ -996,7 +1058,48 @@ resolve_nested = function(calls, scores = NULL, min_dl_gain = 0, classes = c("ch
   }
   x[]
 }
-utils::globalVariables(c("resolved", "row_"))
+utils::globalVariables(c("resolved", "row_", "gate_z", "gate_thr"))
+
+# the "z" gain gate of resolve_nested(): per gain row its z and the z threshold max(t_m + mu / 2, t_m + t_s * q) with
+# mu = shift_gain / pmax(sd_null, sd_floor) (sd_null NA -> 1, as in score_cells) and q the gate_q quantile of the row's
+# null (Student-t of its class x stratum, or N(0, 1) without tpar). NA z, or NA class / stratum with tpar, gives NA (no
+# depth support); NA sd_null counts as 1. A class x stratum that tpar has no fit for (a named event: no null rows) takes
+# the fit of the row's sd_class in that stratum, as complete_tpar() does for score_cells; without one it stops
+# (match_depth_null)
+gain_gate_z = function(rows, scores, gate_q, tpar, params) {
+  rows = as.data.table(rows)
+  need = c("z", "sd_null", if (!is.null(tpar)) c("class", "stratum"))
+  src = if (!is.null(scores)) {
+    sc = as.data.table(scores)
+    miss = setdiff(need, names(sc))
+    if (length(miss)) stop("resolve_nested: gate 'z' needs `scores` column(s) ", paste(miss, collapse = ", "))
+    k = match(paste(rows$cell, rows$region, sep = "|"), paste(sc$cell, sc$region, sep = "|"))
+    sc[k, intersect(c(need, "sd_class"), names(sc)), with = FALSE]
+  } else {
+    miss = setdiff(need, names(rows))
+    if (length(miss)) stop("resolve_nested: gate 'z' needs `scores` or calls column(s) ", paste(miss, collapse = ", "))
+    rows[, intersect(c(need, "sd_class"), names(rows)), with = FALSE]
+  }
+  z = as.numeric(src$z)
+  mu = params$shifts[["gain"]] / pmax(fifelse(is.na(src$sd_null), 1, as.numeric(src$sd_null)), params$sd_floor)
+  m = rep(0, nrow(rows)); s = rep(1, nrow(rows)); q = rep(stats::qnorm(gate_q), nrow(rows))
+  if (!is.null(tpar)) {
+    m[] = NA_real_; s[] = NA_real_; q[] = NA_real_
+    ok = which(!is.na(src$class) & !is.na(src$stratum))
+    if (length(ok)) {
+      key = src[ok, .(class = as.character(class), stratum)]
+      if ("sd_class" %in% names(src)) {                          # no fit of the class: the fit of its sd_class
+        tk = paste(tpar$class, tpar$stratum, sep = "\r")
+        b = !paste(key$class, key$stratum, sep = "\r") %in% tk & !is.na(src$sd_class[ok]) &
+          paste(src$sd_class[ok], key$stratum, sep = "\r") %in% tk
+        set(key, i = which(b), j = "class", value = as.character(src$sd_class[ok][b]))
+      }
+      tp = match_depth_null(key, tpar)
+      m[ok] = tp$t_m; s[ok] = tp$t_s; q[ok] = stats::qt(gate_q, tp$t_df)
+    }
+  }
+  list(z = z, thr = pmax(m + mu / 2, m + s * q))
+}
 
 # ---- pools -----------------------------------------------------------------------------------------
 
@@ -1489,7 +1592,8 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' Calibration policy (defaults): null cells are selected on autosomal rows
 #' and null rows are autosomal ([select_null_cells()] `chroms`, `null_chroms`);
 #' per-cell chromosome gains need depth support and lose to a stronger nested
-#' loss / CN-LOH ([resolve_nested()], `resolve_gains`); pooled state scores are
+#' loss / CN-LOH ([resolve_nested()], `resolve_gains`; opt-in `gain_gate = "z"` gates on a null quantile of z
+#' instead of the sign of the gain depth LLR); pooled state scores are
 #' standardised per region by the median / MAD of the null pools of the same
 #' construction ([pool_scale()], `pool_standardize`), and a pooled call must
 #' survive dropping its most influential cell (`pool_loo`: pools are called on
@@ -1518,7 +1622,13 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' @param sex "female", "male" (case-insensitive, or "F" / "M"; any other value stops) or NULL (inferred: female when
 #'   chrX rows carry allele votes); sets the chrX rule of [call_policy()]
 #' @param resolve_gains apply [resolve_nested()] to the per-cell calls
-#' @param gain_min_dl `min_dl_gain` of [resolve_nested()]
+#' @param gain_min_dl `min_dl_gain` of [resolve_nested()] (`gain_gate = "dl"`)
+#' @param gain_gate depth gate of the per-cell gains, `gate` of [resolve_nested()]: `"dl"` (default: gain depth
+#'   LLR above `gain_min_dl`, i.e. z above the midpoint of neutral and the gain shift) or `"z"` (opt-in: z also
+#'   above the `gain_gate_q` quantile of the depth null of the row's class x stratum. About `1 - gain_gate_q` of
+#'   all null-depth rows pass; among rows already called as gains with weak allelic support, and on female chrX,
+#'   up to about two to three times that in simulation. Not benchmarked on real data as a default)
+#' @param gain_gate_q null quantile of the `"z"` gain gate (0.95)
 #' @param pool_loo call pools on the leave-one-out robust score `s_rob` ([pool_scores()])
 #' @param pool_standardize standardise the pooled best LLR per region ([pool_scale()] of the null pools of the
 #'   same construction) before the per-class pooled thresholds
@@ -1526,19 +1636,23 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #'   [select_null_cells()] checks); NULL = every `null_region`
 #' @return `scphasedcn` (mode normal) with `scores`, `thresholds` (column `level`:
 #'   cell (folds 0 to `n_folds`), pool_type, pool_knn (fold 0 only)), `calls` (cell and pool level; `resolved`
-#'   for gains changed by
-#'   [resolve_nested()]), `events`, `pools`, `null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex,
+#'   for gains changed by [resolve_nested()]; with `gain_gate = "z"` also its `gate_z`, `gate_thr`), `events`,
+#'   `pools`, `null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex,
 #'   vote_bins, rho_chrom)` (`vote_bins`: the [vote_bins()] table with `params$calib = "votes"`; `rho_chrom`: the
 #'   [rho_by_chrom()] table with `params$calib_rho = "chrom"`)
 #' @export
 caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, multiplets = NULL, regions = NULL, embedding = NULL,
                          null_cells = c("auto", "features", "select"), depth_model = c("t", "gauss"), n_draws = 20000,
                          pool_classes = c("chrom", "arm", "50Mb", "20Mb", "10Mb", "5Mb", "event"), select_args = list(),
-                         sex = NULL, resolve_gains = TRUE, gain_min_dl = 0, pool_loo = TRUE, pool_standardize = TRUE,
-                         null_chroms = paste0("chr", 1:22)) {
+                         sex = NULL, resolve_gains = TRUE, gain_min_dl = 0, gain_gate = "dl", gain_gate_q = 0.95,
+                         pool_loo = TRUE, pool_standardize = TRUE, null_chroms = paste0("chr", 1:22)) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   null_cells = match.arg(null_cells); depth_model = match.arg(depth_model)
   sex = check_sex(sex, "caller_normal")
+  if (!identical(length(gain_gate), 1L) || !gain_gate %in% c("dl", "z"))
+    stop("caller_normal: gain_gate must be 'dl' or 'z', not '", paste(gain_gate, collapse = ", "), "'", call. = FALSE)
+  if (gain_gate == "z" && (!is.numeric(gain_gate_q) || length(gain_gate_q) != 1 || is.na(gain_gate_q) || gain_gate_q <= 0 || gain_gate_q >= 1))
+    stop("caller_normal: gain_gate_q must be one number in (0, 1)", call. = FALSE)
   d = copy(as.data.table(feat))
   need = c("cell", "region", "class", "stratum", "z", "sd_null", "nA", "n_hap")
   miss = setdiff(need, names(d))
@@ -1619,7 +1733,8 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   if (is.null(sex)) sex = infer_sex(d)
   policy = call_policy("normal", sex)
   calls = call_table(sc, NULL, regions, policy)
-  if (resolve_gains) calls = resolve_nested(calls, sc, min_dl_gain = gain_min_dl)
+  if (resolve_gains) calls = resolve_nested(calls, sc, min_dl_gain = gain_min_dl, gate = gain_gate, gate_q = gain_gate_q,
+                                            tpar = tpar, params = params)
   thr[, level := "cell"]
   # 6. pools
   pc = setdiff(unique(d$cell), multiplets)
@@ -1710,8 +1825,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                                                      as.integer(params$vote_bins %||% 4), nrow(vbins)),
                         if ((params$pool_tail_q %||% 0) > 0) sprintf("pooled tail calibration q %g (pool_tail_k %g, cross-fitted %s)", params$pool_tail_q,
                                                                 params$pool_tail_k %||% 30, isTRUE(params$pool_tail_xfit %||% TRUE)),
-                        sprintf("sex %s; gains resolved %s (min dl_gain %g); pools: region-standardised %s, called on %s",
-                                sex %||% "unknown", resolve_gains, gain_min_dl, pool_standardize, pscore),
+                        sprintf("sex %s; gains resolved %s (%s); pools: region-standardised %s, called on %s",
+                                sex %||% "unknown", resolve_gains,
+                                if (gain_gate == "z") sprintf("depth gate z: above the midpoint and the %g null quantile", gain_gate_q)
+                                else sprintf("min dl_gain %g", gain_min_dl), pool_standardize, pscore),
                         if (pool_events && any(vapply(pthr, function(x) any(!is.na(x$borrowed_from %||% NA)), logical(1))))
                           paste("pooled calls of named events (pool_events, experimental): standardised with the class-median",
                                 "scale of their sd_class and thresholded with its pooled threshold, not calibrated per event"),

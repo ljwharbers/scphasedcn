@@ -20,7 +20,9 @@ call_scn(
   embedding = TRUE,
   verbose = TRUE,
   keep_scores = TRUE,
+  null_check = FALSE,
   caller_args = list(),
+  phasing = "auto",
   ...
 )
 }
@@ -73,15 +75,31 @@ or a cells x components matrix with cell row names}
 
 \item{keep_scores}{keep the per cell x region scores in the result (normal mode; large)}
 
+\item{null_check}{normal mode: also run the selection-free check of the per-cell null (\code{\link[=null_selection_check]{null_selection_check()}};
+about doubles the scoring time), stored as \code{null_check} and written as \code{null_selection_check.tsv}}
+
 \item{caller_args}{extra arguments for \code{\link[=caller_normal]{caller_normal()}} / \code{caller_tumour()} (e.g. \code{n_draws}, \code{opts}); they take
 precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts} merged key by key)}
+
+\item{phasing}{phasing / block orientation of the allele features (\code{\link[=cell_features]{cell_features()}}: "auto", "chromosome",
+"block", "loo" or "mirrored"; both modes; ignored with precomputed \code{features}). Normal mode with \code{loo} on
+block phasing (read-backed blocks without a population phase) gives a warning and a run note: it aligns allelic
+bias shared by all cells (false per-cell events) and cannot show allelic events carried by few cells, so
+chromosome-scale phasing is recommended (\verb{scphasedcn hybrid-phase}; \code{vignette("scphasedcn-inputs")} for its
+limits). \code{chromosome} on block phasing (overall, or on a chromosome with votes) and, in normal
+mode, \code{mirrored} (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
+chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)}
 
 \item{...}{extra arguments for \code{\link[=cell_features]{cell_features()}} (e.g. \code{centromeres}, \code{classes}, \code{qc})}
 }
 \value{
-\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, notes), \code{scores}
+\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, phasing_chrom (the
+per-chromosome phasing regimes, \code{\link[=phasing_by_chrom]{phasing_by_chrom()}}), notes), \code{scores}
 (normal, \code{keep_scores}), \code{thresholds}, \code{calls}, \code{events}, \code{pools}, \code{null_fit}, \code{false_calls} (normal:
-\code{\link[=null_false_calls]{null_false_calls()}}), \code{embedding}, clone components (tumour), \code{params} (the caller parameters plus the
+\code{\link[=null_false_calls]{null_false_calls()}}), normal mode: \code{p}, \code{q}, \code{null_borrowed} on the per-cell calls and \code{null_cell}, \code{p}, \code{q},
+\code{null_borrowed} on the events (\code{\link[=event_fdr]{event_fdr()}}; \code{q} is descriptive: not a false discovery rate, not a filter),
+\code{expected_false} (expected false calls / events per class x state, \code{\link[=event_fdr]{event_fdr()}}), \code{null_check} (\code{\link[=null_selection_check]{null_selection_check()}}, with \code{null_check = TRUE}), \code{embedding}, clone
+components (tumour), \code{params} (the caller parameters plus the
 arguments used: \code{normal} = every \code{\link[=caller_normal]{caller_normal()}} argument of the run, \code{tumour} = the full tumour options) and
 \code{notes} (run time, host, inputs, git revision)
 }

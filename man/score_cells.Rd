@@ -12,7 +12,8 @@ score_cells(
   eps = params$eps,
   depth_model = c("t", "gauss"),
   params = caller_defaults(),
-  keep_rows = FALSE
+  keep_rows = FALSE,
+  sided = c("two", "one")
 )
 }
 \arguments{
@@ -34,6 +35,11 @@ per row (e.g. per chromosome, \code{\link[=rho_by_chrom]{rho_by_chrom()}}); rows
 
 \item{keep_rows}{also return per-row allelic LLRs \verb{ar_<row_id>} (and
 per-row depth LLRs \verb{dr_<row_id>} of multi-shift states); needed by \code{\link[=pool_scores]{pool_scores()}}}
+
+\item{sided}{allelic term: \code{"two"} (default) = the better of \code{f} and \code{1 - f} per allelic row (votes in an arbitrary
+orientation); \code{"one"} = \code{f} on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
+clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
+every allelic row, including the per-row columns of \code{keep_rows}}
 }
 \value{
 copy of \code{d} with \verb{dl_<state>}, \verb{al_<state>}, \verb{cl_<state>} per
@@ -47,7 +53,7 @@ Per state (vs neutral): depth term = \code{\link[=ll_depth_shift]{ll_depth_shift
 \code{mu = shift / pmax(ifelse(is.na(sd_null), 1, sd_null), sd_floor)} under the
 Student-t null of the row's class x stratum (\code{\link[=match_depth_null]{match_depth_null()}}) or
 N(0, 1); allelic term = best of the state's rows of \code{\link[=ll_allelic]{ll_allelic()}}
-(two-sided); combined = sum (missing channels contribute 0). A state whose
+(two-sided, or one-sided with \code{sided = "one"}); combined = sum (missing channels contribute 0). A state whose
 rows have different shifts (tumour \code{amp}) takes the best row of depth +
 alleles and reports that row's two terms.
 }

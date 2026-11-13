@@ -40,9 +40,7 @@ row_sd = function(M) {
 #' centred on the clone's autosomal median (states are relative to the clone baseline); SE = SD of the
 #' per-cell window log2 ratios / sqrt(cells) (combined with the reference SE). Haplotype fraction: the
 #' clone's cells are split into two random halves; each phase block is oriented on one half and counted on
-#' the other (`orient = "ps"`: one orientation per chromosome x phase set; `"window"`: per window x phase set, so a
-#' phase set that spans events on opposite haplotypes, e.g. a chromosome-wide one, is oriented separately in each
-#' window, at the cost of fewer votes per orientation), summed per window: `nA`, `nB`, `n_hap`, `f`, `f_se` (binomial SE x
+#' the other, summed per window: `nA`, `nB`, `n_hap`, `f`, `f_se` (binomial SE x
 #' the beta-binomial inflation `1 + (nbar - 1) * rho`, nbar = molecule-weighted molecules per cell), and
 #' `n_blocks`.
 #' @param win 1 Mb window depth: list(windows (window, chrom, start, end), x, e) with x / e windows x cells
@@ -56,15 +54,12 @@ row_sd = function(M) {
 #' @param allelic_chroms chromosomes with an allele channel (NULL = all)
 #' @param haploid chromosomes with one copy in a normal cell (male chrX / chrY): `ploidy` 1
 #' @param min_ref minimal reference pool size
-#' @param orient unit of the split-half vote orientation: `"ps"` (chromosome x phase set) or `"window"` (window x phase
-#'   set)
 #' @return data.table clone, window, chrom, start, end, ploidy, base (copy number of log2 = 0: the ploidy when
 #'   relative to the pool, else 2), n_cells, log2, log2_se, nA, nB, n_hap, f, f_se, n_blocks, ref ("pool" or
 #'   "median"), size
 #' @export
 clone_profiles = function(win, votes, atoms, assign, ref_cells = NULL, size = 1e6, seed = 1, cells = colnames(win$x),
-                          rho = 0.01, allelic_chroms = NULL, haploid = character(), min_ref = 30, orient = c("ps", "window")) {
-  orient = match.arg(orient)
+                          rho = 0.01, allelic_chroms = NULL, haploid = character(), min_ref = 30) {
   assign = as.data.table(assign)[!is.na(clone), .(cell, clone = as.character(clone))]
   cl = sort(unique(assign$clone))
   if (length(size) == 1) size = stats::setNames(rep(size, length(cl)), cl)
@@ -100,19 +95,11 @@ clone_profiles = function(win, votes, atoms, assign, ref_cells = NULL, size = 1e
         set.seed(seed)
         hh = stats::setNames(sample(rep(1:2, length.out = length(cc))), cc)
         vk[, half := hh[cname]]
-        if (orient == "ps") {
-          bt = vk[, .(gA = sum(nA), gB = sum(nB)), by = .(chrom, ps, half)]
-          o = dcast(bt, chrom + ps ~ half, value.var = c("gA", "gB"), fill = 0)
-        } else {
-          # one orientation unit per window x phase set (each half oriented by the other half's votes of the same unit)
-          vk[, wstart := floor(astart / sz) * sz]
-          bt = vk[, .(gA = sum(nA), gB = sum(nB)), by = .(chrom, wstart, ps, half)]
-          o = dcast(bt, chrom + wstart + ps ~ half, value.var = c("gA", "gB"), fill = 0)
-        }
+        bt = vk[, .(gA = sum(nA), gB = sum(nB)), by = .(chrom, ps, half)]
+        o = dcast(bt, chrom + ps ~ half, value.var = c("gA", "gB"), fill = 0)
         for (cn_ in c("gA_1", "gA_2", "gB_1", "gB_2")) if (!cn_ %in% names(o)) o[, (cn_) := 0]
         o[, `:=`(s1 = sign(gA_1 - gB_1), s2 = sign(gA_2 - gB_2))]
-        if (orient == "ps") vk[o, `:=`(s = fifelse(half == 1L, i.s2, i.s1)), on = .(chrom, ps)] else
-          vk[o, `:=`(s = fifelse(half == 1L, i.s2, i.s1)), on = .(chrom, wstart, ps)]
+        vk[o, `:=`(s = fifelse(half == 1L, i.s2, i.s1)), on = .(chrom, ps)]
         vk = vk[s != 0]
         vk[, `:=`(oA = fifelse(s > 0, nA, nB), oB = fifelse(s > 0, nB, nA))]
         vk[, wstart := floor(astart / sz) * sz]

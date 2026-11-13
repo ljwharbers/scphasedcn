@@ -917,7 +917,7 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     size = stats::setNames(ifelse(sz$N < opts$small_clone, opts$size_small, 1e6), sz$clone)
     prof = clone_profiles(win_t, votes_t, inp$atoms, m2, ref_cells = if (length(ref_cells) >= opts$min_ref) ref_cells else NULL,
                           size = size, seed = seed, cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms,
-                          haploid = inp$haploid, min_ref = opts$min_ref, orient = opts$profile_orient %||% "ps")
+                          haploid = inp$haploid, min_ref = opts$min_ref)
     segment_clone(fit_states(prof, grid), opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac,
                   opts$min_bal_len, opts$max_contra)
   }

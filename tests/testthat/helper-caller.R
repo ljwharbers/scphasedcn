@@ -5,8 +5,6 @@
 #         cell-private events only.
 #       - sim_tum2: male tumour, two clones with a shared trunk, unoriented short phase blocks.
 #       - sim_tum3: sim_tum2 at half the depth with in-block switch errors (clone allele attenuation a ~ 0.7).
-#       - sim_tum_cw: one tumour clone with gains of opposite haplotypes on the two arms of one chromosome, under
-#         chromosome-wide phase sets (one phase set per chromosome).
 #       - fake_regions(), fake_features(), fake_atoms(), fake_votes(): tables in the package's table
 #         schemas (check_tables) with known truth, for unit tests that do not need the full simulator.
 # Why: the tests of the feature step, scorer, tumour mode and pipeline share the same data. The simulations are
@@ -88,19 +86,6 @@ lazy_cached("sim_tum4", function() simulate_scn(
   genome = sim_genome(c(chr1 = 60e6, chr2 = 40e6, chr3 = 40e6, chr4 = 40e6, chr5 = 40e6, chr8 = 30e6, chr21 = 20e6, chr22 = 20e6, chrX = 40e6)), cell_types = c(normal = 0.13, cloneA = 0.2175, cloneB = 0.2175, cloneC = 0.2175, cloneD = 0.2175),
   depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tum4_events(),
   multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 104))
-
-# sim_tum_cw: chromosome-wide phase sets (hybrid-like phasing: one randomly oriented phase set per chromosome, few
-# switches) and, in cloneA, gains of opposite haplotypes on the two arms of chr2 (p arm 0-16 Mb 2:1, q arm 1:2) plus a
-# chr22 loss. One phase set spans both chr2 events, so a chromosome x phase-set orientation of the clone votes cannot
-# orient both (clone_profiles(orient = "ps")).
-sim_tum_cw_events = function() {
-  data.table(chrom = c("chr2", "chr2", "chr22"), start = c(0, 16e6, 0), end = c(16e6, NA, NA),
-             cnA = c(2L, 1L, 1L), cnB = c(1L, 2L, 0L), type = "cloneA")
-}
-lazy_cached("sim_tum_cw", function() simulate_scn(
-  n_cells = 160, sex = "male", cell_types = c(normal = 0.4, cloneA = 0.6),
-  depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tum_cw_events(),
-  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0.5, seed = 105))
 
 # ---- fake tables ---------------------------------------------------------------------------------
 

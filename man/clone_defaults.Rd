@@ -26,9 +26,6 @@ differing by 0.3); trunk cells = trunk posterior >= \code{trunk_post}; \code{\li
 state; \code{split_sep}, \code{split_max} splits per pass, \code{split_cand} candidates tested per clone, \code{split_min_len} minimal
 segment length, \code{split_min_df} major-fraction step of an alternative between amplified states, see
 \code{\link[=split_alt_states]{split_alt_states()}}, \code{split_min_excess} minimal contradiction above its noise floor).
-Clone profiles (\code{\link[=clone_profiles]{clone_profiles()}}, \code{profile_orient}): the split-half vote orientation per chromosome x phase set
-(\code{"ps"}, default) or per profile window x phase set (\code{"window"}: a phase set that spans two events on opposite
-haplotypes, e.g. a chromosome-wide one, is oriented separately in each window; fewer votes per orientation unit).
 Normal hypothesis (\code{normal_hypothesis}): a fixed all-neutral clone \code{N0} replaces every fitted clone without a
 non-neutral segment >= \code{normal_min_event} bp in each round. States: \code{size_small}, \code{small_clone}, \code{p_switch}, \code{min_win}, \code{min_llr};
 segment rules of \code{\link[=segment_clone]{segment_clone()}} (all segmentations of the run, including the split pass): \code{min_excess} (pooled

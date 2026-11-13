@@ -36,7 +36,18 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'     (`<20k`, `20-50k`, `>=50k`);
 #'   * `shifts` log2 depth shifts of loss (-0.98) and gain (+0.57) (calibrated on depth-only spike-ins in normal tissue);
 #'   * `k_amp` uncalibrated depth shift factor for cn >= 4: shift = `k_amp * log2(cn / 2)`;
-#'   * `f_att` attenuated major-haplotype fractions of a 1:0 / 2:0 state;
+#'   * `f_att` attenuated major-haplotype fractions of a 1:0 / 2:0 state (tumour mode, [caller_states()] `tumour`);
+#'   * `states_normal` state set of normal mode ([caller_normal()]): `"normal"` (default; loss 1:0 and CN-LOH 2:0 at
+#'     a major-haplotype fraction of `1 - eps`), `"normal_att"` (opt-in: loss and CN-LOH over the grid `f_att_normal`)
+#'     or `"auto"` (`normal_att` when the features' phasing regime is `chromosome`, i.e. merged chromosome-scale
+#'     phase sets, else `normal`; [normal_state_set()]). On merged phase sets switch errors pull the oriented
+#'     fraction of a real loss / CN-LOH toward 0.5, where the gain rows (2/3, 3/4) fit better than 1:0 at 0.98 and
+#'     the event is labelled a gain (and then dropped as an arm gain or a gain without depth support).
+#'     `normal_att` keeps such events as losses / CN-LOH, at the price of more false loss / CN-LOH labels on null
+#'     cells and some gain recall (its loss / CN-LOH rows overlap the gain fractions);
+#'   * `f_att_normal` major-haplotype fractions of the 1:0 / 2:0 rows of `normal_att` (0.70, 0.80, 0.90, 0.98: the
+#'     lowest point reaches a loss whose imbalance keeps about 40 % of its excess over 0.5 after switch errors,
+#'     0.5 + 0.42 x 0.48; points below the gain fraction 2/3 fit the null and the gains and are left out);
 #'   * `tile_sizes` named tile sizes (bp);
 #'   * `n_folds` cross-validation folds of the null thresholds (4);
 #'   * `n_pool` cells per pool (20);
@@ -83,6 +94,8 @@ caller_defaults = function() {
     shifts = c(loss = -0.98, gain = 0.57),
     k_amp = 0.975,
     f_att = c(0.85, 0.90, 0.95, 0.98),
+    states_normal = "normal",
+    f_att_normal = c(0.70, 0.80, 0.90, 0.98),
     tile_sizes = c("5Mb" = 5e6, "10Mb" = 1e7, "20Mb" = 2e7, "50Mb" = 5e7),
     n_folds = 4,
     n_pool = 20,

@@ -60,7 +60,7 @@ caller_params = function(file = NULL, overrides = list()) {
 # defaults of the caller_normal() arguments that call_scn() does not set itself (the `normal:` block)
 normal_arg_defaults = function() {
   f = formals(caller_normal)
-  keep = setdiff(names(f), c("feat", "params", "cell_meta", "multiplets", "regions", "embedding", "null_cells"))
+  keep = setdiff(names(f), c("feat", "params", "cell_meta", "multiplets", "regions", "embedding", "null_cells", "phasing"))
   out = lapply(keep, function(k) eval(f[[k]]))
   names(out) = keep
   out$depth_model = out$depth_model[1]
@@ -500,7 +500,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       if (is.null(features$votes) || is.null(features$atoms)) {
         warning("call_scn: mask_allelic needs features$votes and features$atoms; no mask applied", call. = FALSE)
       } else {
-        sel0 = select_null_cells(long[eligible %in% TRUE], params = params, exclude = mcells)
+        st0 = caller_states(normal_state_set(params, features$phasing, votes = any(long$n_hap > 0, na.rm = TRUE))$set, params)
+        sel0 = select_null_cells(long[eligible %in% TRUE], states = st0, params = params, exclude = mcells)
         isn0 = long$cell %in% sel0$null_cells & long$null_region %in% TRUE & long$eligible %in% TRUE & long$chrom %in% AUTOSOMES_CALLER
         amask = allelic_noisy_tiles(long, null = isn0, params = params)
         nm = sum(amask$masked)
@@ -518,7 +519,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     }
     say("caller_normal (null cells: ", nc_mode, ")")
     res = do.call(caller_normal, c(list(feat = long, params = params, cell_meta = ctm, multiplets = mcells, regions = features$regions,
-                                        embedding = emb, null_cells = nc_mode), caller_args))
+                                        embedding = emb, null_cells = nc_mode, phasing = features$phasing), caller_args))
     if (!is.null(amask)) {
       res$null_fit$allelic_mask = amask
       res$notes = c(res$notes, mask_note)

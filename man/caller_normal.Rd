@@ -23,7 +23,8 @@ caller_normal(
   gain_gate_q = 0.95,
   pool_loo = TRUE,
   pool_standardize = TRUE,
-  null_chroms = paste0("chr", 1:22)
+  null_chroms = paste0("chr", 1:22),
+  phasing = NULL
 )
 }
 \arguments{
@@ -71,11 +72,14 @@ same construction) before the per-class pooled thresholds}
 
 \item{null_chroms}{chromosomes whose rows can be null rows (default the autosomes, the chromosomes
 \code{\link[=select_null_cells]{select_null_cells()}} checks); NULL = every \code{null_region}}
+
+\item{phasing}{the features' phasing record (\code{features$phasing} of \code{\link[=cell_features]{cell_features()}}, named \code{detected},
+\code{orientation}; \code{\link[=call_scn]{call_scn()}} passes it) or NULL; used by \code{params$states_normal = "auto"} only}
 }
 \value{
 \code{scphasedcn} (mode normal) with \code{scores}, \code{thresholds} (column \code{level}:
 cell, pool_type, pool_knn), \code{calls} (cell and pool level; \code{resolved} for gains changed by
-\code{\link[=resolve_nested]{resolve_nested()}}; with \code{gain_gate = "z"} also its \code{gate_z}, \code{gate_thr}), \code{events}, \code{pools}, \code{null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)} (\code{vote_bins}: the \code{\link[=vote_bins]{vote_bins()}} table with \code{params$calib = "votes"}; \code{rho_chrom}: the
+\code{\link[=resolve_nested]{resolve_nested()}}; with \code{gain_gate = "z"} also its \code{gate_z}, \code{gate_thr}), \code{events}, \code{pools}, \code{null_fit = list(tpar, rho, null_cells, selection, state_set, pool_scale, sex, vote_bins, rho_chrom)} (\code{vote_bins}: the \code{\link[=vote_bins]{vote_bins()}} table with \code{params$calib = "votes"}; \code{rho_chrom}: the
 \code{\link[=rho_by_chrom]{rho_by_chrom()}} table with \code{params$calib_rho = "chrom"})
 }
 \description{
@@ -83,8 +87,8 @@ cell, pool_type, pool_knn), \code{calls} (cell and pool level; \code{resolved} f
 \item null cells: the features' \code{null_cell} column, or \code{\link[=select_null_cells]{select_null_cells()}}
 (\code{null_cells = "auto"} selects when the column is missing, all NA or all
 TRUE), never \code{multiplets}; 2. Student-t depth null per class x stratum
-and allelic rho on the null arm rows; 3. \code{\link[=score_cells]{score_cells()}} with the normal
-state set; 4. fold-CV budget thresholds (\code{\link[=budget_thresholds]{budget_thresholds()}}); 5.
+and allelic rho on the null arm rows; 3. \code{\link[=score_cells]{score_cells()}} with the normal-mode
+state set (\code{params$states_normal}, \code{\link[=normal_state_set]{normal_state_set()}}); 4. fold-CV budget thresholds (\code{\link[=budget_thresholds]{budget_thresholds()}}); 5.
 per-cell calls by \code{\link[=call_policy]{call_policy()}}; 6. pools within cell type
 (\code{\link[=make_pools]{make_pools()}}) and, with an \code{embedding}, kNN pools (\code{\link[=knn_pools]{knn_pools()}}),
 pooled null thresholds (\code{\link[=pooled_thresholds]{pooled_thresholds()}}) and pooled calls; 7.
@@ -111,4 +115,12 @@ default) adds a per-region tail factor to the pooled region scale (\code{\link[=
 thresholds of their \code{sd_class} (\code{\link[=budget_thresholds]{budget_thresholds()}}); their pools are called only with \code{params$pool_events}
 (experimental, off by default: \code{\link[=caller_defaults]{caller_defaults()}}). Removed options stop with
 an error: \code{calib} "region" / "region_votes" / "votes_cont", \code{calib_rho} "cell" / "chrom_cell".
+
+State set (\code{params$states_normal}, \code{\link[=caller_defaults]{caller_defaults()}}): \code{"normal"} (default), \code{"normal_att"} (opt-in: loss and
+CN-LOH rows over \code{params$f_att_normal}, for merged chromosome-scale phase sets whose switch errors attenuate the
+allelic imbalance of real events) or \code{"auto"} (\code{normal_att} when \code{phasing} says the regime is \code{chromosome}). The
+one set is used everywhere the run scores states: the null-cell selection (unless \code{select_args} has \code{states}),
+the per-cell scores and thresholds, the pooled scores, scales and thresholds, and the named events (which borrow
+thresholds computed under the same set). With a set other than \code{normal} the scores and the per-cell calls carry
+\code{f_state}, the best-fitting fraction of the called state's allelic rows. The run notes name the set and why.
 }

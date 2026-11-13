@@ -250,8 +250,7 @@ test_that("call_scn does not apply the bias rule (mask_f0) under mirrored orient
   expect_identical(features_orientation(f), "mirrored")
   # thresholds at zero: under mirrored orientation about half the tiles would be bias outliers if the rule ran
   prm = modifyList(caller_defaults(), list(mask_f0 = TRUE, mask_f0_mad = 0, mask_f0_min = 0))
-  run = function(p) call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", features = f, params = p, embedding = FALSE,
-                             verbose = FALSE)
+  run = function(p) call_scn(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE)
   expect_warning(r1 <- run(prm), "mask_f0.*mirrored")
   r0 = run(caller_defaults())
   expect_null(r1$null_fit$allelic_mask)                                   # no tile masked, no mask pass

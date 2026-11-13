@@ -17,8 +17,10 @@ over all strata; \code{n} = null rows), \code{false_events} (false autosomal arm
 per state), \code{events} (reportable events per cell and per null cell, pooled calls; normal mode with
 \code{\link[=event_fdr]{event_fdr()}} output: \code{cell_events_in_null_cells}, \code{expected_false_cell_events} (per chromosome group when there
 is more than one) and \code{expected_false_cell_event_fraction} (lower bounds, see \code{\link[=event_fdr]{event_fdr()}}),
-\code{cell_events_q_below_0.05}, \code{empirical_p_floor}; \code{calls} then also has \code{expected_false_reportable_cell_calls}),
-\code{null_check} (selection-free exceedances per 1,000 per class, \code{\link[=null_selection_check]{null_selection_check()}}), \code{clones} (clones,
+\code{cell_events_q_below_0.05} (a count at a row-level q, not an event-level FDR, see \code{\link[=event_fdr]{event_fdr()}}),
+\code{empirical_p_floor}; \code{calls} then also has \code{expected_false_reportable_cell_calls}),
+\code{null_check} (selection-free exceedances per 1,000 per class, an upper bound of the null rate: real events
+count too, \code{\link[=null_selection_check]{null_selection_check()}}), \code{clones} (clones,
 assigned cells, reference pool).
 }
 \description{

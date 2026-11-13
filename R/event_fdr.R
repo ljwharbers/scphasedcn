@@ -18,41 +18,41 @@ utils::globalVariables(c("p", "rep_", "s_", "key_", "grp_", "borrowed_", "n_rows
 
 # ---- calibration groups ----------------------------------------------------------------------------------
 
-# The null rows each scored row's threshold was trained on ([budget_thresholds()] logic): the group class x stratum
-# (x hstratum), or, with fewer than `min_null` null rows, the first coarser level (drop hstratum, then stratum) with
-# `min_null` rows, else the coarsest. A row whose group has no null rows at all (a class without null rows, e.g. named
+# The null rows each scored row's threshold was trained on: the group class x stratum (x hstratum) of the row and
+# the null rows [budget_thresholds()] trained that group's threshold on ([threshold_null_rows()]: its own null rows,
+# or, with fewer than `min_null`, those of the first coarser level (drop hstratum, then stratum) with `min_null`
+# rows, else of the coarsest). A row whose group has no null rows at all (a class without null rows, e.g. named
 # events) takes the group of its `sd_class` and is flagged `borrowed`.
-# Returns list(key = calibration key per row, borrowed = logical per row, groups = one row per key: n_null)
+# Returns list(key = calibration key per row ("<level>\r<group key at that level>"), borrowed = logical per row,
+#              rows = per key the indices (rows of sc) of its null rows)
 calibration_keys = function(sc, min_null) {
   by = c("class", "stratum", if ("hstratum" %in% names(sc)) "hstratum")
   isn = sc$is_null %in% TRUE
-  levs = list(by); cur = by
-  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
   keys_for = function(cls) {
     x = copy(sc[, by, with = FALSE])
     x[, class := cls]
-    kl = lapply(seq_along(levs), function(l) paste0(l, "\r", group_key(x, levs[[l]])))
-    nl = function(l) { tb = table(kl[[l]][isn]); v = as.integer(tb[kl[[l]]]); v[is.na(v)] = 0L; v }
-    key = kl[[1]]
-    if (length(levs) > 1) {
-      fb = nl(1) < min_null
-      for (l in 2:length(levs)) {
-        key[fb] = kl[[l]][fb]
-        if (l < length(levs)) fb = fb & nl(l) < min_null
-      }
-    }
-    key
+    tg = threshold_null_rows(x, by, isn, min_null)
+    gk = vapply(seq_len(nrow(tg$groups)), function(g)
+      paste0(tg$level[g], "\r", group_key(tg$groups[g], tg$levels[[tg$level[g]]])), character(1))
+    gi = match(group_key(x, by), tg$groups$key_)
+    rows = tg$use[!duplicated(gk)]
+    names(rows) = gk[!duplicated(gk)]
+    list(key = gk[gi], rows = rows)
   }
   k1 = keys_for(as.character(sc$class))
-  has = k1 %in% unique(k1[isn])
+  key = k1$key
+  rows = k1$rows
+  has = lengths(rows)[key] > 0
   borrowed = rep(FALSE, nrow(sc))
   if (any(!has) && "sd_class" %in% names(sc)) {
     k2 = keys_for(as.character(sc$sd_class))
-    b = !has & k2 %in% unique(k2[isn]) & sc$sd_class != sc$class
-    k1[b] = k2[b]
+    b = !has & lengths(k2$rows)[k2$key] > 0 & sc$sd_class != sc$class
+    key[b] = k2$key[b]
     borrowed[b] = TRUE
+    add = setdiff(unique(k2$key[b]), names(rows))
+    rows[add] = k2$rows[add]
   }
-  list(key = k1, borrowed = borrowed)
+  list(key = key, borrowed = borrowed, rows = rows)
 }
 
 # Empirical (conformal) p-value of reportable scores `s` (-Inf = not reportable) against the calibration rows: `cal`
@@ -62,6 +62,7 @@ calibration_keys = function(sc, min_null) {
 # fitted to the top `tail_n` plain scores, times the reportable share of that tail:
 # p = (a + 1) / (n + 1) x exp(-(s - u) / beta), beta = their mean excess over u (the maximum-likelihood exponential
 # fit), a = how many of them are reportable. Continuous at u (both sides (a + 1) / (n + 1)) and decreasing in s.
+# Both pieces are relative to the calibration rows, i.e. to the selected null cells (see event_fdr).
 conformal_p = function(s, cal, plain, tail_n = 0) {
   n = length(cal)
   p = rep(1, length(s))
@@ -109,14 +110,24 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
 #' (whatever the state), with an exponential tail fitted to the top `tail_n` null scores (peaks over threshold; beta
 #' = their mean excess over u, the maximum-likelihood fit) times the reportable share of that tail:
 #' `p = (a + 1) / (n + 1) exp(-(s' - u) / beta)`, a = reportable rows among the top `tail_n`; the two pieces meet at u.
-#' The exponential tail is conservative for the light (near-Gaussian) tails of the allelic log-likelihood ratios and
-#' the bounded Student-t depth term; it is a model, not a guarantee against artefacts the null cells do not carry.
+#' The exponential tail is conservative when the null is correctly specified and light-tailed (near-Gaussian
+#' allelic log-likelihood ratios, the bounded Student-t depth term); it is a model, not a guarantee against
+#' artefacts the null cells do not carry.
+#'
+#' **Relative to the selected null.** The p-values, and the tail beyond the largest null scores, are relative to the
+#' *selected* null cells ([select_null_cells()]). The selection removes the cells with the heaviest tails (e.g.
+#' cells with a higher allelic overdispersion than modelled), so for cells like those the p-values are too small, and
+#' the tail model extrapolates a truncated distribution: in such a sample many rows can reach a small q with the
+#' exponential tail and none with `tail = "none"`. Compare the two when the null is in doubt.
 #' Rows on chromosomes without null rows (chrX, whose rows are never null rows in normal mode) are compared with the
 #' autosomal null of their class x stratum, as their thresholds are (`null_borrowed = TRUE`); so are rows of a class
 #' without null rows that take the null of their `sd_class`.
 #'
 #' **q-value.** Benjamini-Hochberg over all tested rows (m = every tested row, called or not; rows with `s' = -Inf`
-#' have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score.
+#' have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. The unit is the row,
+#' not the event: one real event typically rejects several nested rows (its chromosome, arms, tiles), so the false
+#' share among events (an event carries the q of its top region) with `q` below a cut can be well above the cut. A
+#' cut on `q` in the events is not an event-level false discovery rate.
 #'
 #' **Expected false calls and events** (`expected_false`, one row per class x state x chromosome group `A`
 #' (autosomes) / `X` / `Y`): per depth stratum, the realised rate of reportable calls of that state among the null
@@ -181,15 +192,17 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
   x[, `:=`(key_ = ck$key[k], borrowed_ = ck$borrowed[k])]
   null_chroms = unique(sc$chrom[sc$is_null %in% TRUE])
   x[, null_borrowed := borrowed_ | !chrom %in% null_chroms]
-  # p-values per calibration group x fold: the null rows of the other folds (all folds for rows without one)
+  # p-values per calibration group x fold: the group's null rows (those its threshold was trained on) of the other
+  # folds (all folds for rows without one)
   folds = sort(unique(x$fold[!is.na(x$fold) & x$fold != 0L]))
   x[, p := NA_real_]
   tn = if (tail == "exponential") tail_n else 0
+  xi = rep(NA_integer_, nrow(sc)); xi[k] = seq_along(k)      # the call row of each scored row
   grp = list()
   for (g in unique(x$key_[tested])) {
-    ig = which(x$key_ == g)
-    nul = ig[x$is_null[ig]]
-    tg = ig[tested[ig]]
+    nul = xi[ck$rows[[g]]]
+    nul = nul[!is.na(nul)]
+    tg = which(x$key_ == g & tested)
     grp[[length(grp) + 1]] = data.table(gkey = g, n_null = length(nul))
     for (fo in unique(x$fold[tg])) {
       t_ = tg[x$fold[tg] %in% fo]
@@ -322,10 +335,17 @@ utils::globalVariables(c("fin_", "top_null", "N", "score", "called", "thr"))
 #' the selected cells as null cells and the half as `null_chroms`: depth t null, rho, fold-cross-validated budget
 #' thresholds, the run's `calib` options), and counts the exceedances (`s_comb` above its threshold) on the null
 #' regions of the OTHER half of the same cells: rows that neither the selection nor the thresholds saw. The two halves
-#' are swapped and the counts combined. A rate clearly above the nominal `1 - null_q` (and above the in-sample
-#' cross-validated rate on the selection half, `insample_per_1000`) means the selected null is cleaner than the
-#' cells it is applied to, and the per-cell false load is underestimated. The halves carry different chromosomes,
-#' so a class whose regions differ in their null spread (e.g. chromosomes of very different size) also shows up.
+#' are swapped and the counts combined.
+#'
+#' Cells are selected on one half only, so a cell that carries a real event on the measured half stays in and the
+#' rows of that event count as exceedances: `per_1000` is the null exceedance rate plus the rate of real events on
+#' the measured half, an upper bound of the null rate. A rate clearly above the nominal `1 - null_q` (and above the
+#' in-sample cross-validated rate on the selection half, `insample_per_1000`) has two possible causes: a selected
+#' null that is cleaner than the cells it is applied to (the per-cell false load is then underestimated), or real
+#' events in the cells. Read it next to the share of cells with a called event: in a sample without real events
+#' the excess measures the selection, in a sample with them it is an upper bound. The halves carry different
+#' chromosomes, so a class whose regions differ in their null spread (e.g. chromosomes of very different size) also
+#' shows up.
 #' Confidence intervals are exact binomial (Clopper-Pearson) over rows; rows of one cell overlap (a chromosome and its
 #' arms), so they are somewhat too narrow. Costs about one more [caller_normal()] scoring pass (two half passes
 #' without pools). With `calib_rho = "chrom"` the measured half has no null rows and takes the global rho.
@@ -339,7 +359,8 @@ utils::globalVariables(c("fin_", "top_null", "N", "score", "called", "thr"))
 #' @param false_calls optional [null_false_calls()] `rates` of the run, added as `cv_per_1000` (the run's in-sample
 #'   cross-validated rate on all null rows)
 #' @param conf confidence level of the intervals
-#' @return data.table class, stratum (`all` = over the strata), n_rows (measured rows), n_exceed, per_1000,
+#' @return data.table class, stratum (`all` = over the strata), n_rows (measured rows), n_exceed, per_1000 (null and
+#'   real-event exceedances per 1,000 measured rows: an upper bound of the null rate),
 #'   lo_per_1000, hi_per_1000, nominal_per_1000, insample_rows, insample_exceed, insample_per_1000 (the
 #'   cross-validated rate on the selection half's null rows of the same passes), cv_per_1000 (with `false_calls`);
 #'   attribute `halves` (half, select_chroms, measure_chroms, n_cells, n_null_cells)

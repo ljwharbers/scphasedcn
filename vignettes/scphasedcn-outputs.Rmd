@@ -91,8 +91,18 @@ above 1 on real data). Beyond the (51st) largest null score of the group, `p` th
 fitted to the top 50 null scores times the reportable share of that tail (`event_fdr(tail = "none")` gives the plain
 conformal p-value; `summary.tsv` `events | empirical_p_floor` reports the floor). `q` is the Benjamini-Hochberg
 q-value over all tested rows, called or not. In `events.tsv`, `p` / `q` / `null_borrowed` are those of the event's
-top region and `null_cell` says whether the event is in a selected null cell. The same caveats apply: q-values are
-relative to the selected null, and rows of one cell are positively dependent (a chromosome and its arms).
+top region and `null_cell` says whether the event is in a selected null cell. Two limits:
+
+- *Relative to the selected null.* `p`, and the exponential tail beyond the largest null scores, are computed against
+  the selected null cells. The selection removes the cells with the heaviest tails (e.g. cells with more allelic
+  overdispersion than modelled), so for cells like those `p` is too small and the tail model extrapolates a truncated
+  distribution; the tail is conservative only for a correctly specified null with light tails. In a sample where
+  part of the cells are noisier than the null cells, the default tail can give false events a small `q` that
+  `event_fdr(tail = "none")` does not; compare the two when the null is in doubt.
+- *Rows, not events.* Benjamini-Hochberg runs over rows, and one real event usually rejects several nested rows
+  (chromosome, arms, tiles), while rows of one cell are positively dependent. A cut on `q` in `events.tsv` is
+  therefore not an event-level false discovery rate: the share of false events below the cut can be well above it.
+  The same holds for `summary.tsv` `events | cell_events_q_below_0.05`, a count of events at a row-level `q`.
 
 **Selection-free check** (`null_selection_check.tsv`, `call_scn(null_check = TRUE)` / `--null-check`; it costs about
 one more scoring pass). The autosomes are split into odd and even chromosomes; null cells are selected on one half
@@ -101,9 +111,14 @@ same cells, rows that neither the selection nor the thresholds saw; then the hal
 `all`): `n_rows`, `n_exceed`, `per_1000` with a 95 % Clopper-Pearson interval (`lo_per_1000`, `hi_per_1000`; rows of
 one cell overlap, so the interval is somewhat narrow), `nominal_per_1000` (`1000 x (1 - null_q)`),
 `insample_per_1000` (the cross-validated rate on the selection half of the same passes) and `cv_per_1000` (the
-run's own in-sample rate, `false_calls.tsv`). A rate clearly above the nominal and in-sample rates means the
-selected null is cleaner than the cells it is applied to and the expected false counts above are too low. The halves
-carry different chromosomes, so a class whose regions differ in their null spread shows up here as well.
+run's own in-sample rate, `false_calls.tsv`). Cells are selected on one half only, so a cell with a real event on
+the measured half stays in and that event's rows count as exceedances: `per_1000` is the null rate plus the rate of
+real events on the measured half, an upper bound of the null rate. A rate clearly above the nominal and in-sample
+rates has two possible causes: a selected null that is cleaner than the cells it is applied to (the expected false
+counts above are then too low), or real events. Read it next to the share of cells with a called event (`cells.tsv`
+`n_events`, `summary.tsv`): in a sample without real events the excess measures the selection; in a sample with
+them it is an upper bound. The halves carry different chromosomes, so a class whose regions differ in their null
+spread shows up here as well.
 
 ## Clone segments (tumour mode)
 

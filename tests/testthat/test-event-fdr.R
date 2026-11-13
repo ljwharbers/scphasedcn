@@ -88,11 +88,108 @@ test_that("event_fdr: q monotone in the score per class x stratum x fold; strong
   expect_gt(stats::median(h0$q), stats::median(hit$q))
 })
 
+# a run in which thresholds fall back: min_null_rows 3000, the >=50k cells are not null cells (that stratum has no null
+# rows), chrom <20k has too few; 30 >=50k cells carry a chr8 gain or a chr1p loss
+fb_run = function() {
+  if (is.null(fdr_cache$fallback)) {
+    rg = fake_regions(tiles = c("20Mb" = 2e7))
+    f0 = fake_features(1500, rg, seed = 61, hap_frac = 0.1)
+    hi = head(unique(f0[stratum == ">=50k", cell]), 30)
+    ev = data.table(cell = hi, region = rep(c("chr8", "chr1p"), each = 15), state = rep(c("gain", "loss"), each = 15))
+    ff = fake_features(1500, rg, events = ev, seed = 61, hap_frac = 0.1)
+    ff[, null_cell := null_cell & stratum != ">=50k"]
+    p = modifyList(caller_defaults(), list(min_null_rows = 3000))
+    r = caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character(), null_cells = "features", params = p)
+    fdr_cache$fallback = list(r = r, f = event_fdr(r), ev = ev)
+  }
+  fdr_cache$fallback
+}
+
+# the calibration rows of every s_comb threshold group and fold: the null rows of the group's calibration key in the
+# other folds (all of them for fold 0)
+calib_counts = function(r) {
+  sc = as.data.table(r$scores)
+  cols = intersect(c("class", "sd_class", "stratum", "hstratum"), names(sc))
+  ck = calibration_keys(sc[, c(cols, "is_null"), with = FALSE], r$params$min_null_rows)
+  th = r$thresholds[level == "cell" & score == "s_comb" & class %in% c("chrom", "arm")]
+  i = match(paste(th$class, th$stratum), paste(sc$class, sc$stratum))
+  th[, n_cal := mapply(function(g, fo) { cr = ck$rows[[g]]; if (fo == 0L) length(cr) else sum(sc$fold[cr] != fo) },
+                       ck$key[i], fold)]
+  th[]
+}
+
+test_that("event_fdr: in fallback groups the p-values use the null rows the thresholds were trained on", {
+  x = fb_run()
+  r = x$r; f = x$f
+  th = r$thresholds[level == "cell" & score == "s_comb" & class %in% c("chrom", "arm")]
+  expect_true(th[stratum == ">=50k" & fold == 0, all(pooled_fallback)])
+  expect_true(th[class == "chrom" & stratum == "<20k" & fold == 0, pooled_fallback])
+  expect_false(th[class == "arm" & stratum == "<20k" & fold == 0, pooled_fallback])
+  # groups: a fallback threshold group is calibrated on its class-wide null rows, as many as its threshold
+  t0 = th[fold == 0, .(class, stratum = fifelse(pooled_fallback, "all", stratum), n_thr = n_null)]
+  g = merge(f$groups, unique(t0), by = c("class", "stratum"))
+  expect_equal(nrow(g), nrow(f$groups))
+  expect_equal(g$n_null, g$n_thr)
+  # per group and fold: as many calibration rows as the threshold of that group and fold was trained on
+  cc = calib_counts(r)
+  expect_equal(cc$n_cal, cc$n_null)
+})
+
+test_that("event_fdr: a stratum without null rows gets p-values from the class-wide null, never p = 1 when called", {
+  x = fb_run()
+  f = x$f
+  cc = f$calls[level == "cell" & !is.na(p)]
+  car = cc[paste(cell, region) %in% paste(x$ev$cell, x$ev$region) & called & reportable]
+  expect_gte(nrow(car), 25)
+  expect_true(all(car$stratum == ">=50k"))
+  expect_true(all(is.finite(car$p) & car$p < 1e-3))
+  expect_false(any(cc[called & reportable, p] == 1))
+  expect_lt(f$info$p_floor_max, 1e-3)
+})
+
+test_that("event_fdr without fallback: each group's calibration rows are its class x stratum null rows; p is conformal", {
+  r = fdr_run(FALSE)$r
+  expect_false(any(r$thresholds[level == "cell", pooled_fallback]))
+  cc = calib_counts(r)
+  expect_equal(cc$n_cal, cc$n_null)
+  # p (tail none) = (1 + #{null s' >= s'}) / (n + 1) over the null rows of the same class x stratum in the other folds
+  f = event_fdr(r, tail = "none")
+  sc = as.data.table(r$scores)
+  x = f$calls[level == "cell"]
+  k = match(paste(x$cell, x$region), paste(sc$cell, sc$region))
+  rep = x$reportable %in% TRUE
+  rep[!(x$called %in% TRUE) & x$class %in% c("chrom", "event") & x$state == "gain" & (sc$dl_gain[k] <= 0) %in% TRUE] = FALSE
+  s = fifelse(rep & !is.na(x$score), x$score, -Inf)
+  isn = sc$is_null[k] %in% TRUE
+  fo = sc$fold[k]
+  st = as.character(sc$stratum[k])
+  tst = !is.na(x$p)
+  expect_gt(sum(tst & is.finite(s) & x$p < 1), 100)
+  pe = rep(NA_real_, nrow(x))
+  for (g in unique(paste(x$class, st, fo)[tst])) {
+    i = which(tst & paste(x$class, st, fo) == g)
+    cal = s[isn & x$class == x$class[i[1]] & st == st[i[1]] & fo != fo[i[1]]]
+    xs = sort(cal[is.finite(cal)])
+    pe[i] = fifelse(is.finite(s[i]), (1 + length(xs) - findInterval(s[i], xs, left.open = TRUE)) / (length(cal) + 1), 1)
+  }
+  expect_equal(x$p[tst], pe[tst])
+  expect_equal(x$q[tst], stats::p.adjust(pe[tst], "BH"))
+})
+
+# null_selection_check on a small genome (8 autosomes + chrX), 1,200 cells: a pure null (cached)
+nsc_genome = function() fake_regions(sim_genome(setNames(rep(3e7, 9), c(paste0("chr", 1:8), "chrX"))), tiles = c("10Mb" = 1e7))
+nsc_null = function() {
+  if (is.null(fdr_cache$nsc0)) {
+    rg = nsc_genome()
+    f0 = fake_features(1200, rg, seed = 71)
+    fdr_cache$nsc0 = list(rg = rg, f0 = f0, n0 = null_selection_check(f0, regions = rg, select_args = list(n_sim = 2e4)))
+  }
+  fdr_cache$nsc0
+}
+
 test_that("null_selection_check: ~1 / 1,000 on a pure null, clearly higher when the null is too thin for a subset of cells", {
-  gen = sim_genome(setNames(rep(3e7, 9), c(paste0("chr", 1:8), "chrX")))
-  rg = fake_regions(gen, tiles = c("10Mb" = 1e7))
-  f0 = fake_features(1200, rg, seed = 71)
-  n0 = null_selection_check(f0, regions = rg, select_args = list(n_sim = 2e4))
+  x0 = nsc_null()
+  rg = x0$rg; f0 = x0$f0; n0 = x0$n0
   expect_true(all(c("class", "stratum", "n_rows", "n_exceed", "per_1000", "lo_per_1000", "hi_per_1000", "nominal_per_1000",
                     "insample_per_1000", "cv_per_1000") %in% names(n0)))
   hv = attr(n0, "halves")
@@ -115,4 +212,20 @@ test_that("null_selection_check: ~1 / 1,000 on a pure null, clearly higher when 
   expect_gt(ch1$per_1000, 2.5 * ch0$per_1000)
   expect_lt(ch1$insample_per_1000, 2)
   expect_error(null_selection_check(f0[chrom %in% c("chr1", "chr3")], regions = rg), "odd and even")
+})
+
+test_that("null_selection_check counts real events on the measured half: per_1000 bounds the null rate from above", {
+  # 24 of 1,200 cells carry a whole-chromosome gain of chr2 (even half): selected as null cells on the odd half, their
+  # chr2 rows are measured and exceed the thresholds, although the null itself is correct
+  x0 = nsc_null()
+  car = sprintf("cell_%04d", 1:24)
+  ev = CJ(cell = car, region = x0$rg[chrom == "chr2", region])[, state := "gain"]
+  f3 = fake_features(1200, x0$rg, events = ev, seed = 71)
+  n3 = null_selection_check(f3, regions = x0$rg, select_args = list(n_sim = 2e4))
+  ch0 = x0$n0[class == "chrom" & stratum == "all"]; ch3 = n3[class == "chrom" & stratum == "all"]
+  expect_gt(ch3$per_1000, 2 * ch0$per_1000)
+  expect_gt(ch3$lo_per_1000, ch0$per_1000)
+  # the excess is about the carriers' chr2 rows over the measured rows, not a worse null on the selection half
+  expect_lt(ch3$insample_per_1000, 2)
+  expect_gt(ch3$n_exceed - ch0$n_exceed, 0.5 * length(car))
 })

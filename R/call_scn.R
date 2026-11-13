@@ -467,7 +467,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
                                             depth_model = na_run$depth_model[1], select_args = na_run$select_args %||% list(),
                                             null_chroms = na_run$null_chroms, false_calls = res$false_calls)
       nca = res$null_check[stratum == "all"]
-      res$notes = c(res$notes, sprintf("null selection check: %s per 1,000 on rows not used for selection (in-sample %s); %.1f min",
+      res$notes = c(res$notes, sprintf(paste("null selection check: %s per 1,000 on rows not used for selection (in-sample %s);",
+                                             "upper bound of the null rate: real events on those rows count too; %.1f min"),
                                        paste(sprintf("%s %.2f", nca$class, nca$per_1000), collapse = ", "),
                                        paste(sprintf("%.2f", nca$insample_per_1000), collapse = ", "),
                                        as.numeric(difftime(Sys.time(), t_c, units = "mins"))))
@@ -708,8 +709,10 @@ read_scphasedcn = function(out) {
 #'   per state), `events` (reportable events per cell and per null cell, pooled calls; normal mode with
 #'   [event_fdr()] output: `cell_events_in_null_cells`, `expected_false_cell_events` (per chromosome group when there
 #'   is more than one) and `expected_false_cell_event_fraction` (lower bounds, see [event_fdr()]),
-#'   `cell_events_q_below_0.05`, `empirical_p_floor`; `calls` then also has `expected_false_reportable_cell_calls`),
-#'   `null_check` (selection-free exceedances per 1,000 per class, [null_selection_check()]), `clones` (clones,
+#'   `cell_events_q_below_0.05` (a count at a row-level q, not an event-level FDR, see [event_fdr()]),
+#'   `empirical_p_floor`; `calls` then also has `expected_false_reportable_cell_calls`),
+#'   `null_check` (selection-free exceedances per 1,000 per class, an upper bound of the null rate: real events
+#'   count too, [null_selection_check()]), `clones` (clones,
 #'   assigned cells, reference pool).
 #' @export
 scphasedcn_summary = function(obj) {
@@ -766,7 +769,8 @@ scphasedcn_summary = function(obj) {
   if (!is.null(obj$fdr_info)) {
     fi = obj$fdr_info
     add("events", sprintf("cell_events_q_below_%g", fi$alpha), fi$n_q_below, fi$n_cell_events,
-        sprintf("BH q over %d tested per-cell rows (tail %s)", as.integer(fi$m), fi$tail))
+        sprintf(paste("cell events whose top region has a row-level BH q below %g (over %d tested per-cell rows, tail %s);",
+                      "not an event-level FDR; relative to the selected null cells"), fi$alpha, as.integer(fi$m), fi$tail))
     add("events", "empirical_p_floor", fi$p_floor_max, fi$m,
         sprintf("largest 1 / (n_null + 1) of the null groups; n = tests m; with tail none a lone event's q cannot fall below ~ m x p_floor = %.3g",
                 fi$m * fi$p_floor_max))
@@ -774,7 +778,8 @@ scphasedcn_summary = function(obj) {
   if (!is.null(obj$null_check) && nrow(obj$null_check)) {
     nk = as.data.table(obj$null_check)[stratum == "all"]
     for (i in seq_len(nrow(nk))) add("null_check", paste0(nk$class[i], "|per_1000"), nk$per_1000[i], nk$n_rows[i],
-                                     sprintf("selection-free; 95%% CI %.2f-%.2f; in-sample %.2f; nominal %g", nk$lo_per_1000[i],
+                                     sprintf(paste("selection-free; upper bound of the null rate (real events count too);",
+                                                   "95%% CI %.2f-%.2f; in-sample %.2f; nominal %g"), nk$lo_per_1000[i],
                                              nk$hi_per_1000[i], nk$insample_per_1000[i], nk$nominal_per_1000[i]))
   }
   if (nrow(calls)) {

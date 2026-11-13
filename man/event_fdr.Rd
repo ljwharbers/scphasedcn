@@ -57,14 +57,24 @@ therefore extends the p-value beyond the anchor u, the (\code{tail_n} + 1)-th la
 (whatever the state), with an exponential tail fitted to the top \code{tail_n} null scores (peaks over threshold; beta
 = their mean excess over u, the maximum-likelihood fit) times the reportable share of that tail:
 \verb{p = (a + 1) / (n + 1) exp(-(s' - u) / beta)}, a = reportable rows among the top \code{tail_n}; the two pieces meet at u.
-The exponential tail is conservative for the light (near-Gaussian) tails of the allelic log-likelihood ratios and
-the bounded Student-t depth term; it is a model, not a guarantee against artefacts the null cells do not carry.
+The exponential tail is conservative when the null is correctly specified and light-tailed (near-Gaussian
+allelic log-likelihood ratios, the bounded Student-t depth term); it is a model, not a guarantee against
+artefacts the null cells do not carry.
+
+\strong{Relative to the selected null.} The p-values, and the tail beyond the largest null scores, are relative to the
+\emph{selected} null cells (\code{\link[=select_null_cells]{select_null_cells()}}). The selection removes the cells with the heaviest tails (e.g.
+cells with a higher allelic overdispersion than modelled), so for cells like those the p-values are too small, and
+the tail model extrapolates a truncated distribution: in such a sample many rows can reach a small q with the
+exponential tail and none with \code{tail = "none"}. Compare the two when the null is in doubt.
 Rows on chromosomes without null rows (chrX, whose rows are never null rows in normal mode) are compared with the
 autosomal null of their class x stratum, as their thresholds are (\code{null_borrowed = TRUE}); so are rows of a class
 without null rows that take the null of their \code{sd_class}.
 
 \strong{q-value.} Benjamini-Hochberg over all tested rows (m = every tested row, called or not; rows with \verb{s' = -Inf}
-have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score.
+have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. The unit is the row,
+not the event: one real event typically rejects several nested rows (its chromosome, arms, tiles), so the false
+share among events (an event carries the q of its top region) with \code{q} below a cut can be well above the cut. A
+cut on \code{q} in the events is not an event-level false discovery rate.
 
 \strong{Expected false calls and events} (\code{expected_false}, one row per class x state x chromosome group \code{A}
 (autosomes) / \code{X} / \code{Y}): per depth stratum, the realised rate of reportable calls of that state among the null

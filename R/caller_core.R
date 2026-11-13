@@ -26,6 +26,11 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `eps` allele error floor of the beta-binomial (0.02);
 #'   * `mol_gap` fragments of one cell closer than this (bp) are one molecule (2000; the default of
 #'     [cell_features()] `mol_gap`);
+#'   * `mol_split_ps` split molecules by phase set (FALSE): a molecule whose fragments lie in different phase sets
+#'     (across a phase-block junction) gives one vote per phase set instead of one vote under the phase set of its
+#'     first fragment ([collapse_molecules()] `split_ps`);
+#'   * `votes_clean` votes from clean fragments only (FALSE): fragments with the blacklist bit in `flags` (the
+#'     fragments the extractor leaves out of the depth layers) do not vote ([read_votes()] `clean`);
 #'   * `sd_floor` floor of the per-cell null SD of the window log2 ratio (0.05);
 #'   * `strata_breaks` / `strata_labels` depth strata on clean fragments per cell
 #'     (`<20k`, `20-50k`, `>=50k`);
@@ -78,6 +83,8 @@ caller_defaults = function() {
     null_q = 0.999,
     eps = 0.02,
     mol_gap = 2000,
+    mol_split_ps = FALSE,
+    votes_clean = FALSE,
     sd_floor = 0.05,
     strata_breaks = c(2e4, 5e4),
     strata_labels = c("<20k", "20-50k", ">=50k"),

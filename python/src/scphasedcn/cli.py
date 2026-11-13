@@ -1,4 +1,4 @@
-"""scphasedcn command line: run | extract | merge | select-hets | index-check.
+"""scphasedcn command line: run | extract | merge | select-hets | hybrid-phase | index-check.
 
 `scphasedcn run` extracts one sample (all chromosomes, then merge) into the directory the scphasedcn R package reads; `extract` (one
 chromosome) + `merge` do the same as separate steps, e.g. one cluster job per chromosome."""
@@ -170,7 +170,7 @@ def cmd_extract(a):
     acc = None
     if use_snps:
         snps = load_snps(d["snps"], chrom, phased=d["phased"], region=reg[1] if reg else None, sample=vcf_sample)
-        acc = AlleleAccumulator(snps, min_bq=a.min_bq)
+        acc = AlleleAccumulator(snps, min_bq=a.min_bq, vote_ps=a.vote_ps)
         _log(f"SNPs on {chrom}: {len(snps)} ({int((snps.hap_of_alt > 0).sum())} phased) from {d['snps']}")
         if snps.n_phased_gt:
             _log(f"warning: {snps.n_phased_gt} SNPs on {chrom} have a phased genotype but --phased was not given: "
@@ -205,7 +205,7 @@ def cmd_extract(a):
     params = {"version": __version__, "sample": d["sample"], "bam": d["bam"], "barcodes": d["barcodes"],
               "barcode_space": space, "barcode_map": d["barcode_map"], "chrom": chrom,
               "region": a.region, "binsize": a.binsize, "assign": a.assign, "min_mapq": a.min_mapq, "min_bq": a.min_bq,
-              "snps": d["snps"], "phased": d["phased"], "peaks": d["peaks"],
+              "snps": d["snps"], "phased": d["phased"], "vote_ps": a.vote_ps, "peaks": d["peaks"],
               "layers": _layers_written(layers_on), "ref": ref, "command": " ".join(sys.argv)}
 
     tiling = Tiling.regular_grid(chrom, length, a.binsize)
@@ -252,8 +252,10 @@ def cmd_extract(a):
     common = {"cells": cdig, "bam": file_fingerprint(d["bam"]), "min_mapq": a.min_mapq}
     masks = {k: file_fingerprint(ref.get(k)) for k in ("blacklist", "trf", "centromeres")}
     masks["peaks"] = file_fingerprint(d["peaks"])
+    # vote_ps sets each fragment's hap / ps: the fragments table and the alleles layer's hapA / hapB / hap_ambig
     snp_in = {"snps": file_fingerprint(d["snps"]) if acc is not None else None, "phased": bool(d["phased"]) and acc is not None,
-              "vcf_sample": vcf_sample, "min_bq": a.min_bq if acc is not None else None}
+              "vcf_sample": vcf_sample, "min_bq": a.min_bq if acc is not None else None,
+              "vote_ps": a.vote_ps if acc is not None else None}
     inputs = {"depth": {**common, "binsize": a.binsize, "assign": a.assign, "fasta": file_fingerprint(ref.get("fasta")),
                         **masks},
               "alleles": {**common, "binsize": a.binsize, "assign": hap_assign, **snp_in},
@@ -352,6 +354,16 @@ def cmd_select_hets(a):
     return 0
 
 
+# ----------------------------------------------------------------------------------------------- hybrid-phase
+def cmd_hybrid_phase(a):
+    from .hybrid import hybrid_phase
+    hybrid_phase(a.blocks, a.population, a.out, contigs=[c for c in a.contigs.split(",") if c] if a.contigs else None,
+                 sample=a.sample, population_sample=a.population_sample, imputed_flag=a.imputed_flag or None,
+                 min_votes=a.min_votes, fill_unphased=a.fill_unphased, block_tsv=a.block_tsv, chrom_tsv=a.chrom_tsv,
+                 log=_log)
+    return 0
+
+
 # ----------------------------------------------------------------------------------------------- parser
 def build_parser():
     p = argparse.ArgumentParser(prog="scphasedcn", description=__doc__)
@@ -388,6 +400,23 @@ def build_parser():
     s.add_argument("--dp-quantile", type=float, default=0.99); s.add_argument("--stats", help="per-contig counts TSV")
     s.set_defaults(func=cmd_select_hets)
 
+    s = sub.add_parser("hybrid-phase", help="orient read-backed phase blocks with a population-phased VCF: one phase set "
+                                            "per contig (normal-tissue mode; see scphasedcn.hybrid)")
+    s.add_argument("--blocks", required=True, help="read-backed phased VCF (GT | + PS), e.g. longphase or the select-hets "
+                                                   "output")
+    s.add_argument("--population", required=True, help="population-phased VCF of the same sample (e.g. Beagle 5, "
+                                                       "SHAPEIT), or a pattern with {chrom} for one file per contig")
+    s.add_argument("--out", required=True, help="output .vcf.gz (a .tbi is written next to it)")
+    s.add_argument("--contigs", help="comma list of contigs to orient (default all; others are written unchanged)")
+    s.add_argument("--sample", help="sample of --blocks (default: the only one)")
+    s.add_argument("--population-sample", help="sample of --population (default: the --blocks sample, else the only one)")
+    s.add_argument("--imputed-flag", default="IMP", help="INFO flag of imputed population markers, which never vote "
+                                                         "('' for none)")
+    s.add_argument("--min-votes", type=int, default=1, help="minimum voting sites to orient a block")
+    s.add_argument("--fill-unphased", action="store_true", help="hets outside the blocks take the population phase")
+    s.add_argument("--block-tsv", help="per-block report TSV"); s.add_argument("--chrom-tsv", help="per-contig report TSV")
+    s.set_defaults(func=cmd_hybrid_phase)
+
     s = sub.add_parser("merge", help="merge chromosome partials into h5ad / tsv outputs")
     s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out"); s.add_argument("--chroms")
     s.add_argument("--tag", default="100kb")
@@ -415,6 +444,10 @@ def add_extract_args(s):
     s.add_argument("--vcf-sample", help="sample column of --snps to use (required when the VCF has several samples; "
                                         "yaml: vcf_sample)")
     s.add_argument("--no-snps", action="store_true", help="ignore the yaml VCF")
+    s.add_argument("--vote-ps", default="first", choices=["first", "majority"],
+                   help="phase sets in a fragment's haplotype vote: first = majority over all its phased SNPs, filed "
+                        "under the phase set of the first one (default); majority = only the SNPs of the phase set "
+                        "holding most of its phased SNP observations vote (a tie between phase sets is ambiguous)")
     s.add_argument("--peaks", help="peak BED file for FRiP / peak_bp (optional)")
     s.add_argument("--min-mapq", type=int, default=30); s.add_argument("--min-bq", type=int, default=10)
     s.add_argument("--layers", default=DEFAULT_LAYERS,

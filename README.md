@@ -46,10 +46,13 @@ the PATH speeds up reading the fragment table.
 ```bash
 # 1. phased heterozygous SNPs (Clair3 + longphase on the pooled BAM; see vignette("scphasedcn-inputs"))
 scphasedcn select-hets --vcf sample.longphase.vcf.gz --loci 1000G_snvs_hg38.vcf.gz --out het_phased.vcf.gz
+#    normal tissue (recommended): join the blocks into chromosome-wide haplotypes with a population phase of the sample
+#    (e.g. Beagle 5 + 1000 Genomes panel, one VCF per chromosome), then extract with het_hybrid.vcf.gz
+scphasedcn hybrid-phase --blocks het_phased.vcf.gz --population 'popphased_{chrom}.vcf.gz' --out het_hybrid.vcf.gz
 
-# 2. extraction (all chromosomes in parallel, then merge)
+# 2. extraction (all chromosomes in parallel, then merge; tumour mode: --snps het_phased.vcf.gz)
 scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
-    --snps het_phased.vcf.gz --phased --out results/sample/extract --jobs 8
+    --snps het_hybrid.vcf.gz --phased --out results/sample/extract --jobs 8
 
 # 3. calling
 CALL=$(Rscript -e 'cat(system.file("scripts", "call_scn.R", package = "scphasedcn"))')   # in the container: call_scn.R

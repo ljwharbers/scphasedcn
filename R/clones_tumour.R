@@ -32,7 +32,14 @@ utils::globalVariables(c(
 #' Defaults of the tumour mode
 #'
 #' Discovery: `classes`, `depth_delta`, `cap`, `min_n`, `n_pc`, `k`, `max_leaves`, `min_size`, `q`, `n_perm`, `max_cells`,
-#' `split_depth` (discovery / test halves of the window depth as well as of the votes). Hierarchy: trunks =
+#' `split_depth` (discovery / test halves of the window depth as well as of the votes). Merge / split tests
+#' ([merge_clones()], [discover_within()], the split pass; `perm_decision`): `"quantile"` (default) = the observed
+#' contrast above the type-7 `q`-quantile of `n_perm` permutations (with 200 permutations at `q = 0.999` this is
+#' "beats about the maximum": ~6 false splits per 1,000 tests of one clone, not 1); `"pvalue"` = permutation p-value
+#' `(1 + #null >= observed) / (1 + permutations) <= 1 - q`, over `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations
+#' (999 at `q = 0.999`) with an exact early stop for "same" (as soon as p can no longer reach `1 - q`); a "different"
+#' verdict runs every permutation. The run notes give the number of tests and the expected false splits
+#' `n_tests x (1 - q)`. Hierarchy: trunks =
 #' average-linkage groups of [clone_allelic_distance()] cut at `trunk_dist` (bp x haplotype fraction; e.g. 100 Mb
 #' differing by 0.3); trunk cells = trunk posterior >= `trunk_post`; [discover_within()] with `disp_min`, `imb_min`,
 #' `deep_q`, `depth_w`, `max_leaves_trunk`, `n_nb_trunk`; final split pass after the EM rounds (`split_pass`): `FALSE`
@@ -66,6 +73,10 @@ utils::globalVariables(c(
 #' the null rows oriented by that clone's pseudobulk under the same two-state set as the cells; one threshold per
 #' hypothesis x stratum, hypothesis-wide below `min_null_rows`; held-out fold-CV false-confirmation rates per
 #' hypothesis in `null_fit$confirm_null`; the default). The refitted value is `null_fit$rho_confirm`.
+#' `confirm_sided` = the allele term of the confirmation scores, cells and null rows alike ([score_cells()] `sided`):
+#' "two" (default; a cell whose opposite homologue is imbalanced also scores high) or "one" (the votes are oriented
+#' by the clone's pseudobulk, so only the clone's major haplotype counts). The fallback without null rows (type-7
+#' quantile of `cell_state_scores()`) is always one-sided.
 #'
 #' A key that is not one of these defaults stops [caller_tumour()] with an error, and so does a value outside its range:
 #' `q`, `p_switch`, `trunk_post`, `min_post`, `ref_post`, `max_mix_prior` and every `mix_w` strictly
@@ -77,7 +88,7 @@ utils::globalVariables(c(
 #' @export
 clone_defaults = function() {
   list(classes = c("arm", "20Mb"), depth_delta = 0.2, cap = 6, min_n = 5, n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
-       q = 0.999, n_perm = 200, max_cells = 250, size_small = 5e6, small_clone = 50, split_depth = TRUE,
+       q = 0.999, n_perm = 200, perm_decision = "quantile", max_cells = 250, size_small = 5e6, small_clone = 50, split_depth = TRUE,
        trunk_dist = 3e7, trunk_post = 0.9, disp_min = 1.5, imb_min = 1, deep_q = 0.5, depth_w = 1,
        max_leaves_trunk = 20, n_nb_trunk = Inf, split_pass = FALSE, split_sep = 2, split_max = 4, split_cand = 3,
        split_min_len = 1e7, split_min_df = 0.15, split_min_excess = 0.05,
@@ -86,7 +97,7 @@ clone_defaults = function() {
        mix_rel = 0.1, mix_min_dist = 3e7, max_mix_prior = 0.5, min_post = 0.9, member_post = 0.9, em_rounds = 2, same_dist = 5e6,
        ref_post = 0.9, min_ref = 30, doublet_delta = 10, multiplet_prob = 0.9, control_min_len = 2e7,
        repass = TRUE, allelic_exclude = c("chrX", "chrY"), checkpoint = "", normal_hypothesis = TRUE,
-       normal_min_event = 1e7, ref_null = "none", confirm_null = "matched")
+       normal_min_event = 1e7, ref_null = "none", confirm_null = "matched", confirm_sided = "two")
 }
 
 # tumour options: clone_defaults() updated from `opts`; unknown keys stop with an error, option values are checked
@@ -105,6 +116,8 @@ check_clone_opts = function(opts) {
   if (length(rn) != 1 || !rn %in% c("none", "rho"))
     stop("caller_tumour: opts$ref_null must be \"none\" or \"rho\", not ", paste(rn, collapse = ", "), call. = FALSE)
   opts$confirm_null = match.arg(as.character(opts$confirm_null)[1], c("generic", "matched"))
+  opts$confirm_sided = match.arg(as.character(opts$confirm_sided)[1], c("two", "one"))
+  opts$perm_decision = match.arg(as.character(opts$perm_decision)[1], c("quantile", "pvalue"))
   for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len")) {
     v = opts[[k]]
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
@@ -212,18 +225,32 @@ utils::globalVariables(c("s_depth", "s_allele", "i.oA", "i.oN", "oclone"))
 
 b_fun = function(f) get(f, envir = asNamespace("scphasedcn"))
 
+# run note on the merge / split tests: their number and the expected false splits if every tested pair were one clone,
+# n_tests x (1 - q) for the p-value decision; the quantile decision of n permutations runs at ~(n + 1 - h) / (n + 1) per
+# test, h = 1 + q (n - 1) the type-7 quantile's order position (exchangeable continuous statistics; ~6 / 1,000 at n 200,
+# q 0.999)
+split_test_note = function(n_tests, q, n_perm, perm_decision) {
+  nt = sum(n_tests)
+  rate = if (perm_decision == "pvalue") 1 - q else (n_perm + 1 - (1 + q * (n_perm - 1))) / (n_perm + 1)
+  sprintf(paste("split tests (perm_decision %s, q %s, n_perm %d): %d (global merge %d, within-trunk merge %d, split pass %d);",
+                "expected false splits if every tested pair were one clone: n_tests x (1 - q) = %.3f%s"),
+          perm_decision, format(q), as.integer(n_perm), nt, n_tests[["global"]], n_tests[["within"]], n_tests[["split"]],
+          nt * (1 - q), if (perm_decision == "pvalue") "" else
+            sprintf(" (the quantile decision runs at ~%.1f / 1,000 per test: %.3f)", 1000 * rate, nt * rate))
+}
+
 # score rows (cell_state_scores output) with the scorer: one non-neutral state per row (the clone state, shift
 # c * log2(cn / base), major fraction 0.5 + a (f_state - 0.5)) or, for null rows, a given state set (B's tumour set)
-b_score = function(rows, tpar, rho, params, states = NULL) {
+b_score = function(rows, tpar, rho, params, states = NULL, sided = "two") {
   r = copy(rows)
   r[, `:=`(class = sd_class, nA = nA_o, n_hap = n_o)]
   tp = if (is.null(tpar)) NULL else b_fun("complete_tpar")(r, tpar)
   dm = if (is.null(tp)) "gauss" else "t"
-  if (!is.null(states)) return(b_fun("score_cells")(r, states, tpar = tp, rho = rho, depth_model = dm, params = params))
+  if (!is.null(states)) return(b_fun("score_cells")(r, states, tpar = tp, rho = rho, depth_model = dm, params = params, sided = sided))
   r[, `:=`(shift_ = c * log2(pmax(cn, 0.2) / base_), f_ = 0.5 + a * (f_state - 0.5))]
   r[, grp_ := .GRP, by = .(label, shift_, f_)]
   out = rbindlist(lapply(split(r, by = "grp_"), function(x) {
-    b_score_hyp(x, x$label[1], x$shift_[1], x$f_[1], tp, rho, params)[, .(cell, region, s_comb)]
+    b_score_hyp(x, x$label[1], x$shift_[1], x$f_[1], tp, rho, params, sided = sided)[, .(cell, region, s_comb)]
   }))
   out
 }
@@ -231,12 +258,14 @@ utils::globalVariables(c("nA_o", "n_o", "shift_", "f_", "grp_", "base_", "s_comb
 
 # one clone hypothesis scored with the scorer's score_cells under the two-state set {neutral, label at depth shift
 # `shift` and major fraction `f`}; x carries class (= sd_class), stratum, z, sd_null, nA, n_hap (oriented votes);
-# tpar = completed t fits (NULL: Gaussian depth). Returns score_cells' table (s_comb = the hypothesis LLR).
-b_score_hyp = function(x, label, shift, f, tpar, rho, params, cn = NULL) {
+# tpar = completed t fits (NULL: Gaussian depth); sided = score_cells' allele term ("one": the votes are oriented by the
+# clone, so only the clone's major haplotype counts). Returns score_cells' table (s_comb = the hypothesis LLR).
+b_score_hyp = function(x, label, shift, f, tpar, rho, params, cn = NULL, sided = "two") {
   cn = as.integer(cn %||% if ("cn" %in% names(x)) x$cn[1] else 3L)
   st = data.table(state = c("neutral", label), row_id = c("neutral_1", paste0(label, "_1")),
                   nA = c(1L, cn), nB = c(1L, 0L), cn = c(2L, cn), shift = c(0, shift), f = c(0.5, f))
-  b_fun("score_cells")(x, st, tpar = tpar, rho = rho, depth_model = if (is.null(tpar)) "gauss" else "t", params = params)
+  b_fun("score_cells")(x, st, tpar = tpar, rho = rho, depth_model = if (is.null(tpar)) "gauss" else "t", params = params,
+                       sided = sided)
 }
 
 # key of a clone hypothesis (matched confirmation null): clone | label | shift | f
@@ -245,7 +274,7 @@ hyp_key = function(clone, label, shift, f) paste(clone, label, sprintf("%.6g", s
 # matched confirmation null: null rows (cell_state_scores output, one copy per event clone with oclone = that clone,
 # `kind` pool / control) scored per hypothesis of the cell rows `sc` (clone, label, cn, c, a, f_state, base_) under
 # the same two-state set; returns list(sc = sc with hyp, nb = null rows cell, region, stratum, kind, hyp, s_comb)
-b_matched_null = function(sc, nrows, tpar, rho, params) {
+b_matched_null = function(sc, nrows, tpar, rho, params, sided = "two") {
   sc[, hyp := hyp_key(clone, label, c * log2(pmax(cn, 0.2) / base_), 0.5 + a * (f_state - 0.5))]
   hy = unique(sc[, .(hyp, clone, label, cn, shift = c * log2(pmax(cn, 0.2) / base_), f = 0.5 + a * (f_state - 0.5))], by = "hyp")
   r = copy(nrows)
@@ -255,7 +284,7 @@ b_matched_null = function(sc, nrows, tpar, rho, params) {
   nb = rbindlist(lapply(seq_len(nrow(hy)), function(i) {
     x = by_k[[hy$clone[i]]]
     if (is.null(x) || !nrow(x)) return(NULL)
-    b_score_hyp(x, hy$label[i], hy$shift[i], hy$f[i], tp, rho, params, cn = hy$cn[i])[, .(cell, region, stratum, kind, hyp = hy$hyp[i], s_comb)]
+    b_score_hyp(x, hy$label[i], hy$shift[i], hy$f[i], tp, rho, params, cn = hy$cn[i], sided = sided)[, .(cell, region, stratum, kind, hyp = hy$hyp[i], s_comb)]
   }))
   list(sc = sc, nb = nb, hyps = hy)
 }
@@ -272,7 +301,8 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' doublet-like) ->
 #' [clean_reference()] -> optional depth re-pass relative to the clean pool -> per-cell calls. Each cell
 #' inherits its clone's non-neutral segments (`source = "inherited"`) and is `confirmed` when its own
-#' score under the clone state (depth + allele LLR vs neutral) is above the threshold of the tumour null:
+#' score under the clone state (depth + allele LLR vs neutral; allele term two-sided, or one-sided on the clone-oriented
+#' votes with `opts$confirm_sided = "one"`) is above the threshold of the tumour null:
 #' reference-pool cells x all pieces + all cells x control pieces, scored as the best of the loss / gain /
 #' CN-LOH / amp states (type-7 `null_q` quantile per stratum, strict `>`; pooled over strata below
 #' `min_null_rows`).
@@ -361,7 +391,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     say(length(unique(disc$leaves)), " leaves")
     mc = merge_clones(NULL, NULL, inp$atoms, inp$regions, disc$leaves, disc, q = opts$q, n_perm = opts$n_perm,
                       seed = params$seed, rho = inp$rho, classes = opts$classes, cells = cells, max_cells = opts$max_cells, cdata = cd,
-                      depth_delta = opts$depth_delta)
+                      depth_delta = opts$depth_delta, perm_decision = opts$perm_decision)
     say(length(unique(mc$clones)), " clones after merging (", nrow(mc$tests), " split tests)")
   }
   members = data.table(cell = names(mc$clones), clone = paste0("G", mc$clones))
@@ -486,7 +516,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     saveRDS(list(disc = disc, mc = mc, r = r, doublet_clones = doublet_clones), opts$checkpoint)
   # 2. within-trunk discovery: blocks oriented by each trunk's pseudobulk, allelically selected regions
   tc = r$asg[doublet_like == FALSE & multiplet == FALSE & p_trunk >= opts$trunk_post, .(cell, trunk)]
-  newm = list(); trunk_info = list()
+  newm = list(); trunk_info = list(); n_within_tests = 0L
   for (t_ in sort(unique(tc$trunk))) {
     tcells = tc[trunk == t_, cell]
     if (length(tcells) < 4 * opts$min_size) {
@@ -495,6 +525,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       next
     }
     dw = discover_within(inp, tcells, vs$disc, feat_disc, cd, nfr, opts, params$seed)
+    n_within_tests = n_within_tests + NROW(dw$tests)
     newm[[t_]] = data.table(cell = names(dw$clones), clone = paste0(t_, ".", dw$clones))
     trunk_info[[t_]] = data.table(trunk = t_, n_cells = length(tcells), n_regions = length(dw$regions), n_leaves = dw$n_leaves,
                                   n_clones = uniqueN(dw$clones), regions = paste(dw$regions, collapse = " "))
@@ -550,6 +581,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     }
   }
   rm(cd, feat_disc, halves); invisible(gc(verbose = FALSE))
+  # merge / split tests of the run and their expected false splits (no multiplicity control over the tests)
+  n_tests = c(global = NROW(mc$tests), within = n_within_tests, split = if (is.null(split_tests)) 0L else sum(!is.na(split_tests$differ)))
+  notes = c(notes, split_test_note(n_tests, opts$q, opts$n_perm, opts$perm_decision))
   st = r$st; asg = r$asg
   # 3. clean reference and optional depth re-pass
   cr = clean_reference(inp, asg, st$segments, par = st$fit$par, members = members, min_post = opts$ref_post,
@@ -586,6 +620,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     rho_feat = if (nrow(fr)) fit_allelic_null(fr$nA, fr$n_hap) else NA_real_
   }
   matched = confirm_null == "matched"
+  # allele term of the confirmation scores (cells and null rows alike): "two" = two-sided, "one" = only the clone's
+  # major haplotype (the votes are clone-oriented); the type-7 fallback below (no null rows) is always one-sided
+  sided = opts$confirm_sided
 
   # 3. per-cell calls
   sg = st$segments
@@ -664,9 +701,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       # the scorer, matched null: each clone hypothesis (clone | label | shift | f) against the null rows oriented by that
       # clone and scored under the same two-state set; one threshold per hypothesis x stratum (hypothesis-wide below
       # min_null_rows and for a stratum without null rows)
-      bs = b_score(sc, tpar_c, rho_c, params)
+      bs = b_score(sc, tpar_c, rho_c, params, sided = sided)
       sc[bs, score := i.s_comb, on = .(cell, region)]
-      mn = b_matched_null(sc, nsc_rows, tpar_c, rho_c, params)
+      mn = b_matched_null(sc, nsc_rows, tpar_c, rho_c, params, sided = sided)
       sc = mn$sc; nb = mn$nb
       nb[, class := hyp]
       nb_class = nb$class
@@ -697,9 +734,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                                null_confirm[hyp == "all" & kind == "pool", per_1000][1]))
     } else if (use_b) {
       # the scorer: the cell's s_comb under its clone's state vs the tumour state set on the null rows
-      bs = b_score(sc, tpar_c, rho_c, params)
+      bs = b_score(sc, tpar_c, rho_c, params, sided = sided)
       sc[bs, score := i.s_comb, on = .(cell, region)]
-      nb = b_score(nsc_rows, tpar_c, rho_c, params, states = b_fun("caller_states")("tumour", params))
+      nb = b_score(nsc_rows, tpar_c, rho_c, params, states = b_fun("caller_states")("tumour", params), sided = sided)
       nb[, class := "segment"]
       nb_n = nrow(nb)
       bt = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
@@ -710,6 +747,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       thr_tab = bt[, .(stratum, thr, n_null)]
       notes = c(notes, "per-cell confirmation: the scorer (score_cells / budget_thresholds / apply_thresholds), caller_states('tumour') null")
     }
+    if (use_b && sided == "one") notes = c(notes, "per-cell confirmation one-sided (confirm_sided \"one\"): cells and null rows score only the clone's major haplotype")
     if (!use_b) thr_tab = {
       pooled = if (nrow(nsc)) unname(stats::quantile(nsc$score, params$null_q, type = 7)) else Inf
       tt = nsc[, .(thr = unname(stats::quantile(score, params$null_q, type = 7)), n_null = .N), by = stratum]

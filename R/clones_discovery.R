@@ -494,13 +494,18 @@ subset_contrast_data = function(cd, idx) {
   out
 }
 
-# permutation split test: is the contrast of (a, b) above the q-quantile of random splits of a + b at the
-# same sizes? Sequential early stop: "same" as soon as enough null values reach the observed one that the
-# q-quantile of all n_perm values cannot fall below it (exact), "different" after 20 / 50 / 100 permutations
-# when the observed exceeds 3 x the null maximum (heuristic). With an early stop the reported thr is the
-# quantile of the permutations run.
+# permutation split test: is the contrast of (a, b) above the null of random splits of a + b at the same sizes?
+# `perm_decision` (perm_decide): "quantile" = above the type-7 q-quantile of n_perm permutations, with a sequential early
+# stop: "same" as soon as enough null values reach the observed one that the q-quantile of all n_perm values cannot fall
+# below it (exact), "different" after 20 / 50 / 100 permutations when the observed exceeds 3 x the null maximum
+# (heuristic). With an early stop the reported thr is the quantile of the permutations run. With 200 permutations at
+# q = 0.999 the observed must beat about the null maximum: ~6 false splits per 1,000 tests of exchangeable groups.
+# "pvalue" = permutation p (1 + #null >= observed) / (1 + permutations) <= 1 - q over max(n_perm, ceiling(1 / (1 - q)) - 1)
+# permutations (999 at q = 0.999), exact early stop for "same" only; `p` is always reported (thr: the q-quantile of the
+# permutations run, for information).
 split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, seed = 1, early = TRUE, depth_delta = 0.2,
-                      with_p = FALSE) {
+                      with_p = FALSE, perm_decision = c("quantile", "pvalue")) {
+  perm_decision = match.arg(perm_decision)
   set.seed(seed)
   if (length(a) > max_cells) a = sample(a, max_cells)
   if (length(b) > max_cells) b = sample(b, max_cells)
@@ -509,24 +514,61 @@ split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, s
   a = seq_along(a); b = length(a) + seq_along(b)
   obs = contrast_stat(cd, a, b, rho, depth_delta)
   pool = c(a, b); na = length(a)
-  null = numeric(0)
-  # exact stop for "same": the type-7 q-quantile of n_perm values is at least their order statistic
-  # floor(q (n_perm - 1)) + 1, so once n_perm - floor(q (n_perm - 1)) null values reach the observed one the
-  # pair cannot differ (n_perm 200, q 0.999: two values)
-  k_same = n_perm - floor(q * (n_perm - 1))
-  for (p in seq_len(n_perm)) {
+  pd = perm_decide(obs$stat, function() {
     pp = sample(pool)
-    null[p] = contrast_stat(cd, pp[seq_len(na)], pp[-seq_len(na)], rho, depth_delta)$stat
-    if (early && sum(null >= obs$stat) >= k_same) break
-    if (early && p %in% c(20, 50, 100) && obs$stat > 3 * max(null)) break
-  }
-  thr = unname(stats::quantile(null, q, type = 7))
+    contrast_stat(cd, pp[seq_len(na)], pp[-seq_len(na)], rho, depth_delta)$stat
+  }, q, n_perm, early, perm_decision)
   top = obs$by_region[order(-pmax(depth_used, allelic))][1]
-  out = data.table(stat = obs$stat, thr = thr, n_perm = length(null), differ = obs$stat > thr,
+  out = data.table(stat = obs$stat, thr = pd$thr, n_perm = pd$n_perm, differ = pd$differ,
                    n_a = length(a), n_b = length(b), top_region = top$region, top_depth = top$depth, top_allelic = top$allelic)
-  # permutation p (with an early stop: over the permutations run); only on request, so the merge tests' tables keep their columns
-  if (with_p) out[, p := (1 + sum(null >= obs$stat)) / (1 + length(null))]
+  # permutation p (with an early stop: over the permutations run); for "quantile" only on request, so the merge tests'
+  # tables keep their columns
+  if (with_p || perm_decision == "pvalue") out[, p := pd$p]
   out
+}
+
+# permutations of the p-value decision at level 1 - q: the smallest count with which p = 1 / (1 + n) can reach 1 - q
+perm_min = function(q) {
+  if (!is.finite(q) || q <= 0 || q >= 1) stop("perm_min: q must be in (0, 1)")
+  as.integer(ceiling(1 / (1 - q) - 1e-9) - 1)
+}
+
+# decision of a permutation test on the observed statistic `obs` and a null draw function `draw` (one permuted
+# statistic per call; every RNG draw happens inside it). Returns list(null = the values drawn, n_perm, thr = type-7
+# q-quantile of `null`, p = (1 + #null >= obs) / (1 + n_perm), differ). "quantile": obs > thr over n_perm draws with
+# split_test's early stops (bit-identical to the split test before `perm_decision`). "pvalue": p <= 1 - q over
+# max(n_perm, perm_min(q)) draws; with `early` it stops as "same" once more than k_max = floor((1 - q) (1 + n)) - 1
+# null values reach obs (p then exceeds 1 - q whatever the remaining draws give: the verdict of the full run). A
+# "different" verdict needs every draw: under exchangeability P(obs beats the first m draws) = 1 / (1 + m), so no
+# rule on fewer than perm_min(q) draws keeps the level.
+perm_decide = function(obs, draw, q = 0.999, n_perm = 200, early = TRUE, perm_decision = c("quantile", "pvalue")) {
+  perm_decision = match.arg(perm_decision)
+  null = numeric(0)
+  if (perm_decision == "quantile") {
+    # exact stop for "same": the type-7 q-quantile of n_perm values is at least their order statistic
+    # floor(q (n_perm - 1)) + 1, so once n_perm - floor(q (n_perm - 1)) null values reach the observed one the
+    # pair cannot differ (n_perm 200, q 0.999: two values)
+    k_same = n_perm - floor(q * (n_perm - 1))
+    for (p in seq_len(n_perm)) {
+      null[p] = draw()
+      if (early && sum(null >= obs) >= k_same) break
+      if (early && p %in% c(20, 50, 100) && obs > 3 * max(null)) break
+    }
+    thr = unname(stats::quantile(null, q, type = 7))
+    return(list(null = null, n_perm = length(null), thr = thr, p = (1 + sum(null >= obs)) / (1 + length(null)), differ = obs > thr))
+  }
+  n_run = max(as.integer(n_perm), perm_min(q))
+  k_max = floor((1 - q) * (1 + n_run) + 1e-9) - 1
+  null = numeric(n_run)
+  k = 0L; m = 0L
+  for (i in seq_len(n_run)) {
+    null[i] = draw(); m = i
+    if (null[i] >= obs) k = k + 1L
+    if (early && k > k_max) break
+  }
+  null = null[seq_len(m)]
+  list(null = null, n_perm = m, thr = unname(stats::quantile(null, q, type = 7)), p = (1 + k) / (1 + m),
+       differ = m == n_run && k <= k_max)
 }
 
 #' Merge over-split clone leaves with a permutation-calibrated split test
@@ -534,9 +576,9 @@ split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, s
 #' Bottom-up: each round, every clone's `n_nb` nearest clones (Ward distance between the clones' centroids in
 #' the smoothed PC space) are candidate pairs; the pairs are tested in order of distance with the clone contrast (`split_test`)
 #' against the `q`-quantile of the same statistic on random splits of the pooled pair at matching sizes
-#' (`n_perm` permutations, sequential early stop), and non-different pairs are merged (each clone at most once
-#' per round). Stops when every candidate pair of the remaining clones differs at the budget (`q = 0.999` = 1
-#' false split per 1,000 tests). Each half is subsampled to `max_cells` cells (observed and null alike).
+#' (`n_perm` permutations, sequential early stop; or on the permutation p-value, `perm_decision`), and non-different pairs are merged (each clone at most once
+#' per round). Stops when every candidate pair of the remaining clones differs at the budget (`q = 0.999`: about 1
+#' false split per 1,000 tests with `perm_decision = "pvalue"`, about 6 with the default `"quantile"`). Each half is subsampled to `max_cells` cells (observed and null alike).
 #' Nearest neighbours rather than Ward siblings only: once two sibling clones differ, a sibling-only rule never
 #' compares either of them with any other clone.
 #' @param feat_long features long table
@@ -553,11 +595,20 @@ split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, s
 #' @param cdata optional pre-computed [contrast_data()]
 #' @param depth_delta minimal depth effect (log2) of the contrast
 #' @param n_nb nearest clones tested per clone and round
-#' @return list(clones = named integer labels, tests = data.table of all tests)
+#' @param perm_decision decision of each test: `"quantile"` (default) = the observed contrast above the type-7
+#'   `q`-quantile of the `n_perm` permutations (at 200 permutations and `q = 0.999` it must beat about the null maximum:
+#'   ~6 false splits per 1,000 tests, not 1); `"pvalue"` = permutation p-value `(1 + #null >= observed) / (1 +
+#'   permutations) <= 1 - q` over `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations, exact early stop for "same"
+#'   (the `tests` table then has `p`)
+#' @return list(clones = named integer labels, tests = data.table of all tests: stat, thr (the `q`-quantile of the
+#'   permutations run; with `perm_decision = "pvalue"` for information only, `differ` is decided by `p`), n_perm
+#'   (permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (`p` with `perm_decision = "pvalue"`),
+#'   key, l1, l2)
 #' @export
 merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.999, n_perm = 200, seed = 1,
                         rho = 0.01, classes = c("arm", "20Mb"), cells = NULL, max_cells = 250, cdata = NULL, depth_delta = 0.2,
-                        n_nb = 3) {
+                        n_nb = 3, perm_decision = c("quantile", "pvalue")) {
+  perm_decision = match.arg(perm_decision)
   S = if (is.matrix(tree)) tree else tree$smooth
   S = S[names(leaves), , drop = FALSE]
   if (is.null(cells)) cells = names(leaves)
@@ -571,7 +622,8 @@ merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.99
     k1 = ckey(l1); k2 = ckey(l2)
     key = if (k1 < k2) paste(k1, k2, sep = "|") else paste(k2, k1, sep = "|")
     if (!is.null(cache[[key]])) return(cache[[key]])
-    tt = split_test(cdata, idx[cur == l1], idx[cur == l2], rho, q, n_perm, max_cells, seed = seed + length(cache), depth_delta = depth_delta)
+    tt = split_test(cdata, idx[cur == l1], idx[cur == l2], rho, q, n_perm, max_cells, seed = seed + length(cache), depth_delta = depth_delta,
+                    perm_decision = perm_decision)
     tt[, `:=`(key = key, l1 = l1, l2 = l2)]
     cache[[key]] <<- tt
     tests[[length(tests) + 1]] <<- tt
@@ -610,7 +662,7 @@ merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.99
   names(lab) = names(leaves)
   list(clones = lab, tests = rbindlist(tests, fill = TRUE))
 }
-utils::globalVariables(c("differ", "l1", "l2", "depth_used"))
+utils::globalVariables(c("differ", "l1", "l2", "depth_used", "p"))
 
 #' Clone discovery within a trunk
 #'
@@ -668,7 +720,7 @@ discover_within = function(inp, tcells, votes_disc, feat_disc, cdata, n_frag, op
   if (length(unique(disc$leaves)) < 2) return(one("one leaf"))
   mc = merge_clones(NULL, NULL, inp$atoms, inp$regions, disc$leaves, disc, q = opts$q, n_perm = opts$n_perm, seed = seed,
                     rho = inp$rho, classes = opts$classes, cells = cells, max_cells = opts$max_cells, cdata = cdata,
-                    depth_delta = opts$depth_delta, n_nb = opts$n_nb_trunk)
+                    depth_delta = opts$depth_delta, n_nb = opts$n_nb_trunk, perm_decision = opts$perm_decision %||% "quantile")
   list(clones = mc$clones, tests = mc$tests, regions = keep, n_leaves = length(unique(disc$leaves)), note = "")
 }
 utils::globalVariables(c("n_ok", "v", "m"))
@@ -886,7 +938,8 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     cs = cell_sets[[ii]]
     ia = match(cs$a, cdata$cells); ib = match(cs$b, cdata$cells)
     tt = split_test(subset_contrast_regions(cdata, treg), ia[!is.na(ia)], ib[!is.na(ib)], inp$rho, opts$q, opts$n_perm,
-                    opts$max_cells, seed = seed + ii, depth_delta = opts$depth_delta, with_p = TRUE)
+                    opts$max_cells, seed = seed + ii, depth_delta = opts$depth_delta, with_p = TRUE,
+                    perm_decision = opts$perm_decision %||% "quantile")
     tests[ii, `:=`(stat = tt$stat, thr = tt$thr, n_perm = tt$n_perm, p = tt$p, differ = tt$differ)]
     if (!tt$differ) { tests[ii, outcome := "not different on the test halves"]; next }
     ka = paste0(k, "a"); kb = paste0(k, "b")

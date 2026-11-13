@@ -840,6 +840,64 @@ test_that("caller_tumour(split_pass = \"disagree\") separates the chr21 subclone
 
 # ---- coverage-free allele scale, same-state posteriors, drift-aware split test -------------------------------------
 
+# contrast data by hand: per cell x phase block counts nA / nB (cells x blocks matrices), blocks -> regions; depth L = 0
+fake_cdata = function(nA, nB, blk_region, regions) {
+  nc = nrow(nA)
+  ii = which(nA + nB > 0, arr.ind = TRUE)
+  trip = data.table(ci = ii[, 1], blk = ii[, 2], nA = as.numeric(nA[ii]), nB = as.numeric(nB[ii]))
+  cells = paste0("c", seq_len(nc))
+  structure(list(L = matrix(0, nc, length(regions), dimnames = list(cells, regions)), regions = regions, cells = cells,
+                 MA = Matrix::sparseMatrix(i = trip$ci, j = trip$blk, x = trip$nA, dims = dim(nA)),
+                 MB = Matrix::sparseMatrix(i = trip$ci, j = trip$blk, x = trip$nB, dims = dim(nA)),
+                 blk_region = blk_region, trip = trip), class = "contrast_data")
+}
+
+# votes of cells with latent haplotype-A shares p (one per cell) and depth n per block, in blocks of random orientation
+fake_block_votes = function(p, n, n_blk = 6, seed = 1) {
+  set.seed(seed)
+  flip = stats::runif(n_blk) < 0.5
+  nn = matrix(stats::rpois(length(p) * n_blk, rep(n, n_blk)), length(p))
+  a = matrix(stats::rbinom(length(nn), as.vector(nn), rep(p, n_blk)), length(p))
+  nA = a; nA[, flip] = (nn - a)[, flip]
+  list(nA = nA, nB = nn - nA)
+}
+
+test_that("clone_feature_matrix(allele = \"fraction\"): deep and shallow cells of one clone get the same allelic value", {
+  set.seed(1)
+  n = c(rep(20, 60), rep(200, 60), 2)
+  nA = stats::rbinom(length(n), n, 0.75)
+  f = data.table(cell = paste0("c", seq_along(n)), region = rep(c("r1", "r2"), each = length(n)), class = "arm", eligible = TRUE,
+                 z = 0, nA = c(nA, stats::rbinom(length(n), n, 0.5)), nB = 0, orient = "pseudobulk")
+  f[, nB := c(n, n) - nA]
+  dif = function(X) mean(X[61:120, "a|r1"]) - mean(X[1:60, "a|r1"])
+  Xz = clone_feature_matrix(f, "arm", rho = 0.01)
+  expect_identical(clone_feature_matrix(f, "arm", rho = 0.01, allele = "z"), Xz)
+  Xf = clone_feature_matrix(f, "arm", rho = 0.01, allele = "fraction")
+  expect_gt(dif(Xz), 1.5)                            # z: deep cells ~2x further from 0 (sqrt(n) growth)
+  expect_lt(abs(dif(Xf)), 0.6)                       # fraction: same expectation at any depth
+  # same scale as z for a cell at the region's median depth; a cell below min_n gets the region's mean, not 0
+  expect_equal(mean(Xf[1:120, "a|r1"]), 0.25 / sqrt(0.25 * (1 + 109 * 0.01) / 110), tolerance = 0.1)
+  expect_equal(Xf[121, "a|r1"], mean(Xf[1:120, "a|r1"]))
+  expect_equal(Xz[121, "a|r1"], 0)
+  expect_error(clone_feature_matrix(f, "arm", rho = 0.01, allele = "x"), "should be one of")
+})
+
+test_that("contrast_stat(allele = \"fraction\" / \"centred\"): no allelic difference between deep and shallow cells of one clone", {
+  # 40 deep (8 votes per block) and 40 shallow (1 per block) cells, all at haplotype share 0.8, one region of 6 blocks
+  v = fake_block_votes(rep(0.8, 80), rep(c(8, 1), each = 40), seed = 2)
+  cd = fake_cdata(v$nA, v$nB, rep(1L, 6), "r1")
+  deep = 1:40; shallow = 41:80
+  al = function(allele, a = deep, b = shallow) contrast_stat(cd, a, b, rho = 0.01, allele = allele)$by_region$allelic
+  expect_identical(contrast_stat(cd, deep, shallow, rho = 0.01)$by_region, contrast_stat(cd, deep, shallow, rho = 0.01, allele = "z")$by_region)
+  expect_gt(al("z"), 8)                              # z: the depth strata differ
+  expect_lt(al("fraction"), 4)
+  expect_lt(al("centred"), 4)
+  # a real difference of the share (0.8 vs 0.6 at the same depth) stays large under every scale
+  w = fake_block_votes(rep(c(0.85, 0.55), each = 40), rep(4, 80), seed = 3)
+  cd2 = fake_cdata(w$nA, w$nB, rep(1L, 6), "r1")
+  for (s in c("z", "fraction", "centred")) expect_gt(contrast_stat(cd2, 1:40, 41:80, rho = 0.01, allele = s)$by_region$allelic, 8)
+})
+
 test_that("assign_cells(same_groups): two clones with the same states no longer split each cell's posterior", {
   inp0 = tum2_input(); inp = clone_input(inp0)
   r0 = tum2_result()

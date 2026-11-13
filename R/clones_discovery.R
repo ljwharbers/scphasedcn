@@ -229,10 +229,18 @@ half_depth_features = function(inp, win, classes) {
 #' @param min_n minimal molecules for an allelic value
 #' @param votes,atoms,regions,cells optional: orient unoriented input (cells = names in vote index order)
 #' @param keep_orient `orient` labels used as given (chromosome-wide anchored phase, all-cell pseudobulk)
+#' @param allele scale of the allelic columns: `"z"` (default) = the standardised count above, whose expectation in an
+#'   imbalanced region grows like `(f - 0.5) sqrt(n)`, so deep and shallow cells of one clone separate; `"fraction"` =
+#'   coverage-free: the cell's oriented fraction `nA / n` minus 0.5, in units of the null SD at the region's median
+#'   molecule count `n0` (`sqrt(0.25 (1 + (n0 - 1) rho) / n0)`; same scale as `"z"` for a typical cell, expectation
+#'   independent of the cell's depth), and cells below `min_n` molecules get the region's mean (no information)
+#'   instead of 0 (balanced)
 #' @return numeric matrix cells x features (rownames = cells)
 #' @export
 clone_feature_matrix = function(feat_long, classes = c("arm", "20Mb"), rho, cap = 6, min_n = 5,
-                                votes = NULL, atoms = NULL, regions = NULL, cells = NULL, keep_orient = c("anchored", "pseudobulk")) {
+                                votes = NULL, atoms = NULL, regions = NULL, cells = NULL, keep_orient = c("anchored", "pseudobulk"),
+                                allele = c("z", "fraction")) {
+  allele = match.arg(allele)
   f = as.data.table(feat_long)[class %in% classes & eligible == TRUE,
                                .(cell, region, z, nA, nB, orient = if ("orient" %in% names(feat_long)) orient else "pseudobulk")]
   if (!nrow(f)) stop("clone_feature_matrix: no eligible rows of classes ", paste(classes, collapse = ", "))
@@ -246,7 +254,11 @@ clone_feature_matrix = function(feat_long, classes = c("arm", "20Mb"), rho, cap 
     f[is.na(nA), `:=`(nA = 0, nB = 0)]
   }
   f[, n := nA + nB]
-  f[, az := fifelse(n >= min_n, (nA - n / 2) / sqrt(n / 4 * (1 + (n - 1) * rho)), 0)]
+  if (allele == "z") {
+    f[, az := fifelse(n >= min_n, (nA - n / 2) / sqrt(n / 4 * (1 + (n - 1) * rho)), 0)]
+  } else {
+    f[, az := allele_fraction_feature(nA, n, rho, min_n, cap), by = region]
+  }
   f[, az := pmin(pmax(az, -cap), cap)]
   f[, dz := pmin(pmax(fifelse(is.finite(z), z, 0), -cap), cap)]
   cc = unique(f$cell); rr = sort(unique(f$region))
@@ -259,6 +271,20 @@ clone_feature_matrix = function(feat_long, classes = c("arm", "20Mb"), rho, cap 
   X[, colSums(X != 0) > 0, drop = FALSE]
 }
 utils::globalVariables(c("az", "dz", "den", "n_a", "n_b"))
+
+# coverage-free allelic clone feature of one region (clone_feature_matrix / discover_within, allele = "fraction"): the
+# oriented fraction nA / n minus 0.5 in units of the null SD at the region's median molecule count n0 (cells with >=
+# min_n molecules), capped at +/- cap, so its expectation does not grow with the cell's depth; cells below min_n get the
+# mean of the others (no information; 0 would read as balanced)
+allele_fraction_feature = function(nA, n, rho, min_n = 5, cap = Inf) {
+  ok = n >= min_n & n > 0
+  if (!any(ok)) return(rep(0, length(n)))
+  n0 = stats::median(n[ok])
+  out = rep(NA_real_, length(n))
+  out[ok] = pmin(pmax((nA[ok] / n[ok] - 0.5) / sqrt(0.25 * (1 + (n0 - 1) * rho) / n0), -cap), cap)
+  out[!ok] = mean(out[ok])
+  out
+}
 
 # PCA (irlba) of the centred matrix + kNN smoothing (mean over each cell and its k neighbours)
 smooth_embedding = function(X, n_pc = 20, k = 20, seed = 1) {
@@ -431,9 +457,16 @@ contrast_agg = function(cd) {
 # allele term exceeds `allele_support` (default 8, t ~ 4; regions without an allele channel, chrX / chrY, never separate clones): leaves of normal tissue that share
 # a chromatin / replication state differ in depth by tenths of a log2 unit at arm scale, while
 # every clonal copy-number change except a balanced one (2:2) also shifts the haplotype fraction.
+#
+# `allele` = the per-cell values of the allele term: "z" (default, above; its expectation in an imbalanced region grows like
+# (f - 0.5) sqrt(n), so deep and shallow cells of one clone differ), "fraction" (coverage-free: the oriented fraction
+# OA / ON, NA below min_n) or "centred" (the standardised count about the pooled oriented fraction of the compared cells
+# instead of 1 / 2: mean 0 at any depth when the two sets share the fraction). The imbalance term always uses "z" (its
+# null, f = 1 / 2, is depth-free).
 contrast_stat = function(cd, a, b, rho, depth_delta = 0.2, trim = 0.25, min_n = 5, allele_support = 8,
-                         depth_support = c("imbalance", "difference")) {
+                         depth_support = c("imbalance", "difference"), allele = c("z", "fraction", "centred")) {
   depth_support = match.arg(depth_support)
+  allele = match.arg(allele)
   nr = length(cd$regions)
   dep = yuen_cols(cd$L[a, , drop = FALSE], cd$L[b, , drop = FALSE], trim, depth_delta)
   al = rep(0, nr); imb = rep(0, nr)
@@ -458,7 +491,13 @@ contrast_stat = function(cd, a, b, rho, depth_delta = 0.2, trim = 0.25, min_n = 
       OA = OA[rows, , drop = FALSE]; ON = ON[rows, , drop = FALSE]
       Z = (OA - ON / 2) / sqrt(pmax(ON, 1) / 4 * (1 + (ON - 1) * rho))
       Z[ON < min_n] = NA
-      al = pmax(al, yuen_cols(Z[seq_along(own_t), , drop = FALSE], Z[length(own_t) + seq_along(oth), , drop = FALSE], trim, 0))
+      ZA = if (allele == "z") Z else if (allele == "fraction") OA / pmax(ON, 1) else {
+        f0 = pmin(pmax(colSums(OA * (ON >= min_n)) / pmax(colSums(ON * (ON >= min_n)), 1), 0.02), 0.98)
+        f0 = matrix(f0, nrow(OA), ncol(OA), byrow = TRUE)
+        (OA - ON * f0) / sqrt(pmax(ON, 1) * f0 * (1 - f0) * (1 + (ON - 1) * rho))
+      }
+      ZA[ON < min_n] = NA
+      al = pmax(al, yuen_cols(ZA[seq_along(own_t), , drop = FALSE], ZA[length(own_t) + seq_along(oth), , drop = FALSE], trim, 0))
       # imbalance of the orienting set's own compared cells (one-sample, oriented by the other half of the set)
       imb = pmax(imb, yuen_one(Z[seq_along(own_t), , drop = FALSE], trim))
     }
@@ -502,9 +541,9 @@ subset_contrast_data = function(cd, idx) {
 # q = 0.999 the observed must beat about the null maximum: ~6 false splits per 1,000 tests of exchangeable groups.
 # "pvalue" = permutation p (1 + #null >= observed) / (1 + permutations) <= 1 - q over max(n_perm, ceiling(1 / (1 - q)) - 1)
 # permutations (999 at q = 0.999), exact early stop for "same" only; `p` is always reported (thr: the q-quantile of the
-# permutations run, for information).
+# permutations run, for information). `allele`: the contrast's per-cell allele values (contrast_stat).
 split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, seed = 1, early = TRUE, depth_delta = 0.2,
-                      with_p = FALSE, perm_decision = c("quantile", "pvalue")) {
+                      with_p = FALSE, perm_decision = c("quantile", "pvalue"), allele = "z") {
   perm_decision = match.arg(perm_decision)
   set.seed(seed)
   if (length(a) > max_cells) a = sample(a, max_cells)
@@ -512,11 +551,11 @@ split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, s
   # restrict the contrast data to the tested cells once (permutations then touch only their votes)
   cd = subset_contrast_data(cd, c(a, b))
   a = seq_along(a); b = length(a) + seq_along(b)
-  obs = contrast_stat(cd, a, b, rho, depth_delta)
+  obs = contrast_stat(cd, a, b, rho, depth_delta, allele = allele)
   pool = c(a, b); na = length(a)
   pd = perm_decide(obs$stat, function() {
     pp = sample(pool)
-    contrast_stat(cd, pp[seq_len(na)], pp[-seq_len(na)], rho, depth_delta)$stat
+    contrast_stat(cd, pp[seq_len(na)], pp[-seq_len(na)], rho, depth_delta, allele = allele)$stat
   }, q, n_perm, early, perm_decision)
   top = obs$by_region[order(-pmax(depth_used, allelic))][1]
   out = data.table(stat = obs$stat, thr = pd$thr, n_perm = pd$n_perm, differ = pd$differ,
@@ -600,13 +639,17 @@ perm_decide = function(obs, draw, q = 0.999, n_perm = 200, early = TRUE, perm_de
 #'   ~6 false splits per 1,000 tests, not 1); `"pvalue"` = permutation p-value `(1 + #null >= observed) / (1 +
 #'   permutations) <= 1 - q` over `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations, exact early stop for "same"
 #'   (the `tests` table then has `p`)
+#' @param allele per-cell allele values of the contrast: `"z"` (default; standardised count, grows with the cell's depth
+#'   in an imbalanced region), `"fraction"` (coverage-free oriented fraction) or `"centred"` (standardised count about the
+#'   compared cells' pooled fraction); see [clone_defaults()] `test_allele`
 #' @return list(clones = named integer labels, tests = data.table of all tests: stat, thr, n_perm (permutations run),
 #'   differ, n_a, n_b, top_region, top_depth, top_allelic (`p` with `perm_decision = "pvalue"`), key, l1, l2)
 #' @export
 merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.999, n_perm = 200, seed = 1,
                         rho = 0.01, classes = c("arm", "20Mb"), cells = NULL, max_cells = 250, cdata = NULL, depth_delta = 0.2,
-                        n_nb = 3, perm_decision = c("quantile", "pvalue")) {
+                        n_nb = 3, perm_decision = c("quantile", "pvalue"), allele = c("z", "fraction", "centred")) {
   perm_decision = match.arg(perm_decision)
+  allele = match.arg(allele)
   S = if (is.matrix(tree)) tree else tree$smooth
   S = S[names(leaves), , drop = FALSE]
   if (is.null(cells)) cells = names(leaves)
@@ -621,7 +664,7 @@ merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.99
     key = if (k1 < k2) paste(k1, k2, sep = "|") else paste(k2, k1, sep = "|")
     if (!is.null(cache[[key]])) return(cache[[key]])
     tt = split_test(cdata, idx[cur == l1], idx[cur == l2], rho, q, n_perm, max_cells, seed = seed + length(cache), depth_delta = depth_delta,
-                    perm_decision = perm_decision)
+                    perm_decision = perm_decision, allele = allele)
     tt[, `:=`(key = key, l1 = l1, l2 = l2)]
     cache[[key]] <<- tt
     tests[[length(tests) + 1]] <<- tt
@@ -671,6 +714,8 @@ utils::globalVariables(c("differ", "l1", "l2", "depth_used", "p"))
 #' allelic z varies across the trunk's cells beyond the null (variance > `disp_min`; unit variance expected) or is
 #' imbalanced on average (|mean| > `imb_min`): allelic features select the regions, depth is used only where the
 #' allele channel shows a clone-level event (a loss vs a gain of the same haplotype differ only in depth there).
+#' With `opts$disc_allele = "fraction"` the allelic features are the coverage-free oriented fractions of [clone_feature_matrix()]
+#' (regions still selected on z); `opts$test_allele` sets the merge tests' allele values ([merge_clones()]).
 #' Discovery ([discover_clones()]) runs on the trunk's deeper cells (`n_frag` >= the `deep_q` quantile, at least
 #' `4 * min_size` cells), whose per-cell profiles separate subclones; [merge_clones()] then tests every pair of leaves
 #' (`n_nb = Inf`) on the test halves (`cdata`). Shallow cells are left to the likelihood assignment.
@@ -705,6 +750,11 @@ discover_within = function(inp, tcells, votes_disc, feat_disc, cdata, n_frag, op
                            n_leaves = 1L, note = why)
   if (!length(keep) || length(deep) < 2 * opts$min_size) return(one("no selected region or too few cells"))
   f = f[cell %in% deep & region %in% keep]
+  if (identical(opts$disc_allele, "fraction")) {
+    # coverage-free feature (the regions are still selected on the standardised z above, whose mean is depth-free
+    # where the trunk is balanced and whose imbalance flags the rest); a cell below min_n gets the region's mean
+    f[, az := allele_fraction_feature(nA, n, inp$rho, opts$min_n, opts$cap), by = region]
+  }
   f[is.na(az), az := 0]
   rr = sort(keep); cc = deep
   ii = cbind(match(f$cell, cc), match(f$region, rr))
@@ -718,7 +768,8 @@ discover_within = function(inp, tcells, votes_disc, feat_disc, cdata, n_frag, op
   if (length(unique(disc$leaves)) < 2) return(one("one leaf"))
   mc = merge_clones(NULL, NULL, inp$atoms, inp$regions, disc$leaves, disc, q = opts$q, n_perm = opts$n_perm, seed = seed,
                     rho = inp$rho, classes = opts$classes, cells = cells, max_cells = opts$max_cells, cdata = cdata,
-                    depth_delta = opts$depth_delta, n_nb = opts$n_nb_trunk, perm_decision = opts$perm_decision %||% "quantile")
+                    depth_delta = opts$depth_delta, n_nb = opts$n_nb_trunk, perm_decision = opts$perm_decision %||% "quantile",
+                    allele = opts$test_allele %||% "z")
   list(clones = mc$clones, tests = mc$tests, regions = keep, n_leaves = length(unique(disc$leaves)), note = "")
 }
 utils::globalVariables(c("n_ok", "v", "m"))
@@ -937,7 +988,7 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     ia = match(cs$a, cdata$cells); ib = match(cs$b, cdata$cells)
     tt = split_test(subset_contrast_regions(cdata, treg), ia[!is.na(ia)], ib[!is.na(ib)], inp$rho, opts$q, opts$n_perm,
                     opts$max_cells, seed = seed + ii, depth_delta = opts$depth_delta, with_p = TRUE,
-                    perm_decision = opts$perm_decision %||% "quantile")
+                    perm_decision = opts$perm_decision %||% "quantile", allele = opts$test_allele %||% "z")
     tests[ii, `:=`(stat = tt$stat, thr = tt$thr, n_perm = tt$n_perm, p = tt$p, differ = tt$differ)]
     if (!tt$differ) { tests[ii, outcome := "not different on the test halves"]; next }
     ka = paste0(k, "a"); kb = paste0(k, "b")

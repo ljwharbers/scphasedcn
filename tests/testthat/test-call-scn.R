@@ -212,8 +212,10 @@ test_that("tumour mode dispatches to the tumour mode", {
   cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
   # multiplet scores between 0.5 and the tumour mode's multiplet_prob (0.9) are not flagged: the cells are used as singlets
   mult = data.table(cell = cm$cell[1:4], prob = c(0.6, 0.85, 0.95, 1))
-  res = call_scn(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
-                 centromeres = cs_centromeres(s$scn$bins), multiplets = mult)
+  # no flagged null cells: the input null is fitted on the selected neutral cells, with a warning
+  expect_warning(res <- call_scn(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
+                                 centromeres = cs_centromeres(s$scn$bins), multiplets = mult),
+                 "without flagged null cells")
   expect_s3_class(res, "scphasedcn")
   expect_equal(res$mode, "tumour")
   expect_true(all(c("clone", "posterior") %in% names(res$cells)))
@@ -228,6 +230,84 @@ test_that("tumour mode dispatches to the tumour mode", {
   expect_true(all(file.exists(file.path(out, c("clones.tsv", "assignments.tsv", "clone_segments.tsv", "clone_profiles.tsv.gz",
                                                "reference_pool.txt", "cells.tsv", "calls.tsv", "result.rds")))))
   expect_equal(caller_params(file.path(out, "params.yaml")), res$params)
+})
+
+# ---- tumour input null: flagged null cells, else selected neutral cells, else all cells ----------------------------
+# sim_tum2 features as call_scn computes them in tumour mode (model depth, groups = the cell types); no cell flagged.
+tum2_features = function() {
+  if (is.null(call_cache$tum2_feat)) {
+    s = sim_tum2
+    cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
+    call_cache$tum2_feat = suppressMessages(cell_features(sim_dir("sim_tum2"), cells = cm$cell, cell_meta = cm, method = "model",
+                                                          sex = "male", phasing = "auto", groups = setNames(cm$group, cm$cell),
+                                                          centromeres = cs_centromeres(s$scn$bins), verbose = FALSE))
+  }
+  call_cache$tum2_feat
+}
+tum2_normal_cells = function() sim_tum2$scn$cells$cell[sim_tum2$scn$cells$cell_type == "normal" & !sim_tum2$truth$cells$multiplet]
+# the input null of call_scn before tumour_null_fit(): null rows of the flagged cells if any, else of all cells
+old_tumour_null = function(long) {
+  nr = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible
+  if (any(long$null_cell %in% TRUE)) nr = nr & long$null_cell %in% TRUE
+  tpar = complete_tpar(long, fit_depth_null(long[nr]))
+  arm = nr & long$class == "arm" & long$n_hap > 0
+  list(tpar = tpar, rho = fit_allelic_null(long$nA[arm %in% TRUE], long$n_hap[arm %in% TRUE]))
+}
+
+test_that("tumour_null_fit: without flagged cells the null comes from the selected neutral cells, not from all cells", {
+  long = tum2_features()$long
+  expect_false(any(long$null_cell %in% TRUE))
+  nn = tum2_normal_cells()
+  ref = old_tumour_null(copy(long)[, null_cell := cell %in% nn])        # the reference: the true normal cells
+  all = old_tumour_null(long)                                           # the old fit without flagged cells (all cells)
+  nf = tumour_null_fit(long)
+  expect_identical(nf$source, "selected")
+  expect_gte(mean(nf$null_cells %in% nn), 0.9)
+  expect_gte(mean(nn %in% nf$null_cells), 0.8)
+  # rho within a factor 3 of the normal-cell rho; the all-cell rho (the tumour's LOH and gains on the null rows) is
+  # more than 100 times larger
+  expect_lt(abs(log(nf$rho / ref$rho)), log(3))
+  expect_gt(all$rho / nf$rho, 100)
+  expect_match(nf$note, "no flagged null cells; fitted on [0-9]+ copy-number-neutral cells selected")
+  # tumour cells only: no stable neutral set, so all cells (the old fit), and the note says so
+  lt = long[!cell %in% sim_tum2$scn$cells$cell[sim_tum2$scn$cells$cell_type == "normal"]]
+  nt = tumour_null_fit(lt)
+  expect_identical(nt$source, "all")
+  expect_identical(nt[c("tpar", "rho")], old_tumour_null(lt))
+  expect_match(nt$note, "so fitted on all cells: rho and the depth tails absorb the tumour's events")
+  # flagged cells: exactly the old fit; select = TRUE selects anyway
+  lf = copy(long)[, null_cell := cell %in% nn]
+  nfl = tumour_null_fit(lf)
+  expect_identical(nfl$source, "flagged")
+  expect_identical(nfl[c("tpar", "rho")], ref)
+  expect_null(nfl$selection)
+  expect_identical(tumour_null_fit(lf, select = TRUE)$source, "selected")
+  # caller_tumour() without an input null (clone_input) uses the same recipe
+  f0 = tum2_features(); f0$null_fit = NULL
+  ci = clone_input(f0)
+  expect_identical(ci$rho, nf$rho)
+  expect_identical(ci$tpar, nf$tpar)
+})
+
+test_that("call_scn tumour: flagged null cells give the old result; without them a warning and a note on the null", {
+  feat = tum2_features()
+  d = sim_dir("sim_tum2")
+  nn = tum2_normal_cells()
+  # flagged (given) null cells: bit-identical to caller_tumour on the old input null; no warning
+  expect_no_warning(rf <- call_scn(d, "tumour", features = feat, null_cells = nn, verbose = FALSE))
+  f_old = feat
+  f_old$null_fit = old_tumour_null(copy(feat$long)[, null_cell := cell %in% nn])
+  r_old = caller_tumour(f_old, verbose = FALSE)
+  for (nm in c("clones", "assignments", "segments", "calls", "events", "null_fit")) expect_identical(rf[[nm]], r_old[[nm]], info = nm)
+  expect_true(any(grepl("fitted on the [0-9]+ flagged null cells", rf$notes)))
+  # no flagged cells: one warning, and the notes name the selected null
+  expect_warning(r0 <- call_scn(d, "tumour", features = feat, verbose = FALSE), "without flagged null cells")
+  expect_true(any(grepl("no flagged null cells; fitted on [0-9]+ copy-number-neutral cells selected", r0$notes)))
+  expect_identical(r0$null_fit$rho, tumour_null_fit(feat$long)$rho)
+  # features with their own null fit: kept, and a selection asked for warns that it is not used
+  expect_warning(r1 <- call_scn(d, "tumour", features = f_old, null_cells = "select", verbose = FALSE), "carry their own null fit")
+  expect_identical(r1$null_fit$rho, f_old$null_fit$rho)
+  expect_true(any(grepl("the features' own null fit", r1$notes)))
 })
 
 test_that("inst/scripts/call_scn.R --help exits 0 without data", {
@@ -449,7 +529,7 @@ test_that("write_scphasedcn: rewriting a read-back result into its own directory
   expect_false(file.exists(big[1]))
 })
 
-test_that("precomputed features: unused feature-step inputs warn; tumour-mode null_cells = 'select' warns", {
+test_that("precomputed features: unused feature-step inputs warn", {
   rg = fake_regions(tiles = c("20Mb" = 2e7))
   ff = fake_features(100, rg, seed = 12)
   fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
@@ -459,7 +539,4 @@ test_that("precomputed features: unused feature-step inputs warn; tumour-mode nu
                  "not used: sex; events; centromeres \\(\\.\\.\\.\\); cell_meta column\\(s\\) flat")
   expect_silent(call_scn(tempdir(), "normal", features = fe, cell_meta = cm[, .(cell, cell_type)], centromeres = NULL,
                          embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500)))
-  # tumour mode: "select" is a normal-mode selection (the warning comes before any work; the call then fails on the toy)
-  expect_warning(try(call_scn(tempdir(), "tumour", features = fe, null_cells = "select", verbose = FALSE), silent = TRUE),
-                 "tumour mode fits its input null")
 })

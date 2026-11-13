@@ -51,5 +51,6 @@ CN-LOH / amp states (type-7 \code{null_q} quantile per stratum, strict \code{>};
 Input \code{feat} (the feature step's \code{scn_features}, or an equivalent list): \code{features} (long table),
 \code{regions}, \code{votes}, \code{atoms}, \code{cells} (data.table with \code{cell}, in vote index order; \code{n_frag} / \code{stratum}),
 \code{win} (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
-start, end, x, e) and \code{null_fit} (list with \code{tpar} = \code{\link[=fit_depth_null]{fit_depth_null()}} table and \code{rho}).
+start, end, x, e) and \code{null_fit} (list with \code{tpar} = \code{\link[=fit_depth_null]{fit_depth_null()}} table and \code{rho}; without it, or without its
+\code{rho}, the input null is \code{\link[=tumour_null_fit]{tumour_null_fit()}} of the features, as in \code{\link[=call_scn]{call_scn()}}).
 }

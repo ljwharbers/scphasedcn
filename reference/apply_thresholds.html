@@ -4,12 +4,14 @@ whose fold has a threshold in the table gets that fold's (cross-validated)
 threshold; other rows (no fold column, fold 0, or a fold the table does
 not have) get fold 0. A thresholds table whose stratum is all &quot;all&quot;
 (class-level, e.g. pooled) is matched on class only. A table with a non-NA hstratum column (vote
-calibration) is also matched on the rows' hstratum."><meta property="og:description" content="Adds thr_&amp;lt;score&amp;gt; and call_&amp;lt;score&amp;gt; (score &amp;gt; thr, strict). A row
+calibration) is also matched on the rows' hstratum. Threshold rows with a borrowed_from sd_class (a class
+without null rows, budget_thresholds()) apply to the rows of that class whose sd_class is borrowed_from."><meta property="og:description" content="Adds thr_&amp;lt;score&amp;gt; and call_&amp;lt;score&amp;gt; (score &amp;gt; thr, strict). A row
 whose fold has a threshold in the table gets that fold's (cross-validated)
 threshold; other rows (no fold column, fold 0, or a fold the table does
 not have) get fold 0. A thresholds table whose stratum is all &quot;all&quot;
 (class-level, e.g. pooled) is matched on class only. A table with a non-NA hstratum column (vote
-calibration) is also matched on the rows' hstratum."></head><body>
+calibration) is also matched on the rows' hstratum. Threshold rows with a borrowed_from sd_class (a class
+without null rows, budget_thresholds()) apply to the rows of that class whose sd_class is borrowed_from."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -55,7 +57,8 @@ whose <code>fold</code> has a threshold in the table gets that fold's (cross-val
 threshold; other rows (no <code>fold</code> column, fold 0, or a fold the table does
 not have) get fold 0. A thresholds table whose <code>stratum</code> is all "all"
 (class-level, e.g. pooled) is matched on class only. A table with a non-NA <code>hstratum</code> column (vote
-calibration) is also matched on the rows' <code>hstratum</code>.</p>
+calibration) is also matched on the rows' <code>hstratum</code>. Threshold rows with a <code>borrowed_from</code> sd_class (a class
+without null rows, <code><a href="budget_thresholds.html">budget_thresholds()</a></code>) apply to the rows of that class whose <code>sd_class</code> is <code>borrowed_from</code>.</p>
     </div>
 
     <div class="section level2">

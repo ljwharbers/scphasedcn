@@ -2,8 +2,9 @@
 
 Reads an extraction directory, applies the cell QC
 ([`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md);
-`cells` restricts the run to a set of cells instead), annotates arms,
-filters bins (default:
+with a `qc_pass` column of `cell_meta` a cell must also have `qc_pass`
+TRUE; `cells` restricts the run to a set of cells instead, without QC),
+annotates arms, filters bins (default:
 [`bin_filter()`](https://ljwharbers.github.io/scphasedcn/reference/bin_filter.md)
 on the kept cells, chr1-22 and chrX), normalises depth
 ([`normalise_depth()`](https://ljwharbers.github.io/scphasedcn/reference/normalise_depth.md):
@@ -55,13 +56,19 @@ cell_features(
 
 - cells:
 
-  NULL (QC-pass cells) or the cells to use
+  NULL (QC-pass cells) or the cells to use (no QC)
 
 - cell_meta:
 
   NULL or a data.table with `cell` and optional
-  `cell_type, flat, fold, group, stratum, n_frag` (used as-is; NA
-  cell_type = no type-matched reference)
+  `qc_pass, cell_type, flat, fold, group, stratum, n_frag` (used as-is;
+  NA cell_type = no type-matched reference; NA or missing `stratum` /
+  `n_frag` keep the QC values). With `cells` NULL only cells of
+  `cell_meta` are used, and with a `qc_pass` column (e.g.
+  [`make_cell_meta()`](https://ljwharbers.github.io/scphasedcn/reference/make_cell_meta.md))
+  only those with `qc_pass` TRUE that also pass
+  [`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md)
+  with the `qc` arguments
 
 - method:
 
@@ -83,7 +90,9 @@ cell_features(
 
 - sex:
 
-  "female" / "male" (NULL: the cells' `sex` column)
+  "female" / "male" (case-insensitive, or "F" / "M"; any other value
+  stops; NULL: the cells' `sex` column, whose non-missing values must
+  all give the same sex)
 
 - centromeres:
 

@@ -108,7 +108,8 @@ a call must survive dropping its most influential cell.</p>
 
 <dt id="arg-scale">scale<a class="anchor" aria-label="anchor" href="#arg-scale"></a></dt>
 <dd><p>NULL or the <code><a href="pool_scale.html">pool_scale()</a></code> table the thresholds were computed with (attribute <code>pool_scale</code> of
-<code><a href="pooled_thresholds.html">pooled_thresholds()</a></code> with <code>standardize = TRUE</code>)</p></dd>
+<code><a href="pooled_thresholds.html">pooled_thresholds()</a></code> with <code>standardize = TRUE</code>). A region of a class without null pools (named <code>event</code>
+regions) is standardised with the class medians of its <code>sd_class</code> when <code>thr</code> has borrowed rows</p></dd>
 
 </dl></div>
     <div class="section level2">

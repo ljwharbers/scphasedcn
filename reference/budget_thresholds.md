@@ -62,7 +62,7 @@ budget_thresholds(
 ## Value
 
 thresholds table (check_thresholds schema; `stratum` = "all" when not in
-`by`)
+`by`; `borrowed_from` when a class borrows its sd_class's thresholds)
 
 ## Details
 
@@ -71,3 +71,14 @@ With a vote stratum (`hstratum` column,
 `calib = "votes"`) the groups are class x stratum x hstratum, and a
 group short of `min_null` null rows falls back to its class x stratum,
 then to its class (the first with `min_null` rows, else the class).
+
+A class without any null row whose rows have an `sd_class` with null
+rows (named `event` regions: never null rows) takes the thresholds of
+that `sd_class`: its groups are keyed by class x sd_class x the other
+`by` columns and use the null rows (and the fallback levels) of the
+`sd_class`, so every fold / stratum gets the same threshold as the
+`sd_class` rows of that group. Those threshold rows carry
+`borrowed_from` (the sd_class; the column is only added when a class
+borrows) and
+[`apply_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/apply_thresholds.md)
+matches them on the rows' `sd_class`.

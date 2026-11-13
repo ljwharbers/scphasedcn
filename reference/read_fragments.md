@@ -26,5 +26,7 @@ read_fragments(file, regions = NULL, cells = NULL)
 
 ## Value
 
-data.table chrom, start, end, cell, strand, mapq, flags (+ extras), hap
-decoded from flags when absent
+data.table chrom, start, end, cell, strand, mapq, flags (+ extras),
+`hap` (the file's `hap` column as U / A / B / N labels; "U" for every
+fragment when the file has none, nothing is decoded from `flags`), `len`
+(end - start when absent)

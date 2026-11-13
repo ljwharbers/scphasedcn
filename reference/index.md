@@ -131,7 +131,8 @@
 - [`cli_events()`](https://ljwharbers.github.io/scphasedcn/reference/cli_events.md)
   :
 
-  Event regions of a sample (config `events` map) as a regions table
+  Event regions of a sample (config `events` map, region strings with
+  0-based half-open coordinates) as a regions table
 
 - [`cli_log()`](https://ljwharbers.github.io/scphasedcn/reference/cli_log.md)
   : Timestamped message
@@ -407,6 +408,9 @@
 
 - [`split_win()`](https://ljwharbers.github.io/scphasedcn/reference/split_win.md)
   : Split window depth into two independent halves
+
+- [`subset_features()`](https://ljwharbers.github.io/scphasedcn/reference/subset_features.md)
+  : Subset a features object to a set of cells
 
 - [`subset_scn()`](https://ljwharbers.github.io/scphasedcn/reference/subset_scn.md)
   : Subset an scn object by cells and/or bins

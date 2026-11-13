@@ -67,7 +67,9 @@ call_pools(
   [`pool_scale()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scale.md)
   table the thresholds were computed with (attribute `pool_scale` of
   [`pooled_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/pooled_thresholds.md)
-  with `standardize = TRUE`)
+  with `standardize = TRUE`). A region of a class without null pools
+  (named `event` regions) is standardised with the class medians of its
+  `sd_class` when `thr` has borrowed rows
 
 ## Value
 

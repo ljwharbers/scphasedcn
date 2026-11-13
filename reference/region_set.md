@@ -53,14 +53,21 @@ region_set(
 
 - events:
 
-  NULL, a data.table `region, chrom, start, end` (NA end = chromosome
-  end),
+  NULL, a data.table `region, chrom, start, end` (0-based half-open; NA
+  end = chromosome end),
   [`cli_events()`](https://ljwharbers.github.io/scphasedcn/reference/cli_events.md)
-  output or a named vector of region strings
+  output or a named vector of region strings (`"chr20:28000000-"`,
+  `"chr7"`;
+  [`parse_region()`](https://ljwharbers.github.io/scphasedcn/reference/parse_region.md)).
+  An event without a name is named after its region string (a bare
+  chromosome `"chr7"`: `"event|chr7"`). An event that yields no region
+  (a chromosome without usable bins, or no whole usable bin inside) is
+  dropped with a warning.
 
 - sex:
 
-  "female" or "male"
+  "female" or "male" (case-insensitive, or "F" / "M"; any other value
+  stops)
 
 - null_exclude:
 

@@ -5,7 +5,8 @@ updated from a YAML file (default `inst/config/caller.yaml` of the
 package: one key per default, named vectors as maps) and then from
 `overrides`. Values are coerced to the type of the default (numeric,
 logical, character; names kept for named vectors). Empty strings and
-nulls keep the default (e.g. `tabix: ""` = the `tabix` on the PATH).
+nulls keep the default (e.g. `tabix: ""` = the `tabix` on the PATH); an
+empty list (`[]`) is an empty vector (e.g. `allelic_exclude: []`).
 Unknown keys in the file are ignored with a warning; unknown keys in
 `overrides` are added as-is.
 

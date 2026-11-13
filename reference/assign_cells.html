@@ -184,6 +184,13 @@ over the clones of the best clone's trunk)</p></dd>
 doublet_like, pair, ref_pool, p_mix, ll_mix_gain, ll_best, mix_prior, assigned / confident (posterior &gt;= <code>min_post</code>
 and not doublet-like) (plus trunk, p_trunk when <code>trunks</code> is given; attribute <code>ll</code>: cells x hypotheses log-likelihood matrix)</p>
     </div>
+    <div class="section level2">
+    <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
+    <p>The hypotheses are the clones with members plus the fixed normal clone <code>N0</code> whenever <code>segments</code> has it
+(<code><a href="caller_tumour.html">caller_tumour()</a></code> <code>normal_hypothesis</code>), even when no cell is labelled <code>N0</code> yet: its state is all-neutral, so it
+needs no orientation, and without it normal cells would be forced into a tumour clone. Its <code>c</code> is the median <code>c</code>
+of <code>par</code> (attenuation 1) when <code>par</code> has no <code>N0</code> row.</p>
+    </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

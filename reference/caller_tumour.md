@@ -17,10 +17,11 @@ re-oriented by the all-cell pseudobulk) -\>
 [`segment_clone()`](https://ljwharbers.github.io/scphasedcn/reference/segment_clone.md)
 -\> doublet clones -\>
 [`assign_cells()`](https://ljwharbers.github.io/scphasedcn/reference/assign_cells.md)
-(`em_rounds` hard-EM rounds: re-profile on the confidently assigned
-singlets; a cell changes clone only when confidently assigned, else
-keeps its previous label: `clone_ll` = likelihood-best clone, `kept`,
-`reassigned`) -\>
+(`em_rounds` hard-EM rounds: the clone states are re-profiled on the
+members of the previous round, the singlets with posterior \>=
+`member_post`; clones left with fewer than `min_size` members leave the
+member set; the assignment's `clone` is every cell's likelihood-best
+clone, `confident` = posterior \>= `min_post` and not doublet-like) -\>
 [`clean_reference()`](https://ljwharbers.github.io/scphasedcn/reference/clean_reference.md)
 -\> optional depth re-pass relative to the clean pool -\> per-cell
 calls. Each cell inherits its clone's non-neutral segments
@@ -64,7 +65,8 @@ caller_tumour(
 - control_regions:
 
   optional user control regions (regions table) replacing the automatic
-  ones
+  ones (of the confirmation null and of the reference cleaning,
+  [`clean_reference()`](https://ljwharbers.github.io/scphasedcn/reference/clean_reference.md))
 
 - opts:
 

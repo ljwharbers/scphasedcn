@@ -10,7 +10,9 @@ haplotype A / B and a phase set are collapsed into molecules
 each molecule is assigned to the atom containing its start and the votes
 are aggregated per cell x atom x phase set. Memory stays per chromosome
 (integer cell indices, [`gc()`](https://rdrr.io/r/base/gc.html) between
-chromosomes).
+chromosomes). A failing tabix command stops with its error; a chromosome
+with atoms but no haplotype-assigned fragment of `cells` gives a
+warning.
 
 ## Usage
 

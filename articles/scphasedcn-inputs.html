@@ -124,7 +124,10 @@ groups; see below</td>
 <tr class="odd">
 <td>known events</td>
 <td>no</td>
-<td>regions reported as their own calls (e.g. a known trisomy)</td>
+<td>regions reported as their own calls (e.g. a known trisomy;
+<code>name=chr:start-end</code>, 0-based half-open, an open end = the
+chromosome end); normal mode calls them per cell, in pools only with
+<code>pool_events</code> (off by default, experimental)</td>
 </tr>
 </tbody>
 </table>
@@ -209,7 +212,7 @@ the caller’s command line):</p>
 <span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a>  root<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>results                           <span class="co"># per-sample outputs: &lt;root&gt;/&lt;sample&gt;/extract, &lt;root&gt;/&lt;sample&gt;/caller/&lt;tag&gt;</span></span>
 <span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a>samples<span class="sc">:</span></span>
 <span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>  my_sample<span class="sc">:</span></span>
-<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>    type<span class="sc">:</span> normal                                   <span class="co"># normal | tumour (the caller's default --mode)</span></span>
+<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>    type<span class="sc">:</span> normal                                   <span class="co"># normal | tumour (or tumor; the caller's default --mode)</span></span>
 <span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>    sex<span class="sc">:</span> female                                    <span class="co"># female | male</span></span>
 <span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>    bam<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>my_sample.dna.bam                <span class="co"># SPLONGGET DNA BAM (coordinate sorted, indexed, CB tag per read)</span></span>
 <span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a>    barcodes<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>cell_barcodes.tsv.gz        <span class="co"># cell whitelist, one barcode per line (a trailing -1 is stripped)</span></span>
@@ -322,7 +325,9 @@ reference.</li>
 a matched assay). Normal-tissue mode uses them as its null cells with
 <code>null_cells = "features"</code>; without them use
 <code>null_cells = "select"</code> (the caller selects null cells from
-the data). Tumour mode uses them as its normal reference pool.</li>
+the data). Tumour mode fits its input depth and allelic null on them;
+its normal reference pool is the normal clone the caller finds and
+cleans itself, not these cells.</li>
 <li>
 <code>group</code>: tumour mode, groups whose pseudobulk orients the
 phase blocks (<code>groups = "group"</code>), e.g. spatial regions or

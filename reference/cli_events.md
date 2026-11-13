@@ -1,6 +1,7 @@
-# Event regions of a sample (config `events` map) as a regions table
+# Event regions of a sample (config `events` map, region strings with 0-based half-open coordinates) as a regions table
 
-Event regions of a sample (config `events` map) as a regions table
+Event regions of a sample (config `events` map, region strings with
+0-based half-open coordinates) as a regions table
 
 ## Usage
 

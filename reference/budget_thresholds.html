@@ -111,13 +111,20 @@ threshold), flagged <code>pooled_fallback</code>.</p>
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>thresholds table (check_thresholds schema; <code>stratum</code> = "all" when not in <code>by</code>)</p>
+    <p>thresholds table (check_thresholds schema; <code>stratum</code> = "all" when not in <code>by</code>; <code>borrowed_from</code> when a
+class borrows its sd_class's thresholds)</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
     <p>With a vote stratum (<code>hstratum</code> column, <code><a href="assign_hstratum.html">assign_hstratum()</a></code>; <code>calib = "votes"</code>) the groups are class x
 stratum x hstratum, and a group short of <code>min_null</code> null rows falls back to its class x stratum, then to
 its class (the first with <code>min_null</code> rows, else the class).</p>
+<p>A class without any null row whose rows have an <code>sd_class</code> with null rows (named <code>event</code> regions: never null
+rows) takes the thresholds of that <code>sd_class</code>: its groups are keyed by class x sd_class x the other <code>by</code>
+columns and use the null rows (and the fallback levels) of the <code>sd_class</code>, so every fold / stratum gets the
+same threshold as the <code>sd_class</code> rows of that group. Those threshold rows carry <code>borrowed_from</code> (the
+sd_class; the column is only added when a class borrows) and <code><a href="apply_thresholds.html">apply_thresholds()</a></code> matches them on the rows'
+<code>sd_class</code>.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

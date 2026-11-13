@@ -97,8 +97,9 @@ caller_normal(
 
 - sex:
 
-  "female", "male" or NULL (inferred: female when chrX rows carry allele
-  votes); sets the chrX rule of
+  "female", "male" (case-insensitive, or "F" / "M"; any other value
+  stops) or NULL (inferred: female when chrX rows carry allele votes);
+  sets the chrX rule of
   [`call_policy()`](https://ljwharbers.github.io/scphasedcn/reference/call_policy.md)
 
 - resolve_gains:
@@ -175,5 +176,11 @@ the pooled region scale
 ([`pool_scale()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scale.md)),
 cross-fitted with `params$pool_tail_xfit`
 ([`pooled_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/pooled_thresholds.md)).
+Named `event` regions (no null rows) borrow the per-cell thresholds of
+their `sd_class`
+([`budget_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/budget_thresholds.md));
+their pools are called only with `params$pool_events` (experimental, off
+by default:
+[`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md)).
 Removed options stop with an error: `calib` "region" / "region_votes" /
 "votes_cont", `calib_rho` "cell" / "chrom_cell".

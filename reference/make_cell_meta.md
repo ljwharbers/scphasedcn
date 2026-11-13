@@ -5,6 +5,14 @@ Builds the `cell_meta` table of
 (the `--cell-meta` TSV of `call_scn.R`). Every column but `cell` is
 optional for the caller:
 
+- `qc_pass`: the cells to call.
+  [`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md)
+  (and `call_scn.R --cell-meta`) without `cells` calls the cells of the
+  table that pass
+  [`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md)
+  (with the run's `qc` arguments) and, with this column, also have
+  `qc_pass` TRUE.
+
 - `cell_type`: the depth reference of normal-tissue mode is matched by
   cell type (types with fewer than 20 cells, and cells with `NA`, use
   the reference of all cells). Without cell types the reference is the
@@ -12,9 +20,11 @@ optional for the caller:
 
 - `flat`: cells known to be copy-number neutral (e.g. normal cells from
   an orthogonal assay). Normal mode uses them as the null cells with
-  `null_cells = "features"`; tumour mode uses them as the reference
-  pool. Without `flat`, use `null_cells = "select"`
-  (`--null-cells select`): the caller selects its own null cells.
+  `null_cells = "features"`; without `flat`, use `null_cells = "select"`
+  (`--null-cells select`): the caller selects its own null cells. Tumour
+  mode fits its input depth / allelic null on them (when the features
+  carry no null fit); its reference pool is not taken from them but is
+  the normal clone the caller finds and cleans itself.
 
 - `group`: tumour mode only, pseudobulk groups of the phase-block
   orientation (`groups = "group"`, `--groups group`), e.g. spatial
@@ -48,7 +58,8 @@ make_cell_meta(
 - flat:
 
   NULL, cell barcodes of known copy-number-flat cells (vector, or a file
-  with one cell per line or a `cell` column)
+  with one cell per line, without a header unless the first line is
+  `cell`, or with a `cell` column)
 
 - groups:
 

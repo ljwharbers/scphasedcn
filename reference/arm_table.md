@@ -25,7 +25,8 @@ arm_table(centromeres, chrom_sizes, sex = "female", params = caller_defaults())
 
 - sex:
 
-  "female" or "male"
+  "female" or "male" (case-insensitive, or "F" / "M"; any other value
+  stops)
 
 - params:
 

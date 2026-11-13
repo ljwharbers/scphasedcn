@@ -3,11 +3,13 @@
 read_fragments() when the tabix binary or index is missing; fragments of cells with haplotype
 A / B and a phase set are collapsed into molecules (collapse_molecules()), each molecule is assigned
 to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
-stays per chromosome (integer cell indices, gc() between chromosomes)."><meta property="og:description" content="Per chromosome: tabix &amp;lt;file&amp;gt; &amp;lt;chrom&amp;gt; | cut -f2,3,4,7,11,13 read with fread(cmd = ) (an awk filter keeps hap 1 / 2 with ps &amp;gt; 0 before R sees the rows), or
+stays per chromosome (integer cell indices, gc() between chromosomes). A failing tabix command stops with its
+error; a chromosome with atoms but no haplotype-assigned fragment of cells gives a warning."><meta property="og:description" content="Per chromosome: tabix &amp;lt;file&amp;gt; &amp;lt;chrom&amp;gt; | cut -f2,3,4,7,11,13 read with fread(cmd = ) (an awk filter keeps hap 1 / 2 with ps &amp;gt; 0 before R sees the rows), or
 read_fragments() when the tabix binary or index is missing; fragments of cells with haplotype
 A / B and a phase set are collapsed into molecules (collapse_molecules()), each molecule is assigned
 to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
-stays per chromosome (integer cell indices, gc() between chromosomes)."></head><body>
+stays per chromosome (integer cell indices, gc() between chromosomes). A failing tabix command stops with its
+error; a chromosome with atoms but no haplotype-assigned fragment of cells gives a warning."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -52,7 +54,8 @@ stays per chromosome (integer cell indices, gc() between chromosomes)."></head><
 <code><a href="read_fragments.html">read_fragments()</a></code> when the tabix binary or index is missing; fragments of <code>cells</code> with haplotype
 A / B and a phase set are collapsed into molecules (<code><a href="collapse_molecules.html">collapse_molecules()</a></code>), each molecule is assigned
 to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
-stays per chromosome (integer cell indices, <code><a href="https://rdrr.io/r/base/gc.html" class="external-link">gc()</a></code> between chromosomes).</p>
+stays per chromosome (integer cell indices, <code><a href="https://rdrr.io/r/base/gc.html" class="external-link">gc()</a></code> between chromosomes). A failing tabix command stops with its
+error; a chromosome with atoms but no haplotype-assigned fragment of <code>cells</code> gives a warning.</p>
     </div>
 
     <div class="section level2">

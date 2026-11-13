@@ -10,7 +10,7 @@
 | phased heterozygous SNPs | for the allele channel; required in tumour mode | VCF with `GT` phased (`0|1`) and a `PS` phase-set tag, e.g. Clair3 + longphase, selected with `scphasedcn select-hets` |
 | sex | yes | `female` or `male` (chrX / chrY copy number) |
 | cell metadata | no | cell types (normal tissue), cells known to be copy-number neutral, groups; see below |
-| known events | no | regions reported as their own calls (e.g. a known trisomy) |
+| known events | no | regions reported as their own calls (e.g. a known trisomy; `name=chr:start-end`, 0-based half-open, an open end = the chromosome end); normal mode calls them per cell, in pools only with `pool_events` (off by default, experimental) |
 
 The genome is hg38 only: the bundled chromosome sizes, ENCODE blacklist
 v2 and centromere coordinates are hg38, and so are the chrX centromere
@@ -98,7 +98,7 @@ outputs:
   root: /path/to/results                           # per-sample outputs: <root>/<sample>/extract, <root>/<sample>/caller/<tag>
 samples:
   my_sample:
-    type: normal                                   # normal | tumour (the caller's default --mode)
+    type: normal                                   # normal | tumour (or tumor; the caller's default --mode)
     sex: female                                    # female | male
     bam: /path/to/my_sample.dna.bam                # SPLONGGET DNA BAM (coordinate sorted, indexed, CB tag per read)
     barcodes: /path/to/cell_barcodes.tsv.gz        # cell whitelist, one barcode per line (a trailing -1 is stripped)
@@ -205,8 +205,9 @@ extractor’s `cells_qc.tsv` and your labels:
 - `flat`: cells known to be copy-number neutral (e.g. from a matched
   assay). Normal-tissue mode uses them as its null cells with
   `null_cells = "features"`; without them use `null_cells = "select"`
-  (the caller selects null cells from the data). Tumour mode uses them
-  as its normal reference pool.
+  (the caller selects null cells from the data). Tumour mode fits its
+  input depth and allelic null on them; its normal reference pool is the
+  normal clone the caller finds and cleans itself, not these cells.
 - `group`: tumour mode, groups whose pseudobulk orients the phase blocks
   (`groups = "group"`), e.g. spatial regions or RNA clusters.
 

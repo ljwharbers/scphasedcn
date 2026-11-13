@@ -55,33 +55,49 @@ call_scn(
 - cell_meta:
 
   NULL, a table or a TSV path with `cell` and optional
-  `cell_type, flat, fold, group, stratum, n_frag` (passed to
-  [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md);
-  `flat` becomes the features' `null_cell`)
+  `qc_pass, cell_type, flat, fold, group, stratum, n_frag` (passed to
+  [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md):
+  without `cells` only its cells that pass
+  [`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md)
+  are called, and with a `qc_pass` column only those that also have
+  `qc_pass` TRUE; `flat` becomes the features' `null_cell`)
 
 - cells:
 
-  NULL (QC-pass cells) or the cells to call (vector or file)
+  NULL (QC-pass cells) or the cells to call (vector or file; no cell
+  QC). The barcodes of `cells`, `cell_meta`, `null_cells`, `multiplets`
+  and named `groups` lose a trailing `-1` (as the extractor writes
+  them); the run notes give how many of them match the data's cells, and
+  a warning says when none does
 
 - sex:
 
-  "female" / "male" (required for real data; NULL uses a `sex` column of
-  `cells_qc.tsv` if there is one, as in simulated data)
+  "female" / "male" (case-insensitive, or "F" / "M"; any other value
+  stops; required for real data; NULL uses a `sex` column of
+  `cells_qc.tsv` if there is one, as in simulated data; its non-missing
+  values must agree)
 
 - events:
 
-  named events: a table `region, chrom, start, end`,
+  named events: a table `region, chrom, start, end` (0-based half-open),
   [`cli_events()`](https://ljwharbers.github.io/scphasedcn/reference/cli_events.md)
   output or a named vector of region strings
-  (`20q_gain = "chr20:28000000-"`); scored as `event` regions; in tumour
-  mode their chromosomes are excluded from the null rows
+  (`20q_gain = "chr20:28000000-"`; unnamed ones are named after the
+  region, see
+  [`region_set()`](https://ljwharbers.github.io/scphasedcn/reference/region_set.md));
+  scored as `event` regions; in tumour mode their chromosomes are
+  excluded from the null rows
 
 - null_cells:
 
   NULL / "auto" (the features' `null_cell` when informative, else
   selected), "features", "select"
   ([`select_null_cells()`](https://ljwharbers.github.io/scphasedcn/reference/select_null_cells.md)),
-  or the null cells themselves (vector or file)
+  or the null cells themselves (vector or file). Tumour mode: given null
+  cells (like `flat` cells of `cell_meta`) are the cells whose null rows
+  fit the input depth t null and allelic rho when the features carry no
+  `null_fit`; they are not the reference pool (the caller finds and
+  cleans the normal clone itself); "select" is ignored with a warning
 
 - multiplets:
 
@@ -89,7 +105,10 @@ call_scn(
   ([`multiplet_table()`](https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.md)
   forms); normal mode: cells with prob \> 0.5 are never null cells and
   never pooled; tumour mode: passed to
-  [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
+  [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md),
+  which sets aside the cells above its `multiplet_prob` option (default
+  0.9). The `multiplet` column of the cells table flags the cells each
+  mode set aside
 
 - control_regions:
 
@@ -117,7 +136,10 @@ call_scn(
 - features:
 
   NULL (computed) or a precomputed `scn_features` (object or .rds path)
-  to skip the feature step
+  to skip the feature step; the arguments of the feature step (`sex`,
+  `events`, `...`; in tumour mode also `cells`, `groups`, `cell_meta`;
+  in normal mode `cell_meta` columns other than `cell_type`) are then
+  not used, with a warning
 
 - embedding:
 
@@ -128,7 +150,8 @@ call_scn(
 
 - verbose:
 
-  log progress
+  log progress (also of
+  [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md))
 
 - keep_scores:
 

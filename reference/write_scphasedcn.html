@@ -5,13 +5,21 @@ all inherited / confirmed rows in tumour mode), pooled_calls.tsv (called pool ro
 thresholds.tsv, null_fit.tsv (depth t rows + rho), false_calls.tsv + false_events.tsv (normal mode),
 tumour mode: clones.tsv, assignments.tsv, clone_segments.tsv, clone_profiles.tsv.gz,
 reference_pool.txt; regions.tsv; result.rds (the object without scores and features), params.yaml,
-summary.tsv (scphasedcn_summary()) and NOTES.md. Optional: scores.tsv.gz, features.tsv.gz."><meta property="og:description" content="Flat tables: cells.tsv (cell, qc, stratum, fold, null_cell, n_calls, n_events, clone / posterior /
+summary.tsv (scphasedcn_summary()) and NOTES.md. Optional: scores.tsv.gz, features.tsv.gz.
+The files of a previous result in out (the names above) are removed first, so a re-run never leaves stale
+tables behind (e.g. clones.tsv of a tumour run, scores.tsv.gz of a run with write_scores); other files in
+out are left alone. An object without scores (or features), e.g. one read back with read_scphasedcn(),
+leaves an existing scores.tsv.gz (features.tsv.gz) in place: it cannot write them again."><meta property="og:description" content="Flat tables: cells.tsv (cell, qc, stratum, fold, null_cell, n_calls, n_events, clone / posterior /
 doublet_like / ref_pool when present), calls.tsv (cell- and clone-level calls: called rows in normal mode,
 all inherited / confirmed rows in tumour mode), pooled_calls.tsv (called pool rows), events.tsv,
 thresholds.tsv, null_fit.tsv (depth t rows + rho), false_calls.tsv + false_events.tsv (normal mode),
 tumour mode: clones.tsv, assignments.tsv, clone_segments.tsv, clone_profiles.tsv.gz,
 reference_pool.txt; regions.tsv; result.rds (the object without scores and features), params.yaml,
-summary.tsv (scphasedcn_summary()) and NOTES.md. Optional: scores.tsv.gz, features.tsv.gz."></head><body>
+summary.tsv (scphasedcn_summary()) and NOTES.md. Optional: scores.tsv.gz, features.tsv.gz.
+The files of a previous result in out (the names above) are removed first, so a re-run never leaves stale
+tables behind (e.g. clones.tsv of a tumour run, scores.tsv.gz of a run with write_scores); other files in
+out are left alone. An object without scores (or features), e.g. one read back with read_scphasedcn(),
+leaves an existing scores.tsv.gz (features.tsv.gz) in place: it cannot write them again."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -58,7 +66,11 @@ all inherited / confirmed rows in tumour mode), <code>pooled_calls.tsv</code> (c
 <code>thresholds.tsv</code>, <code>null_fit.tsv</code> (depth t rows + rho), <code>false_calls.tsv</code> + <code>false_events.tsv</code> (normal mode),
 tumour mode: <code>clones.tsv</code>, <code>assignments.tsv</code>, <code>clone_segments.tsv</code>, <code>clone_profiles.tsv.gz</code>,
 <code>reference_pool.txt</code>; <code>regions.tsv</code>; <code>result.rds</code> (the object without scores and features), <code>params.yaml</code>,
-<code>summary.tsv</code> (<code><a href="scphasedcn_summary.html">scphasedcn_summary()</a></code>) and <code>NOTES.md</code>. Optional: <code>scores.tsv.gz</code>, <code>features.tsv.gz</code>.</p>
+<code>summary.tsv</code> (<code><a href="scphasedcn_summary.html">scphasedcn_summary()</a></code>) and <code>NOTES.md</code>. Optional: <code>scores.tsv.gz</code>, <code>features.tsv.gz</code>.
+The files of a previous result in <code>out</code> (the names above) are removed first, so a re-run never leaves stale
+tables behind (e.g. <code>clones.tsv</code> of a tumour run, <code>scores.tsv.gz</code> of a run with <code>write_scores</code>); other files in
+<code>out</code> are left alone. An object without scores (or features), e.g. one read back with <code><a href="read_scphasedcn.html">read_scphasedcn()</a></code>,
+leaves an existing <code>scores.tsv.gz</code> (<code>features.tsv.gz</code>) in place: it cannot write them again.</p>
     </div>
 
     <div class="section level2">

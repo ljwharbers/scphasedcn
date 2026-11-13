@@ -156,3 +156,13 @@ cell), posterior, ll_margin, doublet_like, pair, ref_pool, p_mix,
 ll_mix_gain, ll_best, mix_prior, assigned / confident (posterior \>=
 `min_post` and not doublet-like) (plus trunk, p_trunk when `trunks` is
 given; attribute `ll`: cells x hypotheses log-likelihood matrix)
+
+## Details
+
+The hypotheses are the clones with members plus the fixed normal clone
+`N0` whenever `segments` has it
+([`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
+`normal_hypothesis`), even when no cell is labelled `N0` yet: its state
+is all-neutral, so it needs no orientation, and without it normal cells
+would be forced into a tumour clone. Its `c` is the median `c` of `par`
+(attenuation 1) when `par` has no `N0` row.

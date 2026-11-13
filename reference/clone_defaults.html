@@ -124,7 +124,12 @@ tumour state set, one threshold per stratum) or "matched" (each clone hypothesis
 the null rows oriented by that clone's pseudobulk under the same two-state set as the cells; one threshold per
 hypothesis x stratum, hypothesis-wide below <code>min_null_rows</code>; held-out fold-CV false-confirmation rates per
 hypothesis in <code>null_fit$confirm_null</code>; the default). The refitted value is <code>null_fit$rho_confirm</code>.</p>
-<p>A key that is not one of these defaults stops <code><a href="caller_tumour.html">caller_tumour()</a></code> with an error.</p>
+<p>A key that is not one of these defaults stops <code><a href="caller_tumour.html">caller_tumour()</a></code> with an error, and so does a value outside its range:
+<code>q</code>, <code>p_switch</code>, <code>trunk_post</code>, <code>min_post</code>, <code>ref_post</code>, <code>max_mix_prior</code> and every <code>mix_w</code> strictly
+between 0 and 1, <code>mix_prior</code> in [0, 1), <code>multiplet_prob</code>, <code>deep_q</code> and <code>member_post</code> in [0, 1], counts (<code>em_rounds</code>,
+<code>min_size</code>, <code>n_perm</code>, <code>min_win</code>, <code>min_ref</code>, ...) whole numbers &gt;= 1, the caps <code>max_cells</code>, <code>max_leaves</code> and
+<code>max_leaves_trunk</code> whole numbers &gt;= 1 or <code>Inf</code> (no cap), <code>small_clone</code> a whole number &gt;= 0, <code>trunk_dist</code> and
+<code>control_min_len</code> &gt;= 0, the other sizes / lengths &gt; 0, the other tolerances &gt;= 0.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

@@ -89,6 +89,16 @@ named list:
   threshold group (class x autosome / X / Y) with the class threshold as
   fallback (TRUE; no effect in females);
 
+- `pool_events` normal mode: call named `event` regions (no null rows of
+  their own) also in pools (FALSE). Off, their pools are scored but get
+  no threshold and are never called; their per-cell calls are not
+  affected. On (experimental): their pools are standardised with the
+  class-median scale of their `sd_class` and thresholded with its pooled
+  threshold, which is not calibrated per event (the null pooled score of
+  a region depends on its own vote count, which the per-region scale of
+  [`pool_scale()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scale.md)
+  corrects for);
+
 - `pool_tail_q` pooled per-region tail calibration
   ([`pool_scale()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scale.md)):
   quantile of the region-standardised null pools compared with the class

@@ -94,32 +94,40 @@ segments, cell assignment, per-cell inherited / confirmed calls).</p>
 
 
 <dt id="arg-cell-meta">cell_meta<a class="anchor" aria-label="anchor" href="#arg-cell-meta"></a></dt>
-<dd><p>NULL, a table or a TSV path with <code>cell</code> and optional <code>cell_type, flat, fold, group, stratum, n_frag</code> (passed to <code><a href="cell_features.html">cell_features()</a></code>; <code>flat</code> becomes the features' <code>null_cell</code>)</p></dd>
+<dd><p>NULL, a table or a TSV path with <code>cell</code> and optional <code>qc_pass, cell_type, flat, fold, group, stratum, n_frag</code> (passed to <code><a href="cell_features.html">cell_features()</a></code>: without <code>cells</code> only its cells that pass <code><a href="cell_qc.html">cell_qc()</a></code> are called,
+and with a <code>qc_pass</code> column only those that also have <code>qc_pass</code> TRUE; <code>flat</code> becomes the features' <code>null_cell</code>)</p></dd>
 
 
 <dt id="arg-cells">cells<a class="anchor" aria-label="anchor" href="#arg-cells"></a></dt>
-<dd><p>NULL (QC-pass cells) or the cells to call (vector or file)</p></dd>
+<dd><p>NULL (QC-pass cells) or the cells to call (vector or file; no cell QC). The barcodes of <code>cells</code>,
+<code>cell_meta</code>, <code>null_cells</code>, <code>multiplets</code> and named <code>groups</code> lose a trailing <code>-1</code> (as the extractor writes them);
+the run notes give how many of them match the data's cells, and a warning says when none does</p></dd>
 
 
 <dt id="arg-sex">sex<a class="anchor" aria-label="anchor" href="#arg-sex"></a></dt>
-<dd><p>"female" / "male" (required for real data; NULL uses a <code>sex</code> column of <code>cells_qc.tsv</code> if there is one, as in
-simulated data)</p></dd>
+<dd><p>"female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
+uses a <code>sex</code> column of <code>cells_qc.tsv</code> if there is one, as in simulated data; its non-missing values must agree)</p></dd>
 
 
 <dt id="arg-events">events<a class="anchor" aria-label="anchor" href="#arg-events"></a></dt>
-<dd><p>named events: a table <code>region, chrom, start, end</code>, <code><a href="cli_events.html">cli_events()</a></code> output or a named vector of
-region strings (<code>20q_gain = "chr20:28000000-"</code>); scored as <code>event</code> regions; in tumour mode their chromosomes
-are excluded from the null rows</p></dd>
+<dd><p>named events: a table <code>region, chrom, start, end</code> (0-based half-open), <code><a href="cli_events.html">cli_events()</a></code> output or a
+named vector of region strings (<code>20q_gain = "chr20:28000000-"</code>; unnamed ones are named after the region, see
+<code><a href="region_set.html">region_set()</a></code>); scored as <code>event</code> regions; in tumour mode their chromosomes are excluded from the null rows</p></dd>
 
 
 <dt id="arg-null-cells">null_cells<a class="anchor" aria-label="anchor" href="#arg-null-cells"></a></dt>
 <dd><p>NULL / "auto" (the features' <code>null_cell</code> when informative, else selected), "features",
-"select" (<code><a href="select_null_cells.html">select_null_cells()</a></code>), or the null cells themselves (vector or file)</p></dd>
+"select" (<code><a href="select_null_cells.html">select_null_cells()</a></code>), or the null cells themselves (vector or file). Tumour mode: given null cells
+(like <code>flat</code> cells of <code>cell_meta</code>) are the cells whose null rows fit the input depth t null and allelic rho when the
+features carry no <code>null_fit</code>; they are not the reference pool (the caller finds and cleans the normal clone
+itself); "select" is ignored with a warning</p></dd>
 
 
 <dt id="arg-multiplets">multiplets<a class="anchor" aria-label="anchor" href="#arg-multiplets"></a></dt>
 <dd><p>NULL or multiplet flags (<code><a href="multiplet_table.html">multiplet_table()</a></code> forms); normal mode: cells with prob &gt; 0.5
-are never null cells and never pooled; tumour mode: passed to <code><a href="caller_tumour.html">caller_tumour()</a></code></p></dd>
+are never null cells and never pooled; tumour mode: passed to <code><a href="caller_tumour.html">caller_tumour()</a></code>, which sets aside the cells
+above its <code>multiplet_prob</code> option (default 0.9). The <code>multiplet</code> column of the cells table flags the cells each
+mode set aside</p></dd>
 
 
 <dt id="arg-control-regions">control_regions<a class="anchor" aria-label="anchor" href="#arg-control-regions"></a></dt>
@@ -137,7 +145,9 @@ by cell, or one label per cell); ignored with a warning in normal mode</p></dd>
 
 
 <dt id="arg-features">features<a class="anchor" aria-label="anchor" href="#arg-features"></a></dt>
-<dd><p>NULL (computed) or a precomputed <code>scn_features</code> (object or .rds path) to skip the feature step</p></dd>
+<dd><p>NULL (computed) or a precomputed <code>scn_features</code> (object or .rds path) to skip the feature step; the
+arguments of the feature step (<code>sex</code>, <code>events</code>, <code>...</code>; in tumour mode also <code>cells</code>, <code>groups</code>, <code>cell_meta</code>; in normal
+mode <code>cell_meta</code> columns other than <code>cell_type</code>) are then not used, with a warning</p></dd>
 
 
 <dt id="arg-embedding">embedding<a class="anchor" aria-label="anchor" href="#arg-embedding"></a></dt>
@@ -146,7 +156,7 @@ or a cells x components matrix with cell row names</p></dd>
 
 
 <dt id="arg-verbose">verbose<a class="anchor" aria-label="anchor" href="#arg-verbose"></a></dt>
-<dd><p>log progress</p></dd>
+<dd><p>log progress (also of <code><a href="caller_tumour.html">caller_tumour()</a></code>)</p></dd>
 
 
 <dt id="arg-keep-scores">keep_scores<a class="anchor" aria-label="anchor" href="#arg-keep-scores"></a></dt>

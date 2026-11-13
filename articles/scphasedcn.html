@@ -88,7 +88,10 @@ scored with beta-binomial likelihood ratios.</li>
 cell-private events. Thresholds come from null cells (cells the caller
 selects as copy-number neutral, or that you give), cross-validated at 1
 false call per 1,000 null cell-regions; cells are also called in pools
-(random pools within a cell type, chromatin-kNN pools).</li>
+(random pools within a cell type, chromatin-kNN pools). Named events
+(<code>events</code>) are called per cell; their pooled calls are off by
+default (<code>pool_events</code>: experimental, not calibrated per
+event).</li>
 <li>
 <strong>tumour</strong> (<code>mode = "tumour"</code>): clones. The
 caller discovers clones, fits their allele-specific copy-number states,
@@ -318,9 +321,10 @@ deeper or shallower data, move them.</p>
 <p>Tumour mode needs read-phased alleles (the allele votes drive the
 clone discovery). Phase blocks of longphase are not oriented between
 blocks; the caller orients them per clone. Optional inputs: cells known
-to be normal (<code>flat</code> in the cell metadata; the caller
-otherwise finds the normal clone itself), groups for the block
-orientation (<code>groups</code>, e.g. spatial regions), known events
+to be normal (<code>flat</code> in the cell metadata: they set the input
+depth and allelic null; the reference pool is always the normal clone
+the caller finds), groups for the block orientation
+(<code>groups</code>, e.g. spatial regions), known events
 (<code>events</code>, reported as their own regions) and multiplet
 probabilities (<code>multiplets</code>).</p>
 <div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
@@ -328,9 +332,18 @@ probabilities (<code>multiplets</code>).</p>
 <span>                 events <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>`20q_gain` <span class="op">=</span> <span class="st">"chr20:28000000-"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="va">res_t</span><span class="op">$</span><span class="va">clones</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_t</span><span class="op">$</span><span class="va">segments</span><span class="op">)</span></span></code></pre></div>
-<p>MEDICC2 trees of the clones: <code><a href="../reference/medicc2_pieces.html">medicc2_pieces()</a></code> and
-<code><a href="../reference/medicc2_table.html">medicc2_table()</a></code> write MEDICC2’s input from the clone
-segments.</p>
+<p>MEDICC2 trees of the clones: <code><a href="../reference/medicc2_pieces.html">medicc2_pieces()</a></code> cuts the
+clone segments into common pieces, <code><a href="../reference/orient_clone_states.html">orient_clone_states()</a></code>
+assigns each clone’s allele-specific copy numbers (<code>cn_a</code>,
+<code>cn_b</code>) from the molecule votes of the features, and
+<code><a href="../reference/medicc2_table.html">medicc2_table()</a></code> makes MEDICC2’s input table (write it
+yourself):</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">feat</span> <span class="op">=</span> <span class="fu"><a href="../reference/cell_features.html">cell_features</a></span><span class="op">(</span><span class="st">"results/tumour/extract"</span>, method <span class="op">=</span> <span class="st">"model"</span>, sex <span class="op">=</span> <span class="st">"male"</span><span class="op">)</span></span>
+<span><span class="va">res_t</span> <span class="op">=</span> <span class="fu"><a href="../reference/call_scn.html">call_scn</a></span><span class="op">(</span><span class="st">"results/tumour/extract"</span>, mode <span class="op">=</span> <span class="st">"tumour"</span>, features <span class="op">=</span> <span class="va">feat</span><span class="op">)</span></span>
+<span><span class="va">pcs</span> <span class="op">=</span> <span class="fu"><a href="../reference/medicc2_pieces.html">medicc2_pieces</a></span><span class="op">(</span><span class="va">res_t</span><span class="op">$</span><span class="va">segments</span>, <span class="va">res_t</span><span class="op">$</span><span class="va">clones</span><span class="op">)</span></span>
+<span><span class="va">ori</span> <span class="op">=</span> <span class="fu"><a href="../reference/orient_clone_states.html">orient_clone_states</a></span><span class="op">(</span><span class="va">pcs</span>, <span class="va">feat</span>, <span class="va">res_t</span><span class="op">$</span><span class="va">assignments</span>, <span class="va">res_t</span><span class="op">$</span><span class="va">clones</span><span class="op">)</span></span>
+<span><span class="fu">data.table</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="fu"><a href="../reference/medicc2_table.html">medicc2_table</a></span><span class="op">(</span><span class="va">ori</span><span class="op">)</span>, <span class="st">"medicc2_input.tsv"</span>, sep <span class="op">=</span> <span class="st">"\t"</span><span class="op">)</span></span></code></pre></div>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

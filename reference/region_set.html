@@ -95,12 +95,15 @@ have a usable bin; <code>null_region</code> = arm, chrom and tile regions on aut
 
 
 <dt id="arg-events">events<a class="anchor" aria-label="anchor" href="#arg-events"></a></dt>
-<dd><p>NULL, a data.table <code>region, chrom, start, end</code> (NA end = chromosome end), <code><a href="cli_events.html">cli_events()</a></code>
-output or a named vector of region strings</p></dd>
+<dd><p>NULL, a data.table <code>region, chrom, start, end</code> (0-based half-open; NA end = chromosome end),
+<code><a href="cli_events.html">cli_events()</a></code> output or a named vector of region strings (<code>"chr20:28000000-"</code>, <code>"chr7"</code>; <code><a href="parse_region.html">parse_region()</a></code>). An
+event without a name is named after its region string (a bare chromosome <code>"chr7"</code>: <code>"event|chr7"</code>). An event
+that yields no region (a chromosome without usable bins, or no whole usable bin inside) is dropped with a
+warning.</p></dd>
 
 
 <dt id="arg-sex">sex<a class="anchor" aria-label="anchor" href="#arg-sex"></a></dt>
-<dd><p>"female" or "male"</p></dd>
+<dd><p>"female" or "male" (case-insensitive, or "F" / "M"; any other value stops)</p></dd>
 
 
 <dt id="arg-null-exclude">null_exclude<a class="anchor" aria-label="anchor" href="#arg-null-exclude"></a></dt>

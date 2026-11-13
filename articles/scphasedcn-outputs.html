@@ -86,9 +86,12 @@ written run back.</p>
 <tr class="odd">
 <td><code>cells.tsv</code></td>
 <td>one row per called cell: cell type, depth stratum, null cell flag,
-multiplet flag, <code>n_calls</code>, <code>n_events</code>; tumour mode
-adds <code>clone</code>, <code>posterior</code>,
-<code>doublet_like</code>, <code>ref_pool</code>
+<code>n_calls</code>, <code>n_events</code>, and the
+<code>multiplet</code> flag (normal mode always; tumour mode when
+<code>multiplets</code> are given: the cells above its
+<code>multiplet_prob</code>); tumour mode adds <code>clone</code>,
+<code>posterior</code>, <code>doublet_like</code>,
+<code>ref_pool</code>
 </td>
 </tr>
 <tr class="even">
@@ -98,7 +101,9 @@ every clone row and every per-cell inherited / confirmed row)</td>
 </tr>
 <tr class="odd">
 <td><code>pooled_calls.tsv</code></td>
-<td>normal mode: called rows of the cell pools</td>
+<td>normal mode: called rows of the cell pools (named <code>event</code>
+regions only with <code>pool_events</code>, off by default:
+experimental, not calibrated per event)</td>
 </tr>
 <tr class="even">
 <td><code>events.tsv</code></td>
@@ -107,7 +112,10 @@ every clone row and every per-cell inherited / confirmed row)</td>
 <tr class="odd">
 <td><code>thresholds.tsv</code></td>
 <td>the null thresholds per score, region class and depth stratum (and
-cross-validation fold)</td>
+cross-validation fold); named <code>event</code> regions have no null
+rows of their own and use the thresholds of their <code>sd_class</code>
+(column <code>borrowed_from</code>, present when a run has events; the
+pooled ones only with <code>pool_events</code>)</td>
 </tr>
 <tr class="even">
 <td><code>regions.tsv</code></td>
@@ -229,13 +237,14 @@ reported inside a stronger nested arm loss)</td>
 <td>
 <code>z</code>, <code>f</code>, <code>n_hap</code>
 </td>
-<td>depth z, major-haplotype fraction and molecule votes of the cell in
-the region</td>
+<td>normal mode, cell rows: depth z, major-haplotype fraction and
+molecule votes of the cell in the region (not in tumour mode)</td>
 </tr>
 <tr class="odd">
 <td><code>stratum</code></td>
-<td>the cell’s depth stratum (clean fragments; <code>&lt;20k</code>,
-<code>20-50k</code>, <code>&gt;=50k</code>)</td>
+<td>normal mode, cell rows: the cell’s depth stratum (clean fragments;
+<code>&lt;20k</code>, <code>20-50k</code>, <code>&gt;=50k</code>; not in
+tumour mode)</td>
 </tr>
 <tr class="even">
 <td><code>confident</code></td>

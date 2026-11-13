@@ -63,7 +63,8 @@
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>character vector: <code>h&lt;i&gt;</code> (bin of the row's class x stratum), <code>none</code> (n_hap 0 or NA) or <code>all</code>
-(class x stratum without bins)</p>
+(class x stratum without bins). Rows of a class without bins (named <code>event</code> regions) use the bins of their
+<code>sd_class</code> when <code>d</code> has that column (they borrow its thresholds, <code><a href="budget_thresholds.html">budget_thresholds()</a></code>).</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

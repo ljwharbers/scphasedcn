@@ -148,8 +148,8 @@ events (<code><a href="consolidate_calls.html">consolidate_calls()</a></code>). 
 
 
 <dt id="arg-sex">sex<a class="anchor" aria-label="anchor" href="#arg-sex"></a></dt>
-<dd><p>"female", "male" or NULL (inferred: female when chrX rows carry allele votes); sets the
-chrX rule of <code><a href="call_policy.html">call_policy()</a></code></p></dd>
+<dd><p>"female", "male" (case-insensitive, or "F" / "M"; any other value stops) or NULL (inferred: female when
+chrX rows carry allele votes); sets the chrX rule of <code><a href="call_policy.html">call_policy()</a></code></p></dd>
 
 
 <dt id="arg-resolve-gains">resolve_gains<a class="anchor" aria-label="anchor" href="#arg-resolve-gains"></a></dt>
@@ -196,7 +196,9 @@ not reportable in females (<code><a href="call_policy.html">call_policy()</a></c
 (<code>hstratum</code>, bins of n_hap of the null rows, <code><a href="vote_bins.html">vote_bins()</a></code>); <code>params$calib_rho = "chrom"</code> scores the allele
 channel with a per-chromosome rho shrunk to the global (<code><a href="rho_by_chrom.html">rho_by_chrom()</a></code>). <code>params$pool_tail_q &gt; 0</code> (the
 default) adds a per-region tail factor to the pooled region scale (<code><a href="pool_scale.html">pool_scale()</a></code>), cross-fitted with
-<code>params$pool_tail_xfit</code> (<code><a href="pooled_thresholds.html">pooled_thresholds()</a></code>). Removed options stop with
+<code>params$pool_tail_xfit</code> (<code><a href="pooled_thresholds.html">pooled_thresholds()</a></code>). Named <code>event</code> regions (no null rows) borrow the per-cell
+thresholds of their <code>sd_class</code> (<code><a href="budget_thresholds.html">budget_thresholds()</a></code>); their pools are called only with <code>params$pool_events</code>
+(experimental, off by default: <code><a href="caller_defaults.html">caller_defaults()</a></code>). Removed options stop with
 an error: <code>calib</code> "region" / "region_votes" / "votes_cont", <code>calib_rho</code> "cell" / "chrom_cell".</p>
     </div>
 

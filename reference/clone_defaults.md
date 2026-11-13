@@ -74,4 +74,12 @@ is `null_fit$rho_confirm`.
 
 A key that is not one of these defaults stops
 [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
-with an error.
+with an error, and so does a value outside its range: `q`, `p_switch`,
+`trunk_post`, `min_post`, `ref_post`, `max_mix_prior` and every `mix_w`
+strictly between 0 and 1, `mix_prior` in \[0, 1), `multiplet_prob`,
+`deep_q` and `member_post` in \[0, 1\], counts (`em_rounds`, `min_size`,
+`n_perm`, `min_win`, `min_ref`, ...) whole numbers \>= 1, the caps
+`max_cells`, `max_leaves` and `max_leaves_trunk` whole numbers \>= 1 or
+`Inf` (no cap), `small_clone` a whole number \>= 0, `trunk_dist` and
+`control_min_len` \>= 0, the other sizes / lengths \> 0, the other
+tolerances \>= 0.

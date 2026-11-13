@@ -6,7 +6,10 @@ whose `fold` has a threshold in the table gets that fold's
 fold the table does not have) get fold 0. A thresholds table whose
 `stratum` is all "all" (class-level, e.g. pooled) is matched on class
 only. A table with a non-NA `hstratum` column (vote calibration) is also
-matched on the rows' `hstratum`.
+matched on the rows' `hstratum`. Threshold rows with a `borrowed_from`
+sd_class (a class without null rows,
+[`budget_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/budget_thresholds.md))
+apply to the rows of that class whose `sd_class` is `borrowed_from`.
 
 ## Usage
 

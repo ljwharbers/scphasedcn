@@ -2,7 +2,8 @@
 
 Location-scale Student-t (`MASS::fitdistr(x, "t")`) of the finite null z
 per group, on a seeded subsample of at most `n_max` rows per group;
-fallback median / mad / df 30 when the fit fails.
+fallback median / mad / df 30 when the fit fails (the scale floored at
+the sd and at 1e-3).
 
 ## Usage
 

@@ -598,11 +598,47 @@ read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix 
 #' @export
 detect_phasing = function(votes, atoms, frac = 0.9) {
   if (!nrow(votes)) return("chromosome")
+  k = phasing_by_chrom(votes, atoms, frac)$k
+  if (stats::median(k) <= 2) "chromosome" else "block"
+}
+
+#' Phasing regime per chromosome
+#'
+#' Per chromosome of the votes, the number of phase sets needed to hold `frac` of the chromosome's votes (largest
+#' first) and the regime by the rule of [detect_phasing()]: `"chromosome"` when at most 2 phase sets hold `frac` of
+#' the votes, else `"block"`. [detect_phasing()] is the same rule on the median of `k` over chromosomes; this table
+#' shows chromosomes whose phasing differs from the global regime (e.g. a hybrid phase whose chrX is still in
+#' read-backed blocks, so that plain sums over its unoriented blocks attenuate or cancel the chrX allele signal).
+#' @param votes votes table ([read_votes()])
+#' @param atoms atoms table
+#' @param frac vote fraction the counted phase sets must hold
+#' @return data.table `chrom, n_votes, n_ps` (distinct phase sets), `k` (phase sets holding `frac` of the votes),
+#'   `regime` ("chromosome" / "block"), in the chromosome order of `atoms`
+#' @export
+phasing_by_chrom = function(votes, atoms, frac = 0.9) {
+  if (!nrow(votes)) return(data.table(chrom = character(), n_votes = numeric(), n_ps = integer(), k = integer(), regime = character()))
   ch = atoms$chrom[match(votes$atom, atoms$atom)]
   t = data.table(chrom = ch, ps = votes$ps, n = votes$nA + votes$nB)[, .(n = sum(n)), by = .(chrom, ps)]
   setorderv(t, c("chrom", "n"), c(1L, -1L))
-  k = t[, .(k = which(cumsum(n) >= frac * sum(n))[1]), by = chrom]$k
-  if (stats::median(k) <= 2) "chromosome" else "block"
+  out = t[, .(n_votes = as.numeric(sum(n)), n_ps = .N, k = which(cumsum(n) >= frac * sum(n))[1]), by = chrom]
+  out[, regime := ifelse(k <= 2, "chromosome", "block")]
+  out = out[order(match(chrom, unique(atoms$chrom)))]
+  out[]
+}
+utils::globalVariables(c("n_votes", "n_ps", "regime"))
+
+# the note on the chromosomes whose phasing regime ([phasing_by_chrom()]) differs from the run's regime `detected`;
+# NULL when there are none (or no table). Under `chromosome` orientation the blocks of such chromosomes are summed
+# unoriented, which the note says (the orientation itself is global; per-chromosome orientation is not implemented)
+phasing_mixed_note = function(pbc, detected, orientation) {
+  if (is.null(pbc) || !nrow(pbc) || is.null(detected)) return(NULL)
+  off = as.data.table(pbc)[regime != detected]
+  if (!nrow(off)) return(NULL)
+  sprintf("phasing: %s phased %s while the run's regime is %s (orientation %s applies to all chromosomes%s)",
+          paste(off$chrom, collapse = ", "), if (detected == "chromosome") "in blocks" else "chromosome-wide",
+          detected, orientation,
+          if (detected == "chromosome" && identical(unname(orientation), "chromosome"))
+            "; their unoriented blocks are summed as they are, which attenuates or cancels their allele signal" else "")
 }
 
 # ---- region votes ----------------------------------------------------------------------------------------
@@ -873,7 +909,11 @@ apply_cell_meta = function(meta, cell_meta) {
 #' @param classes region classes
 #' @param events named events (see [region_set()])
 #' @param null_exclude chromosomes / regions without null rows (known events)
-#' @param phasing "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored"
+#' @param phasing "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored". `auto` = `chromosome` when
+#'   [detect_phasing()] finds chromosome-wide phase sets, else `loo`. Chromosome-wide phasing is recommended for
+#'   normal tissue (`scphasedcn hybrid-phase`; `vignette("scphasedcn-inputs")` for its limits): `loo` orients each
+#'   block by the other cells, cannot show allelic events carried by few cells and aligns allelic bias shared by all
+#'   cells
 #' @param groups NULL, the name of a `cell_meta` column, a vector named by cell, or one label per kept
 #'   cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)
 #' @param mol_gap molecule gap (bp; default `params$mol_gap`, 2000); `params$mol_split_ps` and
@@ -886,6 +926,8 @@ apply_cell_meta = function(meta, cell_meta) {
 #' @param exclude_atoms NULL or atom ids whose votes are left out of the allele features (see [allelic_features()])
 #' @return `scn_features` list: `long` (features, keyed by cell and region), `regions`, `cells` (row order =
 #'   the votes' cell index), `votes`, `atoms`, `win` ([window_matrices()]), `params`, `notes`, `use`, `phasing`
+#'   (`detected`, `orientation`), `phasing_chrom` (the per-chromosome regimes, [phasing_by_chrom()]; the notes name
+#'   chromosomes whose regime differs from `detected`)
 #' @export
 cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("celltype", "model"), ref_cells = NULL, min_cells_type = 20,
                          use = NULL, sex = NULL, centromeres = NULL, classes = c("arm", "chrom", "5Mb", "10Mb", "20Mb", "50Mb"),
@@ -948,6 +990,13 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   orientation = switch(phasing, auto = if (detected == "chromosome") "chromosome" else "loo", block = "loo", phasing)
   note(sprintf("votes: %d rows (%d molecules); phasing detected %s, orientation %s", nrow(votes), sum(votes$nA) + sum(votes$nB),
                detected, orientation))
+  pbc = phasing_by_chrom(votes, atoms)
+  if (nrow(pbc)) {
+    note(sprintf("phasing per chromosome (phase sets holding 90%% of the votes): %s",
+                 paste0(pbc$chrom, " ", pbc$regime, " (", pbc$k, ")", collapse = ", ")))
+    mixed = phasing_mixed_note(pbc, detected, orientation)
+    if (!is.null(mixed)) note(mixed)
+  }
   g = groups
   if (!is.null(g)) {
     if (is.character(g) && length(g) == 1 && g %in% names(meta)) g = meta[[g]]
@@ -987,7 +1036,8 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   cells_out = merge(meta, qct[, .(cell, qc_pass)], by = "cell", sort = FALSE)[match(keep, cell)]
   check_regions(regions); check_atoms(atoms); check_votes(votes); check_features(long)
   structure(list(long = long, regions = regions, cells = cells_out, votes = if (keep_votes) votes else NULL, atoms = atoms,
-                 win = win, params = params, notes = notes, use = use, phasing = c(detected = detected, orientation = orientation)),
+                 win = win, params = params, notes = notes, use = use, phasing = c(detected = detected, orientation = orientation),
+                 phasing_chrom = pbc),
             class = "scn_features")
 }
 

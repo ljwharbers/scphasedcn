@@ -58,7 +58,11 @@ the package, \code{\link[=hg38_centromeres]{hg38_centromeres()}})}
 
 \item{null_exclude}{chromosomes / regions without null rows (known events)}
 
-\item{phasing}{"auto", "chromosome", "block" (= "loo"), "loo" or "mirrored"}
+\item{phasing}{"auto", "chromosome", "block" (= "loo"), "loo" or "mirrored". \code{auto} = \code{chromosome} when
+\code{\link[=detect_phasing]{detect_phasing()}} finds chromosome-wide phase sets, else \code{loo}. Chromosome-wide phasing is recommended for
+normal tissue (\verb{scphasedcn hybrid-phase}; \code{vignette("scphasedcn-inputs")} for its limits): \code{loo} orients each
+block by the other cells, cannot show allelic events carried by few cells and aligns allelic bias shared by all
+cells}
 
 \item{groups}{NULL, the name of a \code{cell_meta} column, a vector named by cell, or one label per kept
 cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)}
@@ -81,6 +85,8 @@ cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)}
 \value{
 \code{scn_features} list: \code{long} (features, keyed by cell and region), \code{regions}, \code{cells} (row order =
 the votes' cell index), \code{votes}, \code{atoms}, \code{win} (\code{\link[=window_matrices]{window_matrices()}}), \code{params}, \code{notes}, \code{use}, \code{phasing}
+(\code{detected}, \code{orientation}), \code{phasing_chrom} (the per-chromosome regimes, \code{\link[=phasing_by_chrom]{phasing_by_chrom()}}; the notes name
+chromosomes whose regime differs from \code{detected})
 }
 \description{
 Reads an extraction directory, applies the cell QC (\code{\link[=cell_qc]{cell_qc()}}; with a \code{qc_pass} column of \code{cell_meta} a cell must

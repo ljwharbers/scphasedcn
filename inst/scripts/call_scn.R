@@ -20,7 +20,7 @@
 defaults = list(sample = "", mode = "", dir = "", sex = "", events = "", config = "", caller_config = "", cell_meta = "",
                 cells = "", null_cells = "auto", multiplets = "", groups = "", control_regions = "", features = "",
                 centromeres = "", out = "", tag = "default", cores = 8, write_scores = FALSE, write_features = FALSE,
-                no_embedding = FALSE, seed = "", n_draws = "", confirm_null = "", split_pass = "")
+                no_embedding = FALSE, seed = "", n_draws = "", confirm_null = "", split_pass = "", phasing = "auto")
 usage = paste(
   "Single-cell copy-number caller (scphasedcn::call_scn) on one sample.",
   "",
@@ -47,6 +47,9 @@ usage = paste(
   "  --multiplets <x>        file (one cell per line, or a table with prob / multiplet / clean_singlet) or ';' list",
   "  --groups <column>       tumour mode: cell-meta column of the pseudobulk orientation groups (e.g. a spatial region)",
   "  --control-regions <tsv> tumour mode: control regions table",
+  "  --phasing <x>           auto | chromosome | block | loo | mirrored: block orientation of the allele features",
+  "                          (default auto: chromosome-wide phase sets as they are, else loo; normal mode:",
+  "                          chromosome-scale phasing recommended, see `scphasedcn hybrid-phase`)",
   "  --features <rds>        precomputed scn_features (skips the feature step)",
   "  --tag <tag>             output tag (with --config / --sample)",
   "  --cores <n>             data.table threads",
@@ -89,6 +92,7 @@ if (!nzchar(a$features) && !file.exists(file.path(dir, "bins_100kb.h5ad"))) fail
 mode = if (nzchar(a$mode)) a$mode else if (isTRUE(tolower(s$type) %in% c("tumour", "tumor"))) "tumour" else "normal"
 if (identical(tolower(mode), "tumor")) mode = "tumour"
 if (!mode %in% c("normal", "tumour")) fail("--mode must be normal or tumour")
+if (!a$phasing %in% c("auto", "chromosome", "block", "loo", "mirrored")) fail("--phasing must be auto, chromosome, block, loo or mirrored")
 sex = if (nzchar(a$sex)) a$sex else s$sex
 if (!is.null(sex)) sex = tryCatch(scphasedcn:::check_sex(sex, "--sex"), error = function(e) fail(conditionMessage(e)))
 # events: name=region or a bare region (named after the region, e.g. chr7 -> event|chr7); 0-based half-open coordinates
@@ -133,7 +137,8 @@ pre = nzchar(a$features)
 res = call_scn(dir, mode = mode, cell_meta = cm, cells = cells, sex = if (pre) NULL else sex, events = events, null_cells = null_cells,
                multiplets = mult, control_regions = ctrl, groups = if (nzchar(a$groups)) a$groups else NULL, params = params,
                features = if (pre) a$features else NULL, embedding = !isTRUE(a$no_embedding),
-               keep_scores = isTRUE(a$write_scores), caller_args = caller_args, centromeres = if (pre) NULL else cen)
+               keep_scores = isTRUE(a$write_scores), caller_args = caller_args, phasing = a$phasing,
+               centromeres = if (pre) NULL else cen)
 print(res)
 files = write_scphasedcn(res, out, write_scores = isTRUE(a$write_scores), write_features = isTRUE(a$write_features))
 print(scphasedcn_summary(res))

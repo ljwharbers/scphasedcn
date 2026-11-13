@@ -298,6 +298,28 @@ test_that("pools: random partitions within type, kNN neighbourhoods, pooled thre
   expect_lt(cp[cell != "carriers", mean(called)], 0.01)
 })
 
+test_that("pooled thresholds: fold 0 does not depend on cv; caller_normal computes the pooled fold 0 only", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(300, rg, seed = 7)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  sc = score_cells(ff, caller_states("normal"), fit_depth_null(ff[null_cell == TRUE]), 0.002, keep_rows = TRUE)
+  ct = setNames(ff[, cell_type[1], by = cell]$V1, ff[, cell_type[1], by = cell]$cell)
+  fun = function(cc, seed) make_pools(cc, ct[cc], 20, seed)
+  pt = function(cv) pooled_thresholds(sc[null_cell == TRUE], fun, n_draws = 600, cv = cv, loo = TRUE, standardize = TRUE,
+                                      min_region_pools = 150)
+  p1 = pt(TRUE); p0 = pt(FALSE)
+  expect_setequal(unique(p1$fold), 0:4)
+  expect_identical(unique(p0$fold), 0L)
+  expect_identical(attr(p0, "pool_scale"), attr(p1, "pool_scale"))
+  strip = function(x) { x = copy(x); setattr(x, "pool_scale", NULL); x }
+  expect_equal(strip(p0), strip(p1[fold == 0L]), tolerance = 0)
+  # caller_normal: per-cell thresholds per fold, pooled thresholds fold 0 only (call_pools uses fold 0)
+  res = caller_normal(ff, regions = rg, null_cells = "features", n_draws = 600)
+  expect_setequal(unique(res$thresholds[level == "cell", fold]), 0:4)
+  expect_true(all(res$thresholds[level != "cell", fold] == 0L))
+  expect_gt(nrow(res$thresholds[level == "pool_type"]), 0)
+})
+
 test_that("tumour states score attenuated losses, allele-specific gains and amplifications", {
   rg = fake_regions(tiles = c("20Mb" = 2e7))
   ff = fake_features(300, rg, events = data.table(cell = 1:20, region = "chr8", state = "loss"), seed = 7)

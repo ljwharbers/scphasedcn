@@ -1309,7 +1309,9 @@ utils::globalVariables("borrowed_from")
 #' (seed + draw) until every class has at least `n_draws` null pool-regions;
 #' a deterministic construction (same pools twice, e.g. kNN) is used once.
 #' With `cv` one threshold per fold from the null cells of the other folds,
-#' plus fold 0 from all null cells. With `loo` the leave-one-out scores (`s_rob`) are computed and can be
+#' plus fold 0 from all null cells; the fold-0 rows and scale do not depend on `cv`. [call_pools()] applies
+#' fold 0 only (pools have no fold), so [caller_normal()] computes fold 0 only (`cv = FALSE`). With `loo` the
+#' leave-one-out scores (`s_rob`) are computed and can be
 #' thresholded, exactly as [call_pools()] scores the test pools.
 #' @param d_null null rows scored with `keep_rows = TRUE` (cell, region, class, fold)
 #' @param pools_fun function(cells, seed) returning a pools table (pool, cell)
@@ -1523,7 +1525,8 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' @param null_chroms chromosomes whose rows can be null rows (default the autosomes, the chromosomes
 #'   [select_null_cells()] checks); NULL = every `null_region`
 #' @return `scphasedcn` (mode normal) with `scores`, `thresholds` (column `level`:
-#'   cell, pool_type, pool_knn), `calls` (cell and pool level; `resolved` for gains changed by
+#'   cell (folds 0 to `n_folds`), pool_type, pool_knn (fold 0 only)), `calls` (cell and pool level; `resolved`
+#'   for gains changed by
 #'   [resolve_nested()]), `events`, `pools`, `null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex,
 #'   vote_bins, rho_chrom)` (`vote_bins`: the [vote_bins()] table with `params$calib = "votes"`; `rho_chrom`: the
 #'   [rho_by_chrom()] table with `params$calib_rho = "chrom"`)
@@ -1644,11 +1647,13 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   pborrow = function(th) if (pool_events) borrow_thresholds(th, sp) else th
   preg = unique(sp[, .(region, class)])
   pscore = if (pool_loo) "s_rob" else "s_comb"
+  # pooled thresholds without cross-validation folds (cv = FALSE): pools have no fold, so call_pools() applies the
+  # fold-0 thresholds and fold-0 scale only, and per-fold pooled thresholds would never be used
   pools$type = make_pools(pc, ct[pc], params$n_pool, params$seed)
   if (nrow(pools$type) && nrow(pnull)) {
     fun = function(cells, seed) make_pools(cells, ct[cells], params$n_pool, seed)
-    th_ = pooled_thresholds(pnull, fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
-                                  loo = pool_loo, standardize = pool_standardize)
+    th_ = pooled_thresholds(pnull, fun, n_draws = n_draws, by = pby, q = params$null_q, cv = FALSE, states = states,
+                            params = params, loo = pool_loo, standardize = pool_standardize)
     pscale$type = attr(th_, "pool_scale")
     pthr$type = pborrow(th_)[, level := "pool_type"]
     pcalls$type = call_pools(sp, pools$type, pthr$type, policy, states, regions, score = pscore, loo = pool_loo,
@@ -1661,8 +1666,8 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     nk = intersect(unique(pnull$cell), rownames(emb))
     if (length(nk) > params$n_pool) {
       fun = function(cells, seed) knn_pools(emb[intersect(cells, rownames(emb)), , drop = FALSE], params$n_pool)
-      th_ = pooled_thresholds(pnull[cell %in% nk], fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
-                                   loo = pool_loo, standardize = pool_standardize)
+      th_ = pooled_thresholds(pnull[cell %in% nk], fun, n_draws = n_draws, by = pby, q = params$null_q, cv = FALSE,
+                              states = states, params = params, loo = pool_loo, standardize = pool_standardize)
       pscale$knn = attr(th_, "pool_scale")
       pthr$knn = pborrow(th_)[, level := "pool_knn"]
       pcalls$knn = call_pools(sp, pools$knn, pthr$knn, policy, states, regions, score = pscore, loo = pool_loo,

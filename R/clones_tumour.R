@@ -149,7 +149,8 @@ check_clone_opts = function(opts) {
 # run notes on degenerate nulls of the tumour mode (the calls are not changed): `ref_thr` = the reference-pool
 # cleaning threshold of clean_reference() (Inf: no control rows, nothing removed); `n_null` = null rows per
 # confirmation hypothesis (named; all 0: no null rows at all, every threshold Inf); a hypothesis with fewer than
-# 10 / (1 - q) null rows has a type-7 `q` quantile that is close to the largest null score
+# 10 / (1 - q) null rows has a poorly determined type-7 `q` quantile (below 1 / (1 - q) rows: about the largest null
+# score, which falls short of the true quantile)
 confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
   out = character()
   if (length(ref_thr) == 1 && !is.na(ref_thr) && is.infinite(ref_thr))
@@ -164,8 +165,9 @@ confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
       few = n_null[n_null < n_min]
       if (length(few))
         out = c(out, sprintf(paste("per-cell confirmation: %d of %d hypotheses have fewer than %d null rows (10 / (1 - q), q %g): %s;",
-                                   "their thresholds are close to the largest null score (Inf without null rows), so confirmation",
-                                   "there is conservative"), length(few), length(n_null), n_min, q,
+                                   "their thresholds rest on few null rows (below 1 / (1 - q) rows the quantile is about the",
+                                   "largest null score and falls short of the true one, so false confirmations there can exceed",
+                                   "1 - q; Inf without null rows)"), length(few), length(n_null), n_min, q,
                              paste(sprintf("%s %d", names(few), as.integer(few)), collapse = ", ")))
     }
   }

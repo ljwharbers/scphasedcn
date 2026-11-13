@@ -64,14 +64,15 @@ merge_clones(
 in an imbalanced region), \code{"fraction"} (coverage-free oriented fraction) or \code{"centred"} (standardised count about the
 compared cells' pooled fraction); see \code{\link[=clone_defaults]{clone_defaults()}} \code{test_allele}}
 
-\item{drift_test}{\code{"none"} (default) or \code{"modes"}: an allele-driven difference must also be discrete (the per-cell
-shares of all leaf cells are multimodal on a region where the pair differs, and the two clones lie on different sides
-of the antimode; see \code{\link[=clone_defaults]{clone_defaults()}} \code{drift_test})}
+\item{drift_test}{\code{"none"} (default), \code{"modes"} or \code{"modes_event"}: an allele-driven difference must also be discrete
+(the per-cell shares of all leaf cells are multimodal on a region where the pair differs, and the two clones lie on
+different sides of the antimode), or (\code{"modes_event"}) the events of one clone be absent from the other; see
+\code{\link[=clone_defaults]{clone_defaults()}} \code{drift_test}}
 }
 \value{
 list(clones = named integer labels, tests = data.table of all tests: stat, thr, n_perm (permutations run),
 differ, n_a, n_b, top_region, top_depth, top_allelic (\code{p} with \code{perm_decision = "pvalue"}; \code{by_depth}, \code{mode_p},
-\code{mode_sep}, \code{discrete}, \code{differ_contrast} with \code{drift_test = "modes"}), key, l1, l2)
+\code{mode_sep}, \code{discrete}, \code{differ_contrast} with \code{drift_test = "modes"}, plus \code{by_event} with \code{"modes_event"}), key, l1, l2)
 }
 \description{
 Bottom-up: each round, every clone's \code{n_nb} nearest clones (Ward distance between the clones' centroids in

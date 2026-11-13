@@ -946,6 +946,44 @@ test_that("split_test(drift_test = \"modes\"): leaves cut from a continuous drif
   expect_gte(t2$mode_sep, 0.5)
 })
 
+test_that("split_test(drift_test = \"modes_event\"): an event in one set only stays different; a drift cut still merges", {
+  set.seed(11)
+  # 170 balanced cells (normal) and a set of 30 in which 22 carry LOH-like imbalances on two chromosomes (tumour cells
+  # with a few normal ones), 9 votes per cell and chromosome, no drift
+  p = c(rep(0.5, 170), rep(c(0.92, 0.5), c(22, 8)))
+  v = fake_block_votes(p, rep(3, 200), seed = 12)
+  cd = fake_cdata(v$nA, v$nB, rep(1:2, each = 3), c("chr1p", "chr2p"))
+  a = 1:170; b = 171:200
+  t0 = split_test(cd, a, b, rho = 0.01, seed = 1)
+  tm = split_test(cd, a, b, rho = 0.01, seed = 1, drift_test = "modes")
+  te = split_test(cd, a, b, rho = 0.01, seed = 1, drift_test = "modes_event")
+  expect_true(t0$differ)
+  expect_false(tm$differ)                         # no mode of its own in the population: "modes" merges
+  expect_true(te$by_event)
+  expect_true(te$differ)
+  # the rule: the other set balanced on >= 75 % and >= 2 of the chromosomes where one set is imbalanced
+  br = data.table(region = c("chr1p", "chr1q", "chr2p", "chr3p"), imbalance_a = c(0, 0.5, 1, 30), imbalance_b = c(20, 25, 15, 0),
+                  share_a = c(0.5, 0.51, 0.49, 0.8), share_b = c(0.8, 0.85, 0.7, 0.5))
+  expect_true(scphasedcn:::event_absent(br, thr = 10))
+  expect_false(scphasedcn:::event_absent(br[1:2][, `:=`(imbalance_a = c(0, 12), share_a = c(0.5, 0.65))][], thr = 10))   # one chromosome, a has an event
+  expect_true(scphasedcn:::event_absent(br[1:2], thr = 10))                      # one chromosome, a event-free
+  # a significant imbalance of only 0.02 (e.g. a few contaminating cells in a large set) is not an event
+  expect_true(scphasedcn:::event_absent(br[1:2][, `:=`(imbalance_a = c(0, 12), share_a = c(0.5, 0.52))][], thr = 10))
+  br2 = copy(br)[, `:=`(imbalance_a = c(0, 5, 1, 30), share_a = c(0.5, 0.6, 0.49, 0.8))]   # chr1q: a imbalanced too
+  expect_false(scphasedcn:::event_absent(br2, thr = 10))                         # 1 of 2 chromosomes absent
+  expect_false("by_event" %in% names(tm))
+  expect_identical(tm[, names(t0), with = FALSE][, differ := TRUE], t0)
+  # leaves cut from one drifting imbalanced clone: both sets imbalanced, so no event bypass; merged as with "modes"
+  q = stats::rbeta(300, 0.7 * 9, 0.3 * 9)
+  w = fake_block_votes(q, rep(6, 300), seed = 9)
+  cd2 = fake_cdata(w$nA, w$nB, rep(1L, 6), "r1")
+  a2 = which(q > stats::median(q)); b2 = which(q <= stats::median(q))
+  t2 = split_test(cd2, a2, b2, rho = 0.01, seed = 1, drift_test = "modes_event", pop = list(idx = seq_len(300)))
+  expect_true(t2$differ_contrast)
+  expect_false(t2$by_event)
+  expect_false(t2$differ)
+})
+
 test_that("assign_cells(same_groups): two clones with the same states no longer split each cell's posterior", {
   inp0 = tum2_input(); inp = clone_input(inp0)
   r0 = tum2_result()
@@ -986,6 +1024,7 @@ test_that("caller_tumour: disc_allele, test_allele, same_post, drift_test at the
   inp = tum2_input()
   for (k in c("disc_allele", "test_allele", "same_post", "drift_test"))
     expect_error(caller_tumour(inp, opts = stats::setNames(list("x"), k), verbose = FALSE), "should be one of")
+  expect_identical(scphasedcn:::check_clone_opts(list(drift_test = "modes_event"))$drift_test, "modes_event")
   expect_error(caller_tumour(inp, opts = list(disc_allele = "centred"), verbose = FALSE), "should be one of")
 })
 

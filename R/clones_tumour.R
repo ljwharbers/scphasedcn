@@ -67,6 +67,14 @@ utils::globalVariables(c(
 #' 0.5). The population, not the union of the two clones, is tested because two leaves cut from one continuum can make a
 #' union with two modes. A subclone whose allelic difference is smaller than the drift has no mode of its own and is
 #' merged. The tests tables gain `differ_contrast` (the contrast's verdict), `by_depth`, `discrete`, `mode_p`, `mode_sep`.
+#' `"modes_event"` = `"modes"`, and a pair also stays different when the events of one set are absent from the other:
+#' the other set is allelically balanced (oriented by its own other half, |t| <= 2) on at least 75 % of the chromosomes, and on
+#' at least 2 of them, where the first set is imbalanced beyond the null threshold (two lineages), or the other set has no
+#' imbalanced region at all and is balanced on one of them (normal cells against cells with an event; column `by_event`).
+#' A cut along a drift of one clone can bring a set to 1/2 on one arm, not on most of the other set's events on
+#' independent chromosomes, nor make it event-free. With `"modes"`, a group of normal cells with some tumour cells can
+#' merge with the normal cells (allele-only difference, no mode of its own), and the merged clone, which carries weak
+#' events, is then not replaced by the normal clone `N0` (no reference pool).
 #'
 #' Hierarchy: trunks =
 #' average-linkage groups of [clone_allelic_distance()] cut at `trunk_dist` (bp x haplotype fraction; e.g. 100 Mb
@@ -155,7 +163,7 @@ check_clone_opts = function(opts) {
   opts$disc_allele = match.arg(as.character(opts$disc_allele)[1], c("z", "fraction"))
   opts$test_allele = match.arg(as.character(opts$test_allele)[1], c("z", "fraction", "centred"))
   opts$same_post = match.arg(as.character(opts$same_post)[1], c("clone", "group"))
-  opts$drift_test = match.arg(as.character(opts$drift_test)[1], c("none", "modes"))
+  opts$drift_test = match.arg(as.character(opts$drift_test)[1], c("none", "modes", "modes_event"))
   for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len")) {
     v = opts[[k]]
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)

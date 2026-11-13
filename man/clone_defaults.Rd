@@ -47,6 +47,14 @@ subclone adds one), and the two clones lie on different sides of the antimode (t
 0.5). The population, not the union of the two clones, is tested because two leaves cut from one continuum can make a
 union with two modes. A subclone whose allelic difference is smaller than the drift has no mode of its own and is
 merged. The tests tables gain \code{differ_contrast} (the contrast's verdict), \code{by_depth}, \code{discrete}, \code{mode_p}, \code{mode_sep}.
+\code{"modes_event"} = \code{"modes"}, and a pair also stays different when the events of one set are absent from the other:
+the other set is allelically balanced (oriented by its own other half, |t| <= 2) on at least 75 \% of the chromosomes, and on
+at least 2 of them, where the first set is imbalanced beyond the null threshold (two lineages), or the other set has no
+imbalanced region at all and is balanced on one of them (normal cells against cells with an event; column \code{by_event}).
+A cut along a drift of one clone can bring a set to 1/2 on one arm, not on most of the other set's events on
+independent chromosomes, nor make it event-free. With \code{"modes"}, a group of normal cells with some tumour cells can
+merge with the normal cells (allele-only difference, no mode of its own), and the merged clone, which carries weak
+events, is then not replaced by the normal clone \code{N0} (no reference pool).
 
 Hierarchy: trunks =
 average-linkage groups of \code{\link[=clone_allelic_distance]{clone_allelic_distance()}} cut at \code{trunk_dist} (bp x haplotype fraction; e.g. 100 Mb

@@ -898,6 +898,54 @@ test_that("contrast_stat(allele = \"fraction\" / \"centred\"): no allelic differ
   for (s in c("z", "fraction", "centred")) expect_gt(contrast_stat(cd2, 1:40, 41:80, rho = 0.01, allele = s)$by_region$allelic, 8)
 })
 
+test_that("pop_modes: a skewed drifting population has one mode, a 15 % subclone adds a second one", {
+  set.seed(4)
+  n = round(stats::rlnorm(400, log(12), 0.4)) + 2                  # votes per block (6 blocks)
+  # one clone at share 0.7 with a skewed cell-level drift (beta, rho 0.1); the same plus 60 cells at 0.97
+  p1 = stats::rbeta(400, 0.7 * 9, 0.3 * 9)
+  p2 = c(stats::rbeta(340, 0.5 * 30, 0.5 * 30), stats::rbeta(60, 0.97 * 60, 0.03 * 60))
+  v1 = fake_block_votes(p1, n, seed = 5); v2 = fake_block_votes(p2, n, seed = 6)
+  cd1 = fake_cdata(v1$nA, v1$nB, rep(1L, 6), "r1"); cd2 = fake_cdata(v2$nA, v2$nB, rep(1L, 6), "r1")
+  set.seed(7); m1 = scphasedcn:::pop_modes(cd1, 1:400, 1L)
+  set.seed(7); m2 = scphasedcn:::pop_modes(cd2, 1:400, 1L)
+  expect_false(m1$multimodal)
+  expect_gt(m1$p, 0.01)
+  expect_true(m2$multimodal)
+  expect_lte(m2$p, 0.01)
+  # the antimode separates the subclone from the rest
+  expect_gt(m2$cut, 0.6); expect_lt(m2$cut, 0.92)
+  expect_gt(mean(m2$x[341:400] > m2$cut, na.rm = TRUE), 0.9)
+  expect_lt(mean(m2$x[1:340] > m2$cut, na.rm = TRUE), 0.1)
+  expect_equal(length(m2$x), 400)
+  expect_true(all(is.na(scphasedcn:::pop_modes(cd2, 1:200, 1L)$x[201:400])))   # only the population's cells
+})
+
+test_that("split_test(drift_test = \"modes\"): leaves cut from a continuous drift merge, a real subclone stays", {
+  set.seed(8)
+  # one clone whose cells' shares drift continuously (beta, rho 0.1) on one region: a = the cells above the median share,
+  # b = the rest (what a discovery on drift-sharing halves produces); the permutation contrast calls them different
+  p = stats::rbeta(300, 0.7 * 9, 0.3 * 9)
+  v = fake_block_votes(p, rep(6, 300), seed = 9)
+  cd = fake_cdata(v$nA, v$nB, rep(1L, 6), "r1")
+  a = which(p > stats::median(p)); b = which(p <= stats::median(p))
+  t0 = split_test(cd, a, b, rho = 0.01, seed = 1)
+  t1 = split_test(cd, a, b, rho = 0.01, seed = 1, drift_test = "modes", pop = list(idx = seq_len(300)))
+  expect_true(t0$differ)
+  expect_true(t1$differ_contrast)
+  expect_false(t1$by_depth)
+  expect_false(t1$discrete)
+  expect_false(t1$differ)
+  expect_identical(t1[, names(t0), with = FALSE][, differ := TRUE], t0)       # the contrast's columns are unchanged
+  # a real subclone: 60 cells at share 0.97 among 240 at 0.5, both drifting
+  q = c(stats::rbeta(60, 0.97 * 60, 0.03 * 60), stats::rbeta(240, 0.5 * 30, 0.5 * 30))
+  w = fake_block_votes(q, rep(6, 300), seed = 10)
+  cd2 = fake_cdata(w$nA, w$nB, rep(1L, 6), "r1")
+  t2 = split_test(cd2, 1:60, 61:300, rho = 0.01, seed = 1, drift_test = "modes")
+  expect_true(t2$discrete)
+  expect_true(t2$differ)
+  expect_gte(t2$mode_sep, 0.5)
+})
+
 test_that("assign_cells(same_groups): two clones with the same states no longer split each cell's posterior", {
   inp0 = tum2_input(); inp = clone_input(inp0)
   r0 = tum2_result()

@@ -632,6 +632,100 @@ arguments</td>
 </tbody>
 </table>
 </div>
+<div class="section level2">
+<h2 id="allelic-tile-mask-normal-mode-opt-in">Allelic tile mask (normal mode, opt-in)<a class="anchor" aria-label="anchor" href="#allelic-tile-mask-normal-mode-opt-in"></a>
+</h2>
+<p>With <code>mask_allelic = TRUE</code> (overdispersion rule) and / or
+<code>mask_f0 = TRUE</code> (shared-bias rule) in the parameters,
+<code><a href="../reference/call_scn.html">call_scn()</a></code> selects null cells once, assesses every
+autosomal 5 Mb tile on their votes (<code><a href="../reference/allelic_noisy_tiles.html">allelic_noisy_tiles()</a></code>),
+and leaves the votes of the masked tiles out of the allele features
+before calling (depth is untouched). The two rules can be used alone or
+together (the union is masked); the run notes give the number of tiles
+each rule masked. <code>null_fit$allelic_mask</code> holds the per-tile
+table:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>column</th>
+<th>meaning</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>
+<code>tile</code>, <code>chrom</code>, <code>start</code>,
+<code>end</code>
+</td>
+<td>the 5 Mb tile</td>
+</tr>
+<tr class="even">
+<td>
+<code>n_rows</code>, <code>votes</code>
+</td>
+<td>null rows (cells) of the tile and their molecule votes</td>
+</tr>
+<tr class="odd">
+<td>
+<code>rho</code>, <code>z_rho</code>
+</td>
+<td>method-of-moments beta-binomial overdispersion of the null votes,
+and its robust z of log rho over the assessed tiles</td>
+</tr>
+<tr class="even">
+<td><code>assessed</code></td>
+<td>the tile has at least <code>mask_min_votes</code> votes per null
+row</td>
+</tr>
+<tr class="odd">
+<td><code>masked</code></td>
+<td>the tile’s votes were left out (the active rules)</td>
+</tr>
+<tr class="even">
+<td>
+<code>f0</code>, <code>d0</code>, <code>z_f0</code>
+</td>
+<td>vote-weighted haplotype fraction of the null rows
+<code>sum(nA) / sum(n_hap)</code>, its deviation
+<code>abs(f0 - 0.5)</code>, and the robust z (median / MAD) of
+<code>d0</code> over the assessed tiles</td>
+</tr>
+<tr class="odd">
+<td><code>masked_rho</code></td>
+<td>overdispersion rule: assessed and
+<code>z_rho &gt; mask_rho_mad</code>
+</td>
+</tr>
+<tr class="even">
+<td><code>masked_f0</code></td>
+<td>bias rule: assessed, <code>z_f0 &gt; mask_f0_mad</code> and
+<code>d0 &gt; mask_f0_min</code>
+</td>
+</tr>
+</tbody>
+</table>
+<p><code>masked_rho</code> and <code>masked_f0</code> are reported
+whether or not their rule is on; the run notes list the masked tiles.
+The bias rule masks tiles with a shared allelic imbalance among the null
+cells, such as a stretch off 1:1 in every cell (germline copy-number
+variant or segmental duplication, imprinted or allele-specific
+accessible region, mapping bias, false heterozygous SNPs). A real clonal
+event that is frequent enough for its carriers to remain among the null
+cells looks the same and can be masked: in a simulation with a focal
+event in 35 % of cells, 60 of 96 carriers stayed in the null set and all
+four event tiles were masked. The mask is therefore a diagnostic to be
+read with the list of masked tiles, not a filter to apply blindly to
+samples that may carry clonal events.
+<code>allelic_bias_tiles(features)</code> computes the same table over
+all cells of a features object, without a caller run, to look at shared
+bias before calling. Under <code>mirrored</code> orientation
+(<code>phasing = "mirrored"</code>) the haplotype fraction is the
+per-block major fraction, which measures coverage rather than shared
+bias: <code><a href="../reference/call_scn.html">call_scn()</a></code> then runs without the bias rule and says
+so in the run notes.</p>
+</div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>
 </div>

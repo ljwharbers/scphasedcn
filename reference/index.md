@@ -2,6 +2,9 @@
 
 ## All functions
 
+- [`allelic_bias_tiles()`](https://ljwharbers.github.io/scphasedcn/reference/allelic_bias_tiles.md)
+  : Shared allelic bias per tile over all cells (diagnostic)
+
 - [`allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/allelic_features.md)
   : Allele features per cell and region
 

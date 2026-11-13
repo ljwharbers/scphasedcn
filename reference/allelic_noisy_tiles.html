@@ -69,7 +69,10 @@ atoms in masked tiles (<code><a href="atoms_in_tiles.html">atoms_in_tiles()</a><
 <span>  size <span class="op">=</span> <span class="st">"5Mb"</span>,</span>
 <span>  k_mad <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">mask_rho_mad</span>,</span>
 <span>  min_votes <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">mask_min_votes</span>,</span>
-<span>  params <span class="op">=</span> <span class="fu"><a href="caller_defaults.html">caller_defaults</a></span><span class="op">(</span><span class="op">)</span></span>
+<span>  params <span class="op">=</span> <span class="fu"><a href="caller_defaults.html">caller_defaults</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>  f0_mad <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">mask_f0_mad</span>,</span>
+<span>  f0_min <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">mask_f0_min</span>,</span>
+<span>  rules <span class="op">=</span> <span class="st">"rho"</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -100,10 +103,45 @@ atoms in masked tiles (<code><a href="atoms_in_tiles.html">atoms_in_tiles()</a><
 <dt id="arg-params">params<a class="anchor" aria-label="anchor" href="#arg-params"></a></dt>
 <dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code></p></dd>
 
+
+<dt id="arg-f-mad">f0_mad<a class="anchor" aria-label="anchor" href="#arg-f-mad"></a></dt>
+<dd><p>bias threshold in MADs of d0 (<code>params$mask_f0_mad</code>)</p></dd>
+
+
+<dt id="arg-f-min">f0_min<a class="anchor" aria-label="anchor" href="#arg-f-min"></a></dt>
+<dd><p>minimal deviation d0 of a bias outlier (<code>params$mask_f0_min</code>)</p></dd>
+
+
+<dt id="arg-rules">rules<a class="anchor" aria-label="anchor" href="#arg-rules"></a></dt>
+<dd><p>the rules that define <code>masked</code>: any of <code>"rho"</code>, <code>"f0"</code></p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked (one row per tile)</p>
+    <p>data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked, f0, d0, z_f0,
+masked_rho, masked_f0 (one row per tile)</p>
+    </div>
+    <div class="section level2">
+    <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
+    <p>Shared allelic bias (<code>params$mask_f0</code>): per tile also the vote-weighted haplotype fraction of the null rows
+<code>f0 = sum nA / sum n_hap</code>, its deviation <code>d0 = |f0 - 0.5|</code> and <code>z_f0</code> = (d0 - median) / MAD of d0 over the
+assessed tiles. A tile is a bias outlier (<code>masked_f0</code>) when it is assessed, <code>z_f0 &gt; f0_mad</code> and
+<code>d0 &gt; f0_min</code>: a stretch whose allele fraction is off 1:1 in the null cells for reasons that are not somatic
+copy number (germline CNV or segmental duplication, imprinted or allele-specific accessible regions, mapping
+bias, false heterozygous SNPs), against which the 1:1 allele null of every cell is wrong. The rule sees only
+the null rows, but it cannot tell such a shared bias from a real clonal event whose carriers remain among the
+null cells: an event frequent enough for that looks the same and can be masked (in a simulation with a focal
+event in 35 % of cells, 60 of 96 carriers stayed in the null set and all four event tiles were masked). The
+mask is a diagnostic to be read with the list of masked tiles, not a filter to apply blindly to samples that
+may carry clonal events.
+<code>|f0 - 0.5|</code> covers two orientations of the allele features: under <code>loo</code> (block) orientation the fraction is
+major-oriented (a biased tile sits above 0.5), under chromosome-anchored orientation it sits at f0 or 1 - f0.
+Under <code>mirrored</code> orientation each block counts its major allele, so f0 is above 0.5 in every tile by an amount
+set by the votes per block: the statistic measures coverage, not shared bias, and <code><a href="call_scn.html">call_scn()</a></code> does not apply
+the bias rule (it says so in the run notes and warns).
+<code><a href="allelic_bias_tiles.html">allelic_bias_tiles()</a></code> gives the same table over all cells before calling.</p>
+<p><code>rules</code> selects which flags make up <code>masked</code> (the tiles whose atoms are dropped): <code>"rho"</code> (the default and
+the behaviour of earlier versions: <code>masked</code> = <code>masked_rho</code>), <code>"f0"</code>, or both (union).</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

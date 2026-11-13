@@ -98,6 +98,24 @@ named list:
 - `mask_min_votes` minimal mean votes per null row for a tile to be
   assessed (3);
 
+- `mask_f0` shared-bias allelic tile mask in normal mode
+  ([`allelic_noisy_tiles()`](https://ljwharbers.github.io/scphasedcn/reference/allelic_noisy_tiles.md),
+  [`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md)):
+  the votes of 5 Mb tiles whose vote-weighted null-cell haplotype
+  fraction f0 is off 0.5 in an outlying way are left out of the allele
+  features (FALSE; independent of `mask_allelic`, both on = the union of
+  the two masks;
+  [`allelic_bias_tiles()`](https://ljwharbers.github.io/scphasedcn/reference/allelic_bias_tiles.md)
+  shows the per-tile fractions before calling); a real clonal event
+  whose carriers remain among the null cells can be masked too, so read
+  the masked tiles in the run notes; not applied under `mirrored`
+  orientation (noted and warned);
+
+- `mask_f0_mad` bias threshold in MADs of `|f0 - 0.5|` over the assessed
+  tiles (3);
+
+- `mask_f0_min` minimal `|f0 - 0.5|` of a masked tile (0.03);
+
 - `pool_sex_thr` males: the sex chromosomes get their own pooled
   threshold group (class x autosome / X / Y) with the class threshold as
   fallback (TRUE; no effect in females);

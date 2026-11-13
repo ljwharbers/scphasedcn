@@ -89,6 +89,14 @@ null rows keeps ~98 % of its own estimate);</p></li>
 votes of 5 Mb tiles whose null overdispersion is an outlier are left out of the allele features (FALSE);</p></li>
 <li><p><code>mask_rho_mad</code> mask threshold in MADs of log tile rho (2);</p></li>
 <li><p><code>mask_min_votes</code> minimal mean votes per null row for a tile to be assessed (3);</p></li>
+<li><p><code>mask_f0</code> shared-bias allelic tile mask in normal mode (<code><a href="allelic_noisy_tiles.html">allelic_noisy_tiles()</a></code>, <code><a href="call_scn.html">call_scn()</a></code>): the votes
+of 5 Mb tiles whose vote-weighted null-cell haplotype fraction f0 is off 0.5 in an outlying way are left
+out of the allele features (FALSE; independent of <code>mask_allelic</code>, both on = the union of the two masks;
+<code><a href="allelic_bias_tiles.html">allelic_bias_tiles()</a></code> shows the per-tile fractions before calling); a real clonal event whose carriers
+remain among the null cells can be masked too, so read the masked tiles in the run notes; not applied
+under <code>mirrored</code> orientation (noted and warned);</p></li>
+<li><p><code>mask_f0_mad</code> bias threshold in MADs of <code>|f0 - 0.5|</code> over the assessed tiles (3);</p></li>
+<li><p><code>mask_f0_min</code> minimal <code>|f0 - 0.5|</code> of a masked tile (0.03);</p></li>
 <li><p><code>pool_sex_thr</code> males: the sex chromosomes get their own pooled threshold group (class x autosome / X / Y)
 with the class threshold as fallback (TRUE; no effect in females);</p></li>
 <li><p><code>pool_events</code> normal mode: call named <code>event</code> regions (no null rows of their own) also in pools (FALSE). Off,

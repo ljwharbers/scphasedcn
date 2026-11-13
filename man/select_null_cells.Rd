@@ -46,7 +46,8 @@ null_region, eligible optional; chrom optional, else parsed from the region name
 \item{chroms}{chromosomes whose rows are scored (default autosomes chr1-chr22); NULL = all}
 }
 \value{
-list(null_cells, log (per iteration), calls (per candidate cell: n_calls, null), tpar, rho, thresholds)
+list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
+candidate cell: n_calls, null), tpar, rho, thresholds)
 }
 \description{
 Starts from all cells of \code{feat_long} minus \code{exclude} (e.g. multiplet-flagged

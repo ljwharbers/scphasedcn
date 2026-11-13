@@ -1487,7 +1487,9 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' (`hstratum`, bins of n_hap of the null rows, [vote_bins()]); `params$calib_rho = "chrom"` scores the allele
 #' channel with a per-chromosome rho shrunk to the global ([rho_by_chrom()]). `params$pool_tail_q > 0` (the
 #' default) adds a per-region tail factor to the pooled region scale ([pool_scale()]), cross-fitted with
-#' `params$pool_tail_xfit` ([pooled_thresholds()]). Removed options stop with
+#' `params$pool_tail_xfit` ([pooled_thresholds()]). Named `event` regions (no null rows) borrow the per-cell
+#' thresholds of their `sd_class` ([budget_thresholds()]); their pools are called only with `params$pool_events`
+#' (experimental, off by default: [caller_defaults()]). Removed options stop with
 #' an error: `calib` "region" / "region_votes" / "votes_cont", `calib_rho` "cell" / "chrom_cell".
 #' @param feat features long table (`vignette("scphasedcn-outputs", package = "scphasedcn")`)
 #' @param params [caller_defaults()]
@@ -1566,6 +1568,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   if (!identical(length(calib_rho), 1L) || !calib_rho %in% c("global", "chrom"))
     stop("caller_normal: params$calib_rho must be 'global' or 'chrom', not '", paste(calib_rho, collapse = ", "), "'",
          call. = FALSE)
+  pool_events = params$pool_events %||% FALSE
+  if (!is.logical(pool_events) || length(pool_events) != 1L || is.na(pool_events))
+    stop("caller_normal: params$pool_events must be TRUE or FALSE, not '", paste(format(pool_events), collapse = ", "), "'",
+         call. = FALSE)
   vbins = NULL
   if (calib == "votes") {                                      # thresholds per class x stratum x vote stratum
     vbins = vote_bins(d, params$vote_bins %||% 4, params$min_null_rows, null = d$is_null, params = params)
@@ -1621,6 +1627,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     pby = c("class", "sexgrp")
   }
   pools = list(); pthr = list(); pcalls = list(); pscale = list()
+  # classes without null pools (named events) take the pooled thresholds of their sd_class only with pool_events
+  # (experimental: their pools are standardised with the sd_class's median scale, not their own); otherwise they get
+  # no pooled threshold and their pools are scored but never called
+  pborrow = function(th) if (pool_events) borrow_thresholds(th, sp) else th
   preg = unique(sp[, .(region, class)])
   pscore = if (pool_loo) "s_rob" else "s_comb"
   pools$type = make_pools(pc, ct[pc], params$n_pool, params$seed)
@@ -1629,7 +1639,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     th_ = pooled_thresholds(pnull, fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
                                   loo = pool_loo, standardize = pool_standardize)
     pscale$type = attr(th_, "pool_scale")
-    pthr$type = borrow_thresholds(th_, sp)[, level := "pool_type"]
+    pthr$type = pborrow(th_)[, level := "pool_type"]
     pcalls$type = call_pools(sp, pools$type, pthr$type, policy, states, regions, score = pscore, loo = pool_loo,
                              scale = pscale$type)
   }
@@ -1643,7 +1653,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
       th_ = pooled_thresholds(pnull[cell %in% nk], fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
                                    loo = pool_loo, standardize = pool_standardize)
       pscale$knn = attr(th_, "pool_scale")
-      pthr$knn = borrow_thresholds(th_, sp)[, level := "pool_knn"]
+      pthr$knn = pborrow(th_)[, level := "pool_knn"]
       pcalls$knn = call_pools(sp, pools$knn, pthr$knn, policy, states, regions, score = pscore, loo = pool_loo,
                               scale = pscale$knn)
     }
@@ -1651,10 +1661,13 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   all_calls = rbindlist(c(list(calls), pcalls), fill = TRUE)
   events = consolidate_calls(all_calls, regions)
   # regions left without any threshold after borrowing (a class without null rows whose sd_class has no thresholds
-  # either, e.g. an event whose sd_class is not among the region classes): scored but never called
+  # either, e.g. an event whose sd_class is not among the region classes): scored but never called. Without
+  # pool_events the pools of classes without null pools are left uncalled by design and not listed
   na_thr = function(x, col) if (is.null(x) || !nrow(x)) character() else x[, .(nothr_ = all(is.na(get(col)))), by = region][nothr_ == TRUE, region]
   nt_cell = na_thr(sc, "thr_s_comb")
-  nt_pool = na_thr(rbindlist(pcalls, fill = TRUE), "thr")
+  pc_ = rbindlist(pcalls, fill = TRUE)
+  if (!pool_events && nrow(pc_)) pc_ = pc_[class %in% pnull$class]
+  nt_pool = na_thr(pc_, "thr")
   nothr = unique(c(nt_cell, nt_pool))
   nothr_note = NULL
   if (length(nothr)) {
@@ -1683,6 +1696,9 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                                                                 params$pool_tail_k %||% 30, isTRUE(params$pool_tail_xfit %||% TRUE)),
                         sprintf("sex %s; gains resolved %s (min dl_gain %g); pools: region-standardised %s, called on %s",
                                 sex %||% "unknown", resolve_gains, gain_min_dl, pool_standardize, pscore),
+                        if (pool_events && any(vapply(pthr, function(x) any(!is.na(x$borrowed_from %||% NA)), logical(1))))
+                          paste("pooled calls of named events (pool_events, experimental): standardised with the class-median",
+                                "scale of their sd_class and thresholded with its pooled threshold, not calibrated per event"),
                         nothr_note))
 }
 

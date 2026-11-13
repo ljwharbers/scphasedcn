@@ -187,6 +187,14 @@ test_that("select_null_cells drops >= 90 % of sim_norm_f's private-event carrier
   # the empirical variant cannot clean a set this contaminated (> 0.1 % event rows): documented limitation
   emp = select_null_cells(sf, exclude = mult, threshold = "empirical", n_iter = 1, chroms = NULL)
   expect_lt(mean(!sc %in% emp$null_cells), 0.5)
+  # `previous` is the set the last iteration started from
+  expect_identical(length(sel$previous), sel$log$n_in[2])
+  # every candidate called (here forced by max_calls = -1, as in a sample without neutral cells): an empty set after
+  # one iteration, not an error in the next one
+  none = select_null_cells(sf, exclude = mult, max_calls = -1, chroms = NULL)
+  expect_length(none$null_cells, 0)
+  expect_equal(nrow(none$log), 1)
+  expect_false(any(none$calls$null))
 })
 
 test_that("assign_folds is balanced and copies follow their origin", {

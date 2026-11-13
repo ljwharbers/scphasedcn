@@ -657,7 +657,8 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' allelic rho on the null rows of the current set, scores every candidate
 #' cell on the `classes` regions (chromosomes and arms) with `s_comb`,
 #' thresholds at the selection quantile `q` and keeps the cells with at most
-#' `max_calls` calls. Every iteration re-evaluates all candidates (a cell
+#' `max_calls` calls (it stops early, with no null cell, when every candidate
+#' has more). Every iteration re-evaluates all candidates (a cell
 #' dropped earlier can come back), so the set does not ratchet.
 #'
 #' Thresholds (`threshold`): "parametric" (default) re-draws the null rows
@@ -727,6 +728,7 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
                            n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr)
     prev = cur
     cur = new
+    if (!length(cur)) break   # every candidate has a call: nothing to fit the next iteration on
   }
   nc[, null := cell %in% cur]
   list(null_cells = cur, previous = prev, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)

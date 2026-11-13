@@ -22,10 +22,13 @@ region_set(
 
 \item{classes}{region classes to build (\code{arm}, \code{chrom}, tile labels); \code{event} is added when \code{events} is given}
 
-\item{events}{NULL, a data.table \verb{region, chrom, start, end} (NA end = chromosome end), \code{\link[=cli_events]{cli_events()}}
-output or a named vector of region strings}
+\item{events}{NULL, a data.table \verb{region, chrom, start, end} (0-based half-open; NA end = chromosome end),
+\code{\link[=cli_events]{cli_events()}} output or a named vector of region strings (\code{"chr20:28000000-"}, \code{"chr7"}; \code{\link[=parse_region]{parse_region()}}). An
+event without a name is named after its region string (a bare chromosome \code{"chr7"}: \code{"event|chr7"}). An event
+that yields no region (a chromosome without usable bins, or no whole usable bin inside) is dropped with a
+warning.}
 
-\item{sex}{"female" or "male"}
+\item{sex}{"female" or "male" (case-insensitive, or "F" / "M"; any other value stops)}
 
 \item{null_exclude}{chromosomes (or region names) whose regions never contribute null rows}
 

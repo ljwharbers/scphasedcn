@@ -27,4 +27,8 @@ all inherited / confirmed rows in tumour mode), \code{pooled_calls.tsv} (called 
 tumour mode: \code{clones.tsv}, \code{assignments.tsv}, \code{clone_segments.tsv}, \code{clone_profiles.tsv.gz},
 \code{reference_pool.txt}; \code{regions.tsv}; \code{result.rds} (the object without scores and features), \code{params.yaml},
 \code{summary.tsv} (\code{\link[=scphasedcn_summary]{scphasedcn_summary()}}) and \code{NOTES.md}. Optional: \code{scores.tsv.gz}, \code{features.tsv.gz}.
+The files of a previous result in \code{out} (the names above) are removed first, so a re-run never leaves stale
+tables behind (e.g. \code{clones.tsv} of a tumour run, \code{scores.tsv.gz} of a run with \code{write_scores}); other files in
+\code{out} are left alone. An object without scores (or features), e.g. one read back with \code{\link[=read_scphasedcn]{read_scphasedcn()}},
+leaves an existing \code{scores.tsv.gz} (\code{features.tsv.gz}) in place: it cannot write them again.
 }

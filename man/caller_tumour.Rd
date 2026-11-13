@@ -21,7 +21,8 @@ caller_tumour(
 \item{multiplets}{optional data.table cell, prob (\code{\link[=multiplet_table]{multiplet_table()}}); cells above \code{opts$multiplet_prob} are excluded from
 discovery and pseudobulks but assigned and flagged}
 
-\item{control_regions}{optional user control regions (regions table) replacing the automatic ones}
+\item{control_regions}{optional user control regions (regions table) replacing the automatic ones (of the
+confirmation null and of the reference cleaning, \code{\link[=clean_reference]{clean_reference()}})}
 
 \item{opts}{tumour-mode options (\code{\link[=clone_defaults]{clone_defaults()}})}
 
@@ -35,9 +36,10 @@ intermediate results in \code{null_fit$clones})
 Full loop: \code{\link[=split_votes]{split_votes()}} (discovery / test halves) -> clone feature matrix (discovery half, re-oriented by the
 all-cell pseudobulk) -> \code{\link[=discover_clones]{discover_clones()}} -> \code{\link[=merge_clones]{merge_clones()}} (test half) -> global EM round -> within-trunk
 discovery (\code{\link[=discover_within]{discover_within()}}) -> \code{\link[=clone_profiles]{clone_profiles()}} -> \code{\link[=fit_clone_states]{fit_clone_states()}} -> \code{\link[=segment_clone]{segment_clone()}} -> doublet clones ->
-\code{\link[=assign_cells]{assign_cells()}} (\code{em_rounds} hard-EM rounds: re-profile on the confidently assigned singlets; a cell changes
-clone only when confidently assigned, else keeps its previous label: \code{clone_ll} = likelihood-best clone,
-\code{kept}, \code{reassigned}) ->
+\code{\link[=assign_cells]{assign_cells()}} (\code{em_rounds} hard-EM rounds: the clone states are re-profiled on the members of the previous round,
+the singlets with posterior >= \code{member_post}; clones left with fewer than \code{min_size} members leave the member set; the
+assignment's \code{clone} is every cell's likelihood-best clone, \code{confident} = posterior >= \code{min_post} and not
+doublet-like) ->
 \code{\link[=clean_reference]{clean_reference()}} -> optional depth re-pass relative to the clean pool -> per-cell calls. Each cell
 inherits its clone's non-neutral segments (\code{source = "inherited"}) and is \code{confirmed} when its own
 score under the clone state (depth + allele LLR vs neutral) is above the threshold of the tumour null:

@@ -24,7 +24,7 @@ utils::globalVariables(c("called", "reportable", "level", "cell", "n_calls", "n_
 #' [caller_defaults()] updated from a YAML file (default `inst/config/caller.yaml` of the package: one key per
 #' default, named vectors as maps) and then from `overrides`. Values are coerced to the type of the default
 #' (numeric, logical, character; names kept for named vectors). Empty strings and nulls keep the default
-#' (e.g. `tabix: ""` = the `tabix` on the PATH). Unknown keys in the file are ignored with a
+#' (e.g. `tabix: ""` = the `tabix` on the PATH); an empty list (`[]`) is an empty vector (e.g. `allelic_exclude: []`). Unknown keys in the file are ignored with a
 #' warning; unknown keys in `overrides` are added as-is.
 #'
 #' Two optional blocks hold the arguments of the two callers: `tumour:` (tumour-mode options, any
@@ -90,9 +90,15 @@ split_params = function(params) {
   list(params = params[setdiff(names(params), c("tumour", "normal"))], tumour = params$tumour, normal = params$normal)
 }
 
-# coerce a config value to the type (and names) of the default; NULL / "" / "null" / "~" keep the default
+# coerce a config value to the type (and names) of the default; NULL / "" / "null" / "~" keep the default; an empty
+# list (`key: []`) is an empty vector of the default's type (e.g. allelic_exclude: [] = no excluded chromosome)
 coerce_param = function(v, def) {
-  if (is.null(v) || length(v) == 0) return(NULL)
+  if (is.null(v)) return(NULL)
+  if (length(v) == 0) {
+    out = if (is.logical(def)) logical() else if (is.numeric(def)) numeric() else character()
+    if (!is.null(names(def))) names(out) = character()
+    return(out)
+  }
   nm = names(v)
   if (is.list(v)) { nm = names(v); v = unlist(v, use.names = FALSE) }
   if (is.character(v) && length(v) == 1 && v %in% c("", "null", "NULL", "~")) return(NULL)
@@ -107,7 +113,11 @@ yaml_lines = function(x, indent = 0) {
   q = function(v) {
     if (is.logical(v)) return(ifelse(is.na(v), "null", ifelse(v, "true", "false")))
     if (is.numeric(v)) return(ifelse(is.na(v), "null", format(v, scientific = FALSE, trim = TRUE, digits = 15)))
-    sprintf("\"%s\"", gsub("\"", "\\\\\"", as.character(v)))
+    # YAML double-quoted scalars: escape backslashes first, then quotes and control characters
+    e = gsub("\\", "\\\\", as.character(v), fixed = TRUE)
+    e = gsub("\"", "\\\"", e, fixed = TRUE)
+    e = gsub("\n", "\\n", e, fixed = TRUE); e = gsub("\t", "\\t", e, fixed = TRUE); e = gsub("\r", "\\r", e, fixed = TRUE)
+    sprintf("\"%s\"", e)
   }
   out = character()
   for (k in names(x)) {
@@ -147,12 +157,16 @@ as_cell_vector = function(x) {
   as.character(x)
 }
 
-# a one-column file of cells has no header unless its first line is "cell"
+# a one-column file of cells has no header unless its first line is "cell" (fread's header = "auto" takes the first
+# barcode of a headerless one-column file as the column name); used by every reader of cell files
 read_cell_file = function(path) {
   d = fread(path, header = "auto")
   if (ncol(d) == 1 && names(d)[1] != "cell") d = fread(path, header = FALSE)
   d
 }
+
+# barcodes as the extractor writes them: a trailing "-1" (10x GEM well suffix) removed (NULL stays NULL)
+strip_barcode = function(x) if (is.null(x)) NULL else sub("-1$", "", as.character(x))
 
 #' Multiplet table of the caller
 #'
@@ -295,27 +309,37 @@ utils::globalVariables(c("st", "k", "region"))
 #' segments, cell assignment, per-cell inherited / confirmed calls).
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
-#' @param cell_meta NULL, a table or a TSV path with `cell` and optional `cell_type, flat, fold, group,
-#'   stratum, n_frag` (passed to [cell_features()]; `flat` becomes the features' `null_cell`)
-#' @param cells NULL (QC-pass cells) or the cells to call (vector or file)
-#' @param sex "female" / "male" (required for real data; NULL uses a `sex` column of `cells_qc.tsv` if there is one, as in
-#'   simulated data)
-#' @param events named events: a table `region, chrom, start, end`, [cli_events()] output or a named vector of
-#'   region strings (`20q_gain = "chr20:28000000-"`); scored as `event` regions; in tumour mode their chromosomes
-#'   are excluded from the null rows
+#' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
+#'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells that pass [cell_qc()] are called,
+#'   and with a `qc_pass` column only those that also have `qc_pass` TRUE; `flat` becomes the features' `null_cell`)
+#' @param cells NULL (QC-pass cells) or the cells to call (vector or file; no cell QC). The barcodes of `cells`,
+#'   `cell_meta`, `null_cells`, `multiplets` and named `groups` lose a trailing `-1` (as the extractor writes them);
+#'   the run notes give how many of them match the data's cells, and a warning says when none does
+#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
+#'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data; its non-missing values must agree)
+#' @param events named events: a table `region, chrom, start, end` (0-based half-open), [cli_events()] output or a
+#'   named vector of region strings (`20q_gain = "chr20:28000000-"`; unnamed ones are named after the region, see
+#'   [region_set()]); scored as `event` regions; in tumour mode their chromosomes are excluded from the null rows
 #' @param null_cells NULL / "auto" (the features' `null_cell` when informative, else selected), "features",
-#'   "select" ([select_null_cells()]), or the null cells themselves (vector or file)
+#'   "select" ([select_null_cells()]), or the null cells themselves (vector or file). Tumour mode: given null cells
+#'   (like `flat` cells of `cell_meta`) are the cells whose null rows fit the input depth t null and allelic rho when the
+#'   features carry no `null_fit`; they are not the reference pool (the caller finds and cleans the normal clone
+#'   itself); "select" is ignored with a warning
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
-#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`
+#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`, which sets aside the cells
+#'   above its `multiplet_prob` option (default 0.9). The `multiplet` column of the cells table flags the cells each
+#'   mode set aside
 #' @param control_regions tumour mode: control regions for the null (regions table)
 #' @param groups tumour mode: pseudobulk groups of the block orientation (a column of `cell_meta`, a vector named
 #'   by cell, or one label per cell); ignored with a warning in normal mode
 #' @param params [caller_params()] / [caller_defaults()]; its optional `normal` / `tumour` blocks
 #'   ([caller_params()]) are the default arguments of [caller_normal()] / `caller_tumour()` (`opts`)
-#' @param features NULL (computed) or a precomputed `scn_features` (object or .rds path) to skip the feature step
+#' @param features NULL (computed) or a precomputed `scn_features` (object or .rds path) to skip the feature step; the
+#'   arguments of the feature step (`sex`, `events`, `...`; in tumour mode also `cells`, `groups`, `cell_meta`; in normal
+#'   mode `cell_meta` columns other than `cell_type`) are then not used, with a warning
 #' @param embedding TRUE (compute [scn_embedding()] from `dir`; skipped with a warning when that fails), FALSE,
 #'   or a cells x components matrix with cell row names
-#' @param verbose log progress
+#' @param verbose log progress (also of `caller_tumour()`)
 #' @param keep_scores keep the per cell x region scores in the result (normal mode; large)
 #' @param null_check normal mode: also run the selection-free check of the per-cell null ([null_selection_check()];
 #'   about doubles the scoring time), stored as `null_check` and written as `null_selection_check.tsv`
@@ -337,6 +361,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
                     keep_scores = TRUE, null_check = FALSE, caller_args = list(), ...) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   mode = match.arg(mode)
+  sex = check_sex(sex, "call_scn")
   # caller argument blocks of the parameters (caller_params `normal:` / `tumour:`); caller_args take precedence
   sp = split_params(params)
   params = sp$params
@@ -354,15 +379,22 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   t0 = Sys.time()
   mins = function() as.numeric(difftime(Sys.time(), t0, units = "mins"))
   say = function(...) if (verbose) cli_log("[call_scn] ", ...)
+  # barcodes of every input with a trailing "-1" removed, as the extractor writes them (strip_barcode())
   cm = as_input_table(cell_meta, "cell_meta")
-  cells = as_cell_vector(cells)
+  if (!is.null(cm)) cm[, cell := strip_barcode(cell)]
+  cells = strip_barcode(as_cell_vector(cells))
   mult = multiplet_table(multiplets)
+  if (!is.null(mult)) mult[, cell := strip_barcode(cell)]
   nc_mode = "auto"; nc_cells = NULL
   if (!is.null(null_cells)) {
     if (is.character(null_cells) && length(null_cells) == 1 && null_cells %in% c("auto", "features", "select")) nc_mode = null_cells
-    else { nc_cells = as_cell_vector(null_cells); nc_mode = "features" }
+    else { nc_cells = strip_barcode(as_cell_vector(null_cells)); nc_mode = "features" }
   }
+  if (!is.null(groups) && !is.null(names(groups))) names(groups) = strip_barcode(names(groups))
   if (mode == "tumour" && !is.null(nc_cells) && !is.null(cm)) cm[, flat := cell %in% nc_cells]
+  if (mode == "tumour" && nc_mode == "select")
+    warning("call_scn: null_cells = \"select\" is the null-cell selection of normal mode; tumour mode fits its input null on ",
+            "the features' null cells (`flat` / given null cells) and finds its reference pool itself; ignored", call. = FALSE)
   # pseudobulk groups as a vector named by cell (cell_features only knows its own meta columns)
   grp = groups
   if (!is.null(grp) && is.character(grp) && length(grp) == 1 && is.null(names(grp))) {
@@ -395,14 +427,33 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   } else {
     if (!is.list(features) || is.null(features$long)) stop("call_scn: `features` must be an scn_features object (cell_features()) or its .rds")
     t_feat = 0
-    if (!is.null(cells) && mode == "normal") {
-      features$long = features$long[cell %in% cells]
-      features$cells = features$cells[cell %in% cells]
-    }
+    # arguments of the feature step that precomputed features make unused
+    dots = names(Filter(Negate(is.null), list(...)))
+    cm_unused = if (is.null(cm)) character() else setdiff(names(cm), c("cell", if (mode == "normal") "cell_type"))
+    unused = c(if (!is.null(sex)) "sex", if (!is.null(events)) "events", if (length(dots)) paste0(dots, " (...)"),
+               if (mode == "tumour" && !is.null(cells)) "cells", if (mode == "tumour" && !is.null(groups)) "groups",
+               if (length(cm_unused)) sprintf("cell_meta column(s) %s", paste(cm_unused, collapse = ", ")))
+    if (length(unused))
+      warning("call_scn: with precomputed `features` these inputs of the feature step are not used: ", paste(unused, collapse = "; "),
+              call. = FALSE)
+    if (!is.null(cells) && mode == "normal") features = subset_features(features, cells)
   }
   long = features$long
   if (!is.null(nc_cells)) { long = copy(long); long[, null_cell := cell %in% nc_cells] }
   say(sprintf("features: %d cells x %d regions (%.1f min)", nrow(features$cells), nrow(features$regions), mins()))
+  # given barcodes matched against the data (the features' cells): counts in the run notes, a warning when none match
+  fcells = as.character(features$cells$cell)
+  matched = function(what, x, warn = TRUE) {
+    x = unique(x)
+    m = sum(x %in% fcells)
+    if (warn && length(x) && m == 0)
+      warning(sprintf("call_scn: none of the %d %s barcodes (e.g. %s) is a cell of the data (e.g. %s)", length(x), what,
+                      x[1], if (length(fcells)) fcells[1] else "none"), call. = FALSE)
+    sprintf("%s: %d given, %d matched in the data", what, length(x), m)
+  }
+  inputs = c(inputs, if (!is.null(cells)) matched("cells", cells), if (!is.null(nc_cells)) matched("null_cells", nc_cells),
+             if (!is.null(mult)) matched("multiplets", mult$cell),
+             if (!is.null(mult) && any(mult$prob > 0.5)) matched("flagged multiplets (prob > 0.5)", mult[prob > 0.5, cell], warn = FALSE))
   ftab = features$cells
 
   if (mode == "normal") {
@@ -497,7 +548,11 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
         features$null_fit = list(tpar = tpar, rho = rho)
       }
     }
+    if (!is.null(nc_cells) && !is.null(features$null_fit))
+      warning("call_scn: the features carry their own null fit (features$null_fit); the given null_cells are not used in tumour mode",
+              call. = FALSE)
     args = list(feat = features, params = params, multiplets = mult, control_regions = control_regions)
+    if (is.null(caller_args$verbose)) args$verbose = verbose
     say("caller_tumour")
     res = do.call(caller_tumour, c(args, caller_args))
     res$embedding = NULL
@@ -527,7 +582,12 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     for (cn in intersect(c("clone", "posterior", "doublet_like", "ref_pool", "assigned"), names(asg))) if (!cn %in% names(ct))
       set(ct, j = cn, value = asg[[cn]][match(ct$cell, as.character(asg$cell))])
   }
-  if (!is.null(mult) && !"multiplet" %in% names(ct)) ct[, multiplet := cell %in% mult[prob > 0.5, cell]]
+  if (!is.null(mult) && !"multiplet" %in% names(ct)) {
+    # the flag the caller used: normal mode sets it itself (cells with prob > 0.5); tumour mode excludes the cells
+    # above its `multiplet_prob` option (its assignments' `multiplet`)
+    mthr = if (mode == "tumour") res$params$tumour$multiplet_prob %||% clone_defaults()$multiplet_prob else 0.5
+    ct[, multiplet := cell %in% mult[prob > mthr, cell]]
+  }
   lead = intersect(c("cell", "qc", "stratum", "fold", "null_cell", "n_calls", "n_events", "clone", "posterior", "doublet_like", "ref_pool"), names(ct))
   setcolorder(ct, lead)
   res$cells = ct
@@ -596,6 +656,10 @@ utils::globalVariables("part")
 #' tumour mode: `clones.tsv`, `assignments.tsv`, `clone_segments.tsv`, `clone_profiles.tsv.gz`,
 #' `reference_pool.txt`; `regions.tsv`; `result.rds` (the object without scores and features), `params.yaml`,
 #' `summary.tsv` ([scphasedcn_summary()]) and `NOTES.md`. Optional: `scores.tsv.gz`, `features.tsv.gz`.
+#' The files of a previous result in `out` (the names above) are removed first, so a re-run never leaves stale
+#' tables behind (e.g. `clones.tsv` of a tumour run, `scores.tsv.gz` of a run with `write_scores`); other files in
+#' `out` are left alone. An object without scores (or features), e.g. one read back with [read_scphasedcn()],
+#' leaves an existing `scores.tsv.gz` (`features.tsv.gz`) in place: it cannot write them again.
 #' @param obj `scphasedcn` from [call_scn()]
 #' @param out output directory (created)
 #' @param write_scores also write the per cell x region scores
@@ -606,6 +670,12 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
   obj = relabel_legacy(obj)
   if (!inherits(obj, "scphasedcn")) stop("write_scphasedcn: not a scphasedcn object")
   dir.create(out, recursive = TRUE, showWarnings = FALSE)
+  # the files this writer owns: clear those of a previous result (never anything else). The scores / features
+  # files stay when the object carries none (result.rds is stored without them): they could not be rewritten
+  keep = c(if (is.null(obj$scores)) "scores.tsv.gz", if (is.null(obj$features)) "features.tsv.gz")
+  old = file.path(out, setdiff(scphasedcn_output_files(), keep))
+  old = old[file.exists(old) & !dir.exists(old)]
+  if (length(old)) unlink(old)
   files = character()
   w = function(d, name) {
     if (is.null(d)) d = data.table()
@@ -678,6 +748,13 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
   writeLines(notes, file.path(out, "NOTES.md"))
   files[["NOTES.md"]] = file.path(out, "NOTES.md")
   invisible(files)
+}
+
+# every file write_scphasedcn() can write
+scphasedcn_output_files = function() {
+  c("cells.tsv", "calls.tsv", "pooled_calls.tsv", "events.tsv", "thresholds.tsv", "null_fit.tsv", "regions.tsv",
+    "false_calls.tsv", "false_events.tsv", "clones.tsv", "assignments.tsv", "clone_segments.tsv", "clone_profiles.tsv.gz",
+    "reference_pool.txt", "scores.tsv.gz", "features.tsv.gz", "summary.tsv", "params.yaml", "result.rds", "NOTES.md")
 }
 
 # results written before the rename (working name scncall, 0.1.0-pre builds) carry the class "scncall":

@@ -34,7 +34,8 @@ call_pools(
 \item{loo}{leave-one-out scores (needed for \code{score = "s_rob"})}
 
 \item{scale}{NULL or the \code{\link[=pool_scale]{pool_scale()}} table the thresholds were computed with (attribute \code{pool_scale} of
-\code{\link[=pooled_thresholds]{pooled_thresholds()}} with \code{standardize = TRUE})}
+\code{\link[=pooled_thresholds]{pooled_thresholds()}} with \code{standardize = TRUE}). A region of a class without null pools (named \code{event}
+regions) is standardised with the class medians of its \code{sd_class} when \code{thr} has borrowed rows}
 }
 \value{
 calls table (\code{level = "pool"}, \code{cell} = pool id) plus \code{n} (cells in the pool), \code{s_comb} and,

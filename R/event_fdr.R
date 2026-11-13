@@ -1,7 +1,8 @@
 # event_fdr.R
 # What: the false-event accounting of normal mode, next to null_false_calls() (call_scn.R): per-cell empirical
 #       (conformal) p-values of the reportable per-cell rows against the cross-validation null rows their threshold
-#       was trained on, Benjamini-Hochberg q-values, the expected false calls and events per class x state
+#       was trained on, row-level Benjamini-Hochberg q-values (descriptive, not a false discovery rate), the expected
+#       false calls and events per class x state
 #       (event_fdr), and a selection-free check of the per-cell null (null_selection_check).
 # Why: normal mode calls at a per cell-region budget (1 / 1,000 null rows); a cell has ~100 reportable rows, so a
 #      run's per-cell events carry a false-event load that the counts of calls and events do not show. The null cells
@@ -84,11 +85,12 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
   p
 }
 
-# ---- event FDR -------------------------------------------------------------------------------------------
+# ---- false-event accounting ----------------------------------------------------------------------------
 
 #' False-event accounting of a normal-mode result: p- and q-values, expected false calls and events
 #'
-#' Output only: no call, threshold, score or existing column changes.
+#' Output only: no call, threshold, score or existing column changes. The `q` column is descriptive: it is not a
+#' false discovery rate and must not be used as a filter (see **q-value**).
 #'
 #' **Tested rows.** The per-cell rows of the classes that are reportable per cell ([call_policy()]: chromosomes, arms,
 #' 50 Mb tiles, named events) with a threshold, plus the 20 Mb rows that [resolve_nested()] promoted to reportable.
@@ -124,10 +126,15 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
 #' without null rows that take the null of their `sd_class`.
 #'
 #' **q-value.** Benjamini-Hochberg over all tested rows (m = every tested row, called or not; rows with `s' = -Inf`
-#' have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. The unit is the row,
-#' not the event: one real event typically rejects several nested rows (its chromosome, arms, tiles), so the false
-#' share among events (an event carries the q of its top region) with `q` below a cut can be well above the cut. A
-#' cut on `q` in the events is not an event-level false discovery rate.
+#' have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. `q` is a descriptive
+#' column: it is not a false discovery rate and must not be used as a filter. It is too small in two independent
+#' ways. (1) The unit is the row, not the event: one real event typically rejects several nested rows (its
+#' chromosome, arms, tiles), which loosens the cut-off for single-row false events, so the false share among events
+#' (an event carries the q of its top region) with `q` below a cut can be well above the cut (in a simulation with
+#' 300 planted chromosome losses in 3,000 cells, 12 % of the events with q < 0.05 were false). (2) The p-values are
+#' relative to the selected null cells and the default tail is fitted to them (see above; on a simulated null in
+#' which 10 % of the cells had a higher allelic overdispersion, 28 events reached q < 0.05, all false, and none
+#' with `tail = "none"`). No event-level q-value is computed.
 #'
 #' **Expected false calls and events** (`expected_false`, one row per class x state x chromosome group `A`
 #' (autosomes) / `X` / `Y`): per depth stratum, the realised rate of reportable calls of that state among the null
@@ -144,8 +151,9 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
 #' @param tail_n null scores above the tail anchor (per calibration group)
 #' @param resolve_gains,gain_min_dl the gain gate of the run ([caller_normal()] arguments; default the run's
 #'   recorded `params$normal`, else the [caller_normal()] defaults)
-#' @param alpha q-value level of the summary counts (`n_q_below` in `info`)
-#' @return list: `calls` (the result's calls with `p`, `q`, `null_borrowed` on the tested per-cell rows, NA
+#' @param alpha q-value level of the descriptive summary count (`n_q_below` in `info`; not a false discovery rate)
+#' @return list: `calls` (the result's calls with `p`, `q` (descriptive, not a false discovery rate), `null_borrowed`
+#'   on the tested per-cell rows, NA
 #'   elsewhere), `events` (the result's events with `null_cell`, `p`, `q` (of the top region) and `null_borrowed`;
 #'   NA for pool events), `expected_false` (class, state, chrom_group, null_borrowed, n_rows, n_tested, n_called,
 #'   n_events, n_null, n_null_called, n_null_events, null_per_1000, expected_false_calls (+ `_lo`, `_hi`),

@@ -23,10 +23,11 @@ event_fdr(
 \item{resolve_gains, gain_min_dl}{the gain gate of the run (\code{\link[=caller_normal]{caller_normal()}} arguments; default the run's
 recorded \code{params$normal}, else the \code{\link[=caller_normal]{caller_normal()}} defaults)}
 
-\item{alpha}{q-value level of the summary counts (\code{n_q_below} in \code{info})}
+\item{alpha}{q-value level of the descriptive summary count (\code{n_q_below} in \code{info}; not a false discovery rate)}
 }
 \value{
-list: \code{calls} (the result's calls with \code{p}, \code{q}, \code{null_borrowed} on the tested per-cell rows, NA
+list: \code{calls} (the result's calls with \code{p}, \code{q} (descriptive, not a false discovery rate), \code{null_borrowed}
+on the tested per-cell rows, NA
 elsewhere), \code{events} (the result's events with \code{null_cell}, \code{p}, \code{q} (of the top region) and \code{null_borrowed};
 NA for pool events), \code{expected_false} (class, state, chrom_group, null_borrowed, n_rows, n_tested, n_called,
 n_events, n_null, n_null_called, n_null_events, null_per_1000, expected_false_calls (+ \verb{_lo}, \verb{_hi}),
@@ -34,7 +35,8 @@ expected_false_events (+ \verb{_lo}, \verb{_hi}), false_frac_calls, false_frac_e
 class, stratum, n_null, p_floor = 1 / (n + 1), borrowed) and \code{info} (m, tail, tail_n, alpha, the gain gate)
 }
 \description{
-Output only: no call, threshold, score or existing column changes.
+Output only: no call, threshold, score or existing column changes. The \code{q} column is descriptive: it is not a
+false discovery rate and must not be used as a filter (see \strong{q-value}).
 }
 \details{
 \strong{Tested rows.} The per-cell rows of the classes that are reportable per cell (\code{\link[=call_policy]{call_policy()}}: chromosomes, arms,
@@ -71,10 +73,15 @@ autosomal null of their class x stratum, as their thresholds are (\code{null_bor
 without null rows that take the null of their \code{sd_class}.
 
 \strong{q-value.} Benjamini-Hochberg over all tested rows (m = every tested row, called or not; rows with \verb{s' = -Inf}
-have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. The unit is the row,
-not the event: one real event typically rejects several nested rows (its chromosome, arms, tiles), so the false
-share among events (an event carries the q of its top region) with \code{q} below a cut can be well above the cut. A
-cut on \code{q} in the events is not an event-level false discovery rate.
+have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. \code{q} is a descriptive
+column: it is not a false discovery rate and must not be used as a filter. It is too small in two independent
+ways. (1) The unit is the row, not the event: one real event typically rejects several nested rows (its
+chromosome, arms, tiles), which loosens the cut-off for single-row false events, so the false share among events
+(an event carries the q of its top region) with \code{q} below a cut can be well above the cut (in a simulation with
+300 planted chromosome losses in 3,000 cells, 12 \% of the events with q < 0.05 were false). (2) The p-values are
+relative to the selected null cells and the default tail is fitted to them (see above; on a simulated null in
+which 10 \% of the cells had a higher allelic overdispersion, 28 events reached q < 0.05, all false, and none
+with \code{tail = "none"}). No event-level q-value is computed.
 
 \strong{Expected false calls and events} (\code{expected_false}, one row per class x state x chromosome group \code{A}
 (autosomes) / \code{X} / \code{Y}): per depth stratum, the realised rate of reportable calls of that state among the null

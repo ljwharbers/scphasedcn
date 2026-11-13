@@ -76,8 +76,8 @@ precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts}
 \code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, notes), \code{scores}
 (normal, \code{keep_scores}), \code{thresholds}, \code{calls}, \code{events}, \code{pools}, \code{null_fit}, \code{false_calls} (normal:
 \code{\link[=null_false_calls]{null_false_calls()}}), normal mode: \code{p}, \code{q}, \code{null_borrowed} on the per-cell calls and \code{null_cell}, \code{p}, \code{q},
-\code{null_borrowed} on the events (\code{\link[=event_fdr]{event_fdr()}}), \code{expected_false} (expected false calls / events per class x
-state, \code{\link[=event_fdr]{event_fdr()}}), \code{null_check} (\code{\link[=null_selection_check]{null_selection_check()}}, with \code{null_check = TRUE}), \code{embedding}, clone
+\code{null_borrowed} on the events (\code{\link[=event_fdr]{event_fdr()}}; \code{q} is descriptive: not a false discovery rate, not a filter),
+\code{expected_false} (expected false calls / events per class x state, \code{\link[=event_fdr]{event_fdr()}}), \code{null_check} (\code{\link[=null_selection_check]{null_selection_check()}}, with \code{null_check = TRUE}), \code{embedding}, clone
 components (tumour), \code{params} (the caller parameters plus the
 arguments used: \code{normal} = every \code{\link[=caller_normal]{caller_normal()}} argument of the run, \code{tumour} = the full tumour options) and
 \code{notes} (run time, host, inputs, git revision)

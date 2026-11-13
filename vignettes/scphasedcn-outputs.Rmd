@@ -21,7 +21,7 @@ both). `read_scphasedcn(out)` reads a written run back.
 | `cells.tsv` | one row per called cell: cell type, depth stratum, null cell flag, multiplet flag, `n_calls`, `n_events`; tumour mode adds `clone`, `posterior`, `doublet_like`, `ref_pool` |
 | `calls.tsv` | per cell x region calls (normal mode: the called rows; tumour mode: every clone row and every per-cell inherited / confirmed row) |
 | `pooled_calls.tsv` | normal mode: called rows of the cell pools |
-| `events.tsv` | a cell's overlapping called regions merged into events (normal mode: with `null_cell`, `p`, `q`, `null_borrowed`, see [False-event load](#false-event-load-normal-mode)) |
+| `events.tsv` | a cell's overlapping called regions merged into events (normal mode: with `null_cell`, `p`, `q`, `null_borrowed`; `q` is descriptive, not a false discovery rate, see [False-event load](#false-event-load-normal-mode)) |
 | `thresholds.tsv` | the null thresholds per score, region class and depth stratum (and cross-validation fold) |
 | `regions.tsv` | the regions scored (arms, chromosomes, 5-50 Mb tiles, events; tumour mode also clone pieces) |
 | `null_fit.tsv` | the depth null (Student-t per class x stratum) and the allelic overdispersion `rho` |
@@ -48,7 +48,7 @@ both). `read_scphasedcn(out)` reads a written run back.
 | `reportable` | the call survives the nesting rules (e.g. a chromosome gain is not reported inside a stronger nested arm loss) |
 | `z`, `f`, `n_hap` | depth z, major-haplotype fraction and molecule votes of the cell in the region |
 | `stratum` | the cell's depth stratum (clean fragments; `<20k`, `20-50k`, `>=50k`) |
-| `p`, `q`, `null_borrowed` | normal mode, tested per-cell rows: the empirical p-value against the null rows, the Benjamini-Hochberg q-value and whether the row's chromosome (chrX) or class has no null rows of its own (see below); NA on other rows |
+| `p`, `q`, `null_borrowed` | normal mode, tested per-cell rows: the empirical p-value against the null rows, the row-level Benjamini-Hochberg q-value (descriptive: not a false discovery rate, not a filter) and whether the row's chromosome (chrX) or class has no null rows of its own (see below); NA on other rows |
 | `confident` | tumour mode: the cell's clone assignment is confident |
 
 ## False-event load (normal mode)
@@ -70,7 +70,7 @@ stratum (`null_q`). The budget is per cell-region, and a cell has about a hundre
 | `n_called`, `n_events` | reportable called rows of this state; events whose top region is of this class and state |
 | `n_null`, `n_null_called`, `n_null_events`, `null_per_1000` | null rows of the class, how many of them are reportable calls of this state (fold-cross-validated thresholds, policy and gain gate applied as for every cell), how many null-cell events have such a top region, and the call rate per 1,000 null rows |
 | `expected_false_calls`, `expected_false_events` | the null rate per depth stratum x `n_rows` of that stratum, summed over the strata; `_lo` / `_hi`: 95 % Poisson interval of the null count |
-| `false_frac_calls`, `false_frac_events` | expected false / called (capped at 1): the implied false proportion |
+| `false_frac_calls`, `false_frac_events` | expected false / called (capped at 1): the implied false proportion (a lower bound, see below) |
 
 These are **lower bounds**. Every row counts as a null hypothesis, but the null rate is measured on the selected null
 cells, which were chosen for having no chromosome or arm call at a stricter threshold (`select_null_cells()`). Their
@@ -91,18 +91,24 @@ above 1 on real data). Beyond the (51st) largest null score of the group, `p` th
 fitted to the top 50 null scores times the reportable share of that tail (`event_fdr(tail = "none")` gives the plain
 conformal p-value; `summary.tsv` `events | empirical_p_floor` reports the floor). `q` is the Benjamini-Hochberg
 q-value over all tested rows, called or not. In `events.tsv`, `p` / `q` / `null_borrowed` are those of the event's
-top region and `null_cell` says whether the event is in a selected null cell. Two limits:
+top region and `null_cell` says whether the event is in a selected null cell. **`q` is a descriptive column: it is
+not a false discovery rate and must not be used as a filter.** Two independent limits make it too small, and no
+event-level q-value is computed:
 
 - *Relative to the selected null.* `p`, and the exponential tail beyond the largest null scores, are computed against
   the selected null cells. The selection removes the cells with the heaviest tails (e.g. cells with more allelic
   overdispersion than modelled), so for cells like those `p` is too small and the tail model extrapolates a truncated
   distribution; the tail is conservative only for a correctly specified null with light tails. In a sample where
   part of the cells are noisier than the null cells, the default tail can give false events a small `q` that
-  `event_fdr(tail = "none")` does not; compare the two when the null is in doubt.
+  `event_fdr(tail = "none")` does not (on a simulated null in which 10 % of the cells had a higher allelic
+  overdispersion, 28 events reached `q` < 0.05, all false; none with `tail = "none"`); compare the two when the null
+  is in doubt.
 - *Rows, not events.* Benjamini-Hochberg runs over rows, and one real event usually rejects several nested rows
   (chromosome, arms, tiles), while rows of one cell are positively dependent. A cut on `q` in `events.tsv` is
-  therefore not an event-level false discovery rate: the share of false events below the cut can be well above it.
-  The same holds for `summary.tsv` `events | cell_events_q_below_0.05`, a count of events at a row-level `q`.
+  therefore not an event-level false discovery rate: the share of false events below the cut can be well above it
+  (in a simulation with 300 planted chromosome losses in 3,000 cells, 12 % of the events with `q` < 0.05 were
+  false). The same holds for `summary.tsv` `events | cell_events_q_below_0.05`, a descriptive count of events at a
+  row-level `q`.
 
 **Selection-free check** (`null_selection_check.tsv`, `call_scn(null_check = TRUE)` / `--null-check`; it costs about
 one more scoring pass). The autosomes are split into odd and even chromosomes; null cells are selected on one half

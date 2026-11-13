@@ -325,8 +325,8 @@ utils::globalVariables(c("st", "k", "region"))
 #' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, notes), `scores`
 #'   (normal, `keep_scores`), `thresholds`, `calls`, `events`, `pools`, `null_fit`, `false_calls` (normal:
 #'   [null_false_calls()]), normal mode: `p`, `q`, `null_borrowed` on the per-cell calls and `null_cell`, `p`, `q`,
-#'   `null_borrowed` on the events ([event_fdr()]), `expected_false` (expected false calls / events per class x
-#'   state, [event_fdr()]), `null_check` ([null_selection_check()], with `null_check = TRUE`), `embedding`, clone
+#'   `null_borrowed` on the events ([event_fdr()]; `q` is descriptive: not a false discovery rate, not a filter),
+#'   `expected_false` (expected false calls / events per class x state, [event_fdr()]), `null_check` ([null_selection_check()], with `null_check = TRUE`), `embedding`, clone
 #'   components (tumour), `params` (the caller parameters plus the
 #'   arguments used: `normal` = every [caller_normal()] argument of the run, `tumour` = the full tumour options) and
 #'   `notes` (run time, host, inputs, git revision)
@@ -709,7 +709,8 @@ read_scphasedcn = function(out) {
 #'   per state), `events` (reportable events per cell and per null cell, pooled calls; normal mode with
 #'   [event_fdr()] output: `cell_events_in_null_cells`, `expected_false_cell_events` (per chromosome group when there
 #'   is more than one) and `expected_false_cell_event_fraction` (lower bounds, see [event_fdr()]),
-#'   `cell_events_q_below_0.05` (a count at a row-level q, not an event-level FDR, see [event_fdr()]),
+#'   `cell_events_q_below_0.05` (a descriptive count at a row-level q: not a false discovery rate and not a filter,
+#'   see [event_fdr()]),
 #'   `empirical_p_floor`; `calls` then also has `expected_false_reportable_cell_calls`),
 #'   `null_check` (selection-free exceedances per 1,000 per class, an upper bound of the null rate: real events
 #'   count too, [null_selection_check()]), `clones` (clones,
@@ -770,7 +771,8 @@ scphasedcn_summary = function(obj) {
     fi = obj$fdr_info
     add("events", sprintf("cell_events_q_below_%g", fi$alpha), fi$n_q_below, fi$n_cell_events,
         sprintf(paste("cell events whose top region has a row-level BH q below %g (over %d tested per-cell rows, tail %s);",
-                      "not an event-level FDR; relative to the selected null cells"), fi$alpha, as.integer(fi$m), fi$tail))
+                      "descriptive only: not a false discovery rate and not a filter (rows, not events; relative to the",
+                      "selected null cells; see event_fdr())"), fi$alpha, as.integer(fi$m), fi$tail))
     add("events", "empirical_p_floor", fi$p_floor_max, fi$m,
         sprintf("largest 1 / (n_null + 1) of the null groups; n = tests m; with tail none a lone event's q cannot fall below ~ m x p_floor = %.3g",
                 fi$m * fi$p_floor_max))

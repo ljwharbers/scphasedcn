@@ -17,7 +17,8 @@ apply_thresholds(d, thr, scores = unique(thr$score))
 copy of \code{d} with the threshold and call columns
 }
 \description{
-Adds \verb{thr_<score>} and \verb{call_<score>} (\code{score > thr}, strict). A row
+Adds \verb{thr_<score>} and \verb{call_<score>} (\code{score > max(thr, 0)}, strict: a call also needs a positive
+log-likelihood ratio; \verb{thr_<score>} is the threshold itself, which can be negative). A row
 whose \code{fold} has a threshold in the table gets that fold's (cross-validated)
 threshold; other rows (no \code{fold} column, fold 0, or a fold the table does
 not have) get fold 0. A thresholds table whose \code{stratum} is all "all"

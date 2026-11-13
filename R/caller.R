@@ -3,7 +3,7 @@
 #       log-likelihood ratios (depth location shift under a Student-t / Gaussian null + oriented
 #       beta-binomial allele term, max over each state's allelic rows), null thresholds at the
 #       false-call budget per class x depth stratum (fold-cross-validated, type-7 quantile, strict
-#       `>`), per-cell calls under a calling policy, consolidation of nested calls into events,
+#       `>`, floored at 0), per-cell calls under a calling policy, consolidation of nested calls into events,
 #       pooled scores and pooled thresholds (random pools within a cell type, or chromatin kNN
 #       pools), self-calibration of the null cell set in normal tissue, and the normal-tissue
 #       wrapper caller_normal().
@@ -233,6 +233,14 @@ q7 = function(x, q) {
   if (length(x) == 0) NA_real_ else unname(quantile(x, q, type = 7))
 }
 
+# The calling rule, used by every comparison of a score with its null threshold (per-cell, pooled and tumour
+# confirmation calls, and the false-call accounting on the null rows): called when the score exceeds the threshold
+# and 0, `score > max(thr, 0)`. A score is a log-likelihood ratio against neutral; in a vote-rich class the null
+# quantile can be negative (the allele terms are negative under the null in proportion to the votes), and without
+# the floor a row would be called while every state is less likely than neutral (or, scoring exactly 0 without
+# votes, as CN-LOH). The thresholds tables keep the null quantile itself. NA score or threshold: NA.
+above_thr = function(score, thr) score > pmax(thr, 0)
+
 group_key = function(d, by) {
   if (length(by) == 0) return(rep("all", nrow(d)))
   do.call(paste, c(lapply(by, function(b) as.character(d[[b]])), sep = "\r"))
@@ -326,7 +334,8 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
 
 #' Apply null thresholds to scored rows
 #'
-#' Adds `thr_<score>` and `call_<score>` (`score > thr`, strict). A row
+#' Adds `thr_<score>` and `call_<score>` (`score > max(thr, 0)`, strict: a call also needs a positive
+#' log-likelihood ratio; `thr_<score>` is the threshold itself, which can be negative). A row
 #' whose `fold` has a threshold in the table gets that fold's (cross-validated)
 #' threshold; other rows (no `fold` column, fold 0, or a fold the table does
 #' not have) get fold 0. A thresholds table whose `stratum` is all "all"
@@ -364,7 +373,7 @@ apply_thresholds = function(d, thr, scores = unique(thr$score)) {
     k = fifelse(fold != 0L & !is.na(k1), k1, k0)
     th = tt$thr[k]
     set(d, j = paste0("thr_", s), value = th)
-    set(d, j = paste0("call_", s), value = d[[s]] > th)
+    set(d, j = paste0("call_", s), value = above_thr(d[[s]], th))
   }
   d[]
 }
@@ -839,7 +848,8 @@ add_coords = function(x, regions) {
 #' Per-cell calls table
 #'
 #' One row per scored cell x region whose class and best state (`state_comb`)
-#' the policy lists at `level`; `called = score > thr`. Rows with
+#' the policy lists at `level`; `called = score > max(thr, 0)` (the threshold, and a positive log-likelihood
+#' ratio: a negative null threshold never lets a row be called while neutral is at least as likely). Rows with
 #' `eligible = FALSE` (regions that are not scored) are left out.
 #' @param d_scored scored rows ([score_cells()]); with `thr_<score>` columns
 #'   when `thr_applied` is NULL
@@ -868,7 +878,7 @@ call_table = function(d_scored, thr_applied = NULL, regions = NULL, policy = cal
                  state = d[[sc]][keep], score = d[[score]][keep], thr = d[[tc]][keep])
   for (e in extra) set(x, j = e, value = d[[e]][keep])
   x = add_coords(x, regions)
-  x[, called := !is.na(score) & !is.na(thr) & score > thr]
+  x[, called := !is.na(score) & !is.na(thr) & above_thr(score, thr)]
   x[, `:=`(level = level, source = "cell")]
   x[, reportable := policy_reportable(x, pol)]
   setcolorder(x, c("cell", "region", "class", "chrom", "start", "end", "state", "score", "thr", "called", "level", "source", "reportable"))
@@ -1411,7 +1421,8 @@ pooled_thresholds = function(d_null, pools_fun, n_draws = 20000, by = "class", q
 #' Pooled calls
 #'
 #' Scores the pools ([pool_scores()] per pool x region), applies the fold-0
-#' pooled thresholds per class and returns the policy's pool-level rows. With
+#' pooled thresholds per class and returns the policy's pool-level rows (`called = score > max(thr, 0)`, as
+#' [apply_thresholds()]). With
 #' `loo` the pools are scored as [pool_scores()] describes; use
 #' `score = "s_rob"` (thresholded by [pooled_thresholds()] with `loo = TRUE`) so
 #' a call must survive dropping its most influential cell.
@@ -1451,7 +1462,7 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
   if (!is.null(scale)) x[, s_comb_llr := ps$s_comb_llr[keep]]
   if ("chrom" %in% names(d)) x[, chrom := d$chrom[match(region, d$region)]]
   x = add_coords(x, regions)
-  x[, called := !is.na(score) & !is.na(thr) & score > thr]
+  x[, called := !is.na(score) & !is.na(thr) & above_thr(score, thr)]
   x[, `:=`(level = "pool", source = "cell")]
   x[, reportable := policy_reportable(x, pol)]
   setcolorder(x, c("cell", "region", "class", "chrom", "start", "end", "state", "score", "thr", "called", "level", "source", "reportable"))

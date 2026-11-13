@@ -40,7 +40,7 @@ both). `read_scphasedcn(out)` reads a written run back.
 | `cell` | the cell (normal mode pools: the pool id; tumour mode clone rows: the clone) |
 | `region`, `class`, `chrom`, `start`, `end` | the region (0-based, half-open) and its class: `arm`, `chrom`, `5Mb` ... `50Mb`, `event` |
 | `state` | `loss` (1:0), `gain` (2:1), `cnloh` (2:0, copy-neutral LOH), `gain_as`, `amp`, `del`, `neutral`, or a clone state label |
-| `score`, `thr`, `called` | the region score, its null threshold and `score > thr` |
+| `score`, `thr`, `called` | the region score (a log-likelihood ratio against neutral), its null threshold and `score > max(thr, 0)`: a call needs both the threshold and a positive score, so a negative null threshold (possible in classes with many allele votes) never calls a row on which neutral is at least as likely; `thr` is the null quantile itself |
 | `level` | `cell`, `pool` or `clone` |
 | `source` | `cell` (the cell's own evidence), `inherited` (from its clone or pool) or `confirmed` (a clone call the cell's own evidence confirms) |
 | `reportable` | the call survives the nesting rules (e.g. a chromosome gain is not reported inside a stronger nested arm loss) |

@@ -229,6 +229,44 @@ test_that("call_policy, call_table and consolidate_calls follow the normal-tissu
   expect_equal(ct2[called == TRUE, region], "chr1")
 })
 
+test_that("calls need a positive score: score > max(thr, 0) per cell, pooled and in the null accounting", {
+  # a vote-rich class can have a negative null quantile; a row between it and 0 (every state less likely than
+  # neutral) and a row without votes scoring exactly 0 (CN-LOH by tie) are not called, a row above 0 is
+  thr = data.table(score = "s_comb", class = "arm", stratum = "<20k", fold = 0L, q = 0.999, thr = -3, n_null = 1000L,
+                   pooled_fallback = FALSE)
+  d = data.table(cell = c("c1", "c2", "c3", "c4", "c5"), region = "chr2q", class = "arm", stratum = "<20k",
+                 s_comb = c(-4, -1, 0, 0.5, NA), state_comb = c("loss", "loss", "cnloh", "loss", "loss"),
+                 n_hap = c(50, 50, 0, 50, 50), is_null = TRUE)
+  a = apply_thresholds(d, thr, "s_comb")
+  expect_identical(a$thr_s_comb, rep(-3, 5))                     # the reported threshold is the null quantile
+  expect_identical(a$call_s_comb, c(FALSE, FALSE, FALSE, TRUE, NA))
+  # the null accounting counts the same rows as calling
+  rf = realised_false_calls(a)
+  expect_equal(rf$rates$n_called, 1L)
+  expect_equal(rf$rates$n_null, 4L)
+  ct = call_table(d, thr, fake_regions(), call_policy("normal"))
+  expect_identical(ct[order(cell), called], c(FALSE, FALSE, FALSE, TRUE, FALSE))
+  expect_identical(ct[order(cell), thr], rep(-3, 5))
+  ct0 = call_table(d[, !"is_null"][, thr_s_comb := -3], NULL, fake_regions(), call_policy("normal"))
+  expect_identical(ct0[order(cell), called], c(FALSE, FALSE, FALSE, TRUE, FALSE))
+  # positive thresholds: unchanged strict ">"
+  a2 = apply_thresholds(d, copy(thr)[, thr := 0.25], "s_comb")
+  expect_identical(a2$call_s_comb, c(FALSE, FALSE, FALSE, TRUE, NA))
+  # pooled calls: a negative pooled threshold calls exactly the pools with a positive score
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(200, rg, events = data.table(cell = 1:20, region = "10Mb|chr2:10000000", state = "loss"), seed = 11)
+  sc = score_cells(ff, caller_states("normal"), fit_depth_null(ff[null_cell == TRUE]), 0.002, keep_rows = TRUE)
+  pl = rbind(data.table(pool = "carriers", cell = sprintf("cell_%04d", 1:20)), make_pools(sprintf("cell_%04d", 21:200), NULL, 20, 3),
+             fill = TRUE)
+  pt = data.table(score = "s_comb", class = unique(sc$class), stratum = "all", fold = 0L, q = 0.999, thr = -1e6,
+                  n_null = 1000L, pooled_fallback = FALSE)
+  cp = call_pools(sc, pl, pt, call_policy("normal"), caller_states("normal"), rg, score = "s_comb")
+  expect_gt(sum(cp$score <= 0), 0)
+  expect_gt(sum(cp$score > 0), 0)
+  expect_identical(cp$called, cp$score > 0)
+  expect_true(all(cp$thr == -1e6))
+})
+
 test_that("pools: random partitions within type, kNN neighbourhoods, pooled thresholds and calls", {
   cells = sprintf("c%03d", 1:130); type = rep(c("a", "b", "c"), c(60, 61, 9))
   p = make_pools(cells, type, n_pool = 20, seed = 2)
@@ -611,7 +649,10 @@ test_that("budget_thresholds: hstratum keys the thresholds, falls back to class 
   expect_gt(r0[region <= "r05", sum(n_called) / sum(n_null)] * 1000, 3)
   expect_lt(r0[region > "r05", sum(n_called) / sum(n_null)] * 1000, 0.3)
   expect_lt(abs(r1[region <= "r05", sum(n_called) / sum(n_null)] * 1000 - 1), 0.6)
-  expect_lt(abs(r1[region > "r05", sum(n_called) / sum(n_null)] * 1000 - 1), 0.6)
+  # vote-rich regions: their vote strata have negative null quantiles, and calls need a positive score
+  # (score > max(thr, 0)), so their realised rate is at or below the budget rather than at it
+  expect_lt(r1[region > "r05", sum(n_called) / sum(n_null)] * 1000, 1.6)
+  expect_gt(r1[region > "r05", sum(n_called) / sum(n_null)] * 1000, 0.3)
   expect_error(apply_thresholds(sc, t1, "s_comb"), "hstratum")
   # fallback: a small vote stratum takes its class x stratum; if that is small too, the class
   fb = copy(sh)[region == "r01" & fold == 1, hstratum := "hx"]

@@ -25,6 +25,19 @@ named list:
   [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md)
   `mol_gap`);
 
+- `mol_split_ps` split molecules by phase set (FALSE): a molecule whose
+  fragments lie in different phase sets (across a phase-block junction)
+  gives one vote per phase set instead of one vote under the phase set
+  of its first fragment
+  ([`collapse_molecules()`](https://ljwharbers.github.io/scphasedcn/reference/collapse_molecules.md)
+  `split_ps`);
+
+- `votes_clean` votes from clean fragments only (FALSE): fragments with
+  the blacklist bit in `flags` (the fragments the extractor leaves out
+  of the depth layers) do not vote
+  ([`read_votes()`](https://ljwharbers.github.io/scphasedcn/reference/read_votes.md)
+  `clean`);
+
 - `sd_floor` floor of the per-cell null SD of the window log2 ratio
   (0.05);
 

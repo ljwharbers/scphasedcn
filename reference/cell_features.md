@@ -126,7 +126,10 @@ cell_features(
 
 - mol_gap:
 
-  molecule gap (bp; default `params$mol_gap`, 2000)
+  molecule gap (bp; default `params$mol_gap`, 2000);
+  `params$mol_split_ps` and `params$votes_clean` set the molecule split
+  by phase set and the blacklist filter of the votes
+  ([`read_votes()`](https://ljwharbers.github.io/scphasedcn/reference/read_votes.md))
 
 - keep_votes:
 

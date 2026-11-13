@@ -57,7 +57,7 @@ with an integer offset (exact for coordinates below 2^53 / number of groups).</p
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">collapse_molecules</span><span class="op">(</span><span class="va">fr</span>, gap <span class="op">=</span> <span class="fl">2000</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">collapse_molecules</span><span class="op">(</span><span class="va">fr</span>, gap <span class="op">=</span> <span class="fl">2000</span>, split_ps <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -72,10 +72,24 @@ integer codes 1 / 2 (= A / B)</p></dd>
 <dt id="arg-gap">gap<a class="anchor" aria-label="anchor" href="#arg-gap"></a></dt>
 <dd><p>maximal gap (bp) between fragments of one molecule</p></dd>
 
+
+<dt id="arg-split-ps">split_ps<a class="anchor" aria-label="anchor" href="#arg-split-ps"></a></dt>
+<dd><p>one vote per molecule x phase set instead of one per molecule (default FALSE; the caller
+parameter <code>mol_split_ps</code>)</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>data.table <code>cell, chrom, start, end, ps, n_frag, hap</code> (hap "A"/"B"), one row per molecule</p>
+    <p>data.table <code>cell, chrom, start, end, ps, n_frag, hap</code> (hap "A"/"B"), one row per molecule (per molecule x
+phase set with <code>split_ps</code>)</p>
+    </div>
+    <div class="section level2">
+    <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
+    <p>Phase sets are not oriented relative to each other, so a molecule whose fragments lie in different phase sets
+(a molecule across a block junction) mixes unrelated haplotype labels. With <code>split_ps = TRUE</code> the molecules are
+formed as above and then split by phase set: the fragments of each phase set of a molecule give their own vote
+(majority haplotype of those fragments, ties dropped) in that phase set, with <code>start</code> / <code>end</code> / <code>n_frag</code> of
+those fragments. Molecules within one phase set are the same under both settings.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

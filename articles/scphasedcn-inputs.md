@@ -131,9 +131,20 @@ the bin filter).
   `chrom, start, end, cell, strand, mapq, flags, len, piece, npieces, hap, nsnp, ps, read_id`.
   `hap` is the fragment’s haplotype from the phased SNPs it covers (0
   none, 1 haplotype A, 2 haplotype B, 3 ambiguous) and `ps` the phase
-  set of its first phased SNP (-1 none). The caller collapses a cell’s
-  fragments closer than `mol_gap` (2 kb) into one molecule with one
-  vote.
+  set of its first phased SNP (-1 none). With the extractor option
+  `--vote-ps majority` only the SNPs of the phase set holding most of
+  the fragment’s phased SNPs vote and `ps` is that phase set (a tie
+  between phase sets is ambiguous). `flags` is a bit field: 1
+  supplementary alignment (SA tag), 2 MAPQ 60, 4 piece of a multi-piece
+  read, 8 start in the blacklist, 16 start in a tandem repeat, 32
+  overlaps the centromere, 64 overlaps a peak. Fragments without bit 8
+  are the clean fragments of the depth layers. The caller collapses a
+  cell’s fragments closer than `mol_gap` (2 kb) into one molecule with
+  one vote. Two opt-in caller parameters change the votes:
+  `mol_split_ps = TRUE` gives a molecule whose fragments lie in
+  different phase sets one vote per phase set (instead of one vote under
+  the phase set of its first fragment), and `votes_clean = TRUE` lets
+  only clean fragments vote.
 - `cells_qc.tsv`: per cell `n_pass` (passing records), `n_clean`
   (outside the blacklist), `frac_mapq60`, `frac_chrM`, … The caller’s
   cell QC

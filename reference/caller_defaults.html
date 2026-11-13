@@ -58,6 +58,11 @@ calls need score <code>&gt;</code> threshold (strict, not <code>&gt;=</code>);</
 <li><p><code>eps</code> allele error floor of the beta-binomial (0.02);</p></li>
 <li><p><code>mol_gap</code> fragments of one cell closer than this (bp) are one molecule (2000; the default of
 <code><a href="cell_features.html">cell_features()</a></code> <code>mol_gap</code>);</p></li>
+<li><p><code>mol_split_ps</code> split molecules by phase set (FALSE): a molecule whose fragments lie in different phase sets
+(across a phase-block junction) gives one vote per phase set instead of one vote under the phase set of its
+first fragment (<code><a href="collapse_molecules.html">collapse_molecules()</a></code> <code>split_ps</code>);</p></li>
+<li><p><code>votes_clean</code> votes from clean fragments only (FALSE): fragments with the blacklist bit in <code>flags</code> (the
+fragments the extractor leaves out of the depth layers) do not vote (<code><a href="read_votes.html">read_votes()</a></code> <code>clean</code>);</p></li>
 <li><p><code>sd_floor</code> floor of the per-cell null SD of the window log2 ratio (0.05);</p></li>
 <li><p><code>strata_breaks</code> / <code>strata_labels</code> depth strata on clean fragments per cell
 (<code>&lt;20k</code>, <code>20-50k</code>, <code>&gt;=50k</code>);</p></li>

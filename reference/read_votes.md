@@ -23,7 +23,9 @@ read_votes(
   atoms,
   chroms = NULL,
   gap = 2000,
-  tabix = caller_defaults()$tabix
+  tabix = caller_defaults()$tabix,
+  split_ps = FALSE,
+  clean = FALSE
 )
 ```
 
@@ -55,7 +57,25 @@ read_votes(
   path of the tabix binary ("" = the `tabix` on the PATH; NULL / not
   found = the R fallback through Rsamtools)
 
+- split_ps:
+
+  split molecules by phase set (caller parameter `mol_split_ps`; default
+  FALSE)
+
+- clean:
+
+  votes from clean (not blacklisted) fragments only (caller parameter
+  `votes_clean`; default FALSE)
+
 ## Value
 
 votes data.table `cell, atom, ps, nA, nB` (passes
 [`check_votes()`](https://ljwharbers.github.io/scphasedcn/reference/check_tables.md))
+
+## Details
+
+`clean = TRUE` keeps only the fragments the extractor counts in the
+depth layers (no blacklist bit in `flags`, the extractor's
+`clean = (flags & F_BLACKLIST) == 0`), in the tabix path (awk) and in
+the fallback; `split_ps = TRUE` gives one vote per molecule x phase set
+([`collapse_molecules()`](https://ljwharbers.github.io/scphasedcn/reference/collapse_molecules.md)).

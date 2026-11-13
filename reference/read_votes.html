@@ -66,7 +66,9 @@ error; a chromosome with atoms but no haplotype-assigned fragment of <code>cells
 <span>  <span class="va">atoms</span>,</span>
 <span>  chroms <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  gap <span class="op">=</span> <span class="fl">2000</span>,</span>
-<span>  tabix <span class="op">=</span> <span class="fu"><a href="caller_defaults.html">caller_defaults</a></span><span class="op">(</span><span class="op">)</span><span class="op">$</span><span class="va">tabix</span></span>
+<span>  tabix <span class="op">=</span> <span class="fu"><a href="caller_defaults.html">caller_defaults</a></span><span class="op">(</span><span class="op">)</span><span class="op">$</span><span class="va">tabix</span>,</span>
+<span>  split_ps <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  clean <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -98,10 +100,24 @@ error; a chromosome with atoms but no haplotype-assigned fragment of <code>cells
 <dd><p>path of the tabix binary ("" = the <code>tabix</code> on the PATH; NULL / not found = the R fallback through
 Rsamtools)</p></dd>
 
+
+<dt id="arg-split-ps">split_ps<a class="anchor" aria-label="anchor" href="#arg-split-ps"></a></dt>
+<dd><p>split molecules by phase set (caller parameter <code>mol_split_ps</code>; default FALSE)</p></dd>
+
+
+<dt id="arg-clean">clean<a class="anchor" aria-label="anchor" href="#arg-clean"></a></dt>
+<dd><p>votes from clean (not blacklisted) fragments only (caller parameter <code>votes_clean</code>; default FALSE)</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>votes data.table <code>cell, atom, ps, nA, nB</code> (passes <code><a href="check_tables.html">check_votes()</a></code>)</p>
+    </div>
+    <div class="section level2">
+    <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
+    <p><code>clean = TRUE</code> keeps only the fragments the extractor counts in the depth layers (no blacklist bit in <code>flags</code>,
+the extractor's <code>clean = (flags &amp; F_BLACKLIST) == 0</code>), in the tabix path (awk) and in the fallback;
+<code>split_ps = TRUE</code> gives one vote per molecule x phase set (<code><a href="collapse_molecules.html">collapse_molecules()</a></code>).</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

@@ -249,9 +249,21 @@ per fragment with columns
 <code>chrom, start, end, cell, strand, mapq, flags, len, piece, npieces, hap, nsnp, ps, read_id</code>.
 <code>hap</code> is the fragment’s haplotype from the phased SNPs it
 covers (0 none, 1 haplotype A, 2 haplotype B, 3 ambiguous) and
-<code>ps</code> the phase set of its first phased SNP (-1 none). The
-caller collapses a cell’s fragments closer than <code>mol_gap</code> (2
-kb) into one molecule with one vote.</li>
+<code>ps</code> the phase set of its first phased SNP (-1 none). With
+the extractor option <code>--vote-ps majority</code> only the SNPs of
+the phase set holding most of the fragment’s phased SNPs vote and
+<code>ps</code> is that phase set (a tie between phase sets is
+ambiguous). <code>flags</code> is a bit field: 1 supplementary alignment
+(SA tag), 2 MAPQ 60, 4 piece of a multi-piece read, 8 start in the
+blacklist, 16 start in a tandem repeat, 32 overlaps the centromere, 64
+overlaps a peak. Fragments without bit 8 are the clean fragments of the
+depth layers. The caller collapses a cell’s fragments closer than
+<code>mol_gap</code> (2 kb) into one molecule with one vote. Two opt-in
+caller parameters change the votes: <code>mol_split_ps = TRUE</code>
+gives a molecule whose fragments lie in different phase sets one vote
+per phase set (instead of one vote under the phase set of its first
+fragment), and <code>votes_clean = TRUE</code> lets only clean fragments
+vote.</li>
 <li>
 <code>cells_qc.tsv</code>: per cell <code>n_pass</code> (passing
 records), <code>n_clean</code> (outside the blacklist),

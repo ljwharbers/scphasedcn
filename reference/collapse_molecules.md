@@ -10,7 +10,7 @@ set. The running maximum is computed per group with an integer offset
 ## Usage
 
 ``` r
-collapse_molecules(fr, gap = 2000)
+collapse_molecules(fr, gap = 2000, split_ps = FALSE)
 ```
 
 ## Arguments
@@ -24,7 +24,23 @@ collapse_molecules(fr, gap = 2000)
 
   maximal gap (bp) between fragments of one molecule
 
+- split_ps:
+
+  one vote per molecule x phase set instead of one per molecule (default
+  FALSE; the caller parameter `mol_split_ps`)
+
 ## Value
 
 data.table `cell, chrom, start, end, ps, n_frag, hap` (hap "A"/"B"), one
-row per molecule
+row per molecule (per molecule x phase set with `split_ps`)
+
+## Details
+
+Phase sets are not oriented relative to each other, so a molecule whose
+fragments lie in different phase sets (a molecule across a block
+junction) mixes unrelated haplotype labels. With `split_ps = TRUE` the
+molecules are formed as above and then split by phase set: the fragments
+of each phase set of a molecule give their own vote (majority haplotype
+of those fragments, ties dropped) in that phase set, with `start` /
+`end` / `n_frag` of those fragments. Molecules within one phase set are
+the same under both settings.

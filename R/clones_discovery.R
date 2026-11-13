@@ -577,8 +577,8 @@ perm_decide = function(obs, draw, q = 0.999, n_perm = 200, early = TRUE, perm_de
 #' the smoothed PC space) are candidate pairs; the pairs are tested in order of distance with the clone contrast (`split_test`)
 #' against the `q`-quantile of the same statistic on random splits of the pooled pair at matching sizes
 #' (`n_perm` permutations, sequential early stop; or on the permutation p-value, `perm_decision`), and non-different pairs are merged (each clone at most once
-#' per round). Stops when every candidate pair of the remaining clones differs at the budget (`q = 0.999` = 1
-#' false split per 1,000 tests). Each half is subsampled to `max_cells` cells (observed and null alike).
+#' per round). Stops when every candidate pair of the remaining clones differs at the budget (`q = 0.999`: about 1
+#' false split per 1,000 tests with `perm_decision = "pvalue"`, about 6 with the default `"quantile"`). Each half is subsampled to `max_cells` cells (observed and null alike).
 #' Nearest neighbours rather than Ward siblings only: once two sibling clones differ, a sibling-only rule never
 #' compares either of them with any other clone.
 #' @param feat_long features long table
@@ -600,8 +600,10 @@ perm_decide = function(obs, draw, q = 0.999, n_perm = 200, early = TRUE, perm_de
 #'   ~6 false splits per 1,000 tests, not 1); `"pvalue"` = permutation p-value `(1 + #null >= observed) / (1 +
 #'   permutations) <= 1 - q` over `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations, exact early stop for "same"
 #'   (the `tests` table then has `p`)
-#' @return list(clones = named integer labels, tests = data.table of all tests: stat, thr, n_perm (permutations run),
-#'   differ, n_a, n_b, top_region, top_depth, top_allelic (`p` with `perm_decision = "pvalue"`), key, l1, l2)
+#' @return list(clones = named integer labels, tests = data.table of all tests: stat, thr (the `q`-quantile of the
+#'   permutations run; with `perm_decision = "pvalue"` for information only, `differ` is decided by `p`), n_perm
+#'   (permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (`p` with `perm_decision = "pvalue"`),
+#'   key, l1, l2)
 #' @export
 merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.999, n_perm = 200, seed = 1,
                         rho = 0.01, classes = c("arm", "20Mb"), cells = NULL, max_cells = 250, cdata = NULL, depth_delta = 0.2,

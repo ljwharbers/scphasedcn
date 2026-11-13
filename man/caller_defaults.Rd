@@ -44,7 +44,8 @@ votes of 5 Mb tiles whose null overdispersion is an outlier are left out of the 
 of 5 Mb tiles whose vote-weighted null-cell haplotype fraction f0 is off 0.5 in an outlying way are left
 out of the allele features (FALSE; independent of \code{mask_allelic}, both on = the union of the two masks;
 \code{\link[=allelic_bias_tiles]{allelic_bias_tiles()}} shows the per-tile fractions before calling); a real clonal event whose carriers
-remain among the null cells can be masked too, so read the masked tiles in the run notes;
+remain among the null cells can be masked too, so read the masked tiles in the run notes; not applied
+under \code{mirrored} orientation (noted and warned);
 \item \code{mask_f0_mad} bias threshold in MADs of \verb{|f0 - 0.5|} over the assessed tiles (3);
 \item \code{mask_f0_min} minimal \verb{|f0 - 0.5|} of a masked tile (0.03);
 \item \code{pool_sex_thr} males: the sex chromosomes get their own pooled threshold group (class x autosome / X / Y)

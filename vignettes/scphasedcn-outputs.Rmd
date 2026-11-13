@@ -122,4 +122,6 @@ cells looks the same and can be masked: in a simulation with a focal event in 35
 in the null set and all four event tiles were masked. The mask is therefore a diagnostic to be read with the list of
 masked tiles, not a filter to apply blindly to samples that may carry clonal events. `allelic_bias_tiles(features)`
 computes the same table over all cells of a features object, without a caller run, to look at shared bias before
-calling.
+calling. Under `mirrored` orientation (`phasing = "mirrored"`) the haplotype fraction is the per-block major fraction,
+which measures coverage rather than shared bias: `call_scn()` then runs without the bias rule and says so in the run
+notes.

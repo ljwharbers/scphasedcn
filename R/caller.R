@@ -507,8 +507,11 @@ utils::globalVariables("sexgrp")
 #' event in 35 % of cells, 60 of 96 carriers stayed in the null set and all four event tiles were masked). The
 #' mask is a diagnostic to be read with the list of masked tiles, not a filter to apply blindly to samples that
 #' may carry clonal events.
-#' `|f0 - 0.5|` covers both orientations of the allele features: under `loo` (block) orientation the fraction is
+#' `|f0 - 0.5|` covers two orientations of the allele features: under `loo` (block) orientation the fraction is
 #' major-oriented (a biased tile sits above 0.5), under chromosome-anchored orientation it sits at f0 or 1 - f0.
+#' Under `mirrored` orientation each block counts its major allele, so f0 is above 0.5 in every tile by an amount
+#' set by the votes per block: the statistic measures coverage, not shared bias, and `call_scn()` does not apply
+#' the bias rule (it says so in the run notes and warns).
 #' [allelic_bias_tiles()] gives the same table over all cells before calling.
 #'
 #' `rules` selects which flags make up `masked` (the tiles whose atoms are dropped): `"rho"` (the default and

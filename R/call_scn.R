@@ -422,6 +422,15 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     #     (depth untouched); caller_normal then runs as usual
     amask = NULL; mask_note = NULL
     rules = c(if (isTRUE(params$mask_allelic)) "rho", if (isTRUE(params$mask_f0)) "f0")
+    # the bias rule needs a haplotype fraction that is 0.5 without bias: under mirrored orientation the per-block
+    # major fraction sits above 0.5 by an amount set by the votes per block (coverage), so the rule is skipped
+    f0_note = NULL
+    if ("f0" %in% rules && identical(features_orientation(features), "mirrored")) {
+      rules = setdiff(rules, "f0")
+      f0_note = "allelic mask: bias rule (mask_f0) not applied: under mirrored orientation the null haplotype fraction measures coverage, not shared bias"
+      warning("call_scn: ", f0_note, call. = FALSE)
+      say(f0_note)
+    }
     if (length(rules)) {
       t_m = Sys.time()
       if (is.null(features$votes) || is.null(features$atoms)) {
@@ -455,6 +464,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       res$null_fit$allelic_mask = amask
       res$notes = c(res$notes, mask_note)
     }
+    if (!is.null(f0_note)) res$notes = c(res$notes, f0_note)
     fc = null_false_calls(res$scores)
     res$false_calls = fc$rates
     res$false_events = fc$events
@@ -541,6 +551,19 @@ utils::globalVariables(c("flat", "cell_type", "multiplet"))
 # ---- output ------------------------------------------------------------------------------------------------
 
 # null fit as one table: t rows (class, stratum, t_m, t_s, t_df, n) + a rho row
+# orientation of the allele features: features$phasing["orientation"] (cell_features()), else "mirrored" when every
+# allelic_ok row of the long table is unoriented ("none"), else NA
+features_orientation = function(features) {
+  ph = features$phasing
+  if (!is.null(ph) && "orientation" %in% names(ph)) return(unname(as.character(ph[["orientation"]])))
+  l = features$long
+  if (!is.null(l) && all(c("orient", "allelic_ok") %in% names(l))) {
+    o = unique(l$orient[l$allelic_ok %in% TRUE])
+    if (identical(o, "none")) return("mirrored")
+  }
+  NA_character_
+}
+
 null_fit_table = function(nf) {
   if (is.null(nf)) return(data.table(kind = character()))
   t = if (!is.null(nf$tpar)) copy(as.data.table(nf$tpar))[, kind := "depth_t"] else NULL

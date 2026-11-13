@@ -244,6 +244,33 @@ test_that("call_scn with mask_f0 runs the bias mask pass and records it; depth i
   expect_setequal(key(r2$calls), key(res$calls))
 })
 
+test_that("call_scn does not apply the bias rule (mask_f0) under mirrored orientation: noted, warned, results unchanged", {
+  cen = cs_centromeres(sim_norm_f$scn$bins)
+  f = suppressWarnings(cell_features(sim_dir("sim_norm_f"), sex = "female", centromeres = cen, phasing = "mirrored"))
+  expect_identical(features_orientation(f), "mirrored")
+  # thresholds at zero: under mirrored orientation about half the tiles would be bias outliers if the rule ran
+  prm = modifyList(caller_defaults(), list(mask_f0 = TRUE, mask_f0_mad = 0, mask_f0_min = 0))
+  run = function(p) call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", features = f, params = p, embedding = FALSE,
+                             verbose = FALSE)
+  expect_warning(r1 <- run(prm), "mask_f0.*mirrored")
+  r0 = run(caller_defaults())
+  expect_null(r1$null_fit$allelic_mask)                                   # no tile masked, no mask pass
+  expect_equal(sum(grepl("bias rule \\(mask_f0\\) not applied: under mirrored orientation", r1$notes)), 1)
+  expect_false(any(grepl("mask_f0", r0$notes)))
+  for (k in c("features", "scores", "thresholds", "calls", "events", "pools", "null_fit", "false_calls", "false_events"))
+    expect_identical(r1[[k]], r0[[k]], info = k)
+  # the overdispersion rule still runs under mirrored orientation; the bias rule is not part of it
+  w = character()
+  r2 = withCallingHandlers(run(modifyList(prm, list(mask_allelic = TRUE))),
+                           warning = function(e) { w <<- c(w, conditionMessage(e)); invokeRestart("muffleWarning") })
+  expect_equal(sum(grepl("mask_f0", w)), 1)                                # warned once
+  expect_identical(r2$null_fit$allelic_mask$masked, r2$null_fit$allelic_mask$masked_rho)
+  # the orientation of a features object without `phasing`: from its long table
+  expect_identical(features_orientation(list(long = f$long)), "mirrored")
+  l2 = copy(f$long)[allelic_ok %in% TRUE, orient := "pseudobulk"]
+  expect_true(is.na(features_orientation(list(long = l2))))
+})
+
 test_that("scn_embedding is reproducible (seeded truncated SVD) and named by cell", {
   res = norm_result()
   d = sim_dir("sim_norm_f")

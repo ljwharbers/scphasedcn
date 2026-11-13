@@ -162,7 +162,7 @@ test_that("two_means separates a bimodal vector and finds little in a unimodal o
   x = c(rnorm(100, -3), rnorm(60, 0))
   tm = two_means(x)
   expect_gt(tm$sep, 2.5)
-  expect_equal(sum(tm$g == tm$g[1]), 100, tolerance = 5)
+  expect_lte(abs(sum(tm$g == tm$g[1]) - 100), 5)                  # the first group: the 100 draws around -3, within 5
   expect_lt(two_means(rnorm(200))$sep, 3)
 })
 
@@ -325,6 +325,87 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
                    list(min_excess = 0, max_contra = Inf, bal_frac = 0.75, min_bal_len = 2e7))
   expect_error(caller_tumour(inp, opts = list(bal_frac = -1), verbose = FALSE), "bal_frac")
   expect_error(caller_tumour(inp, opts = list(min_bal_len = "x"), verbose = FALSE), "min_bal_len")
+})
+
+test_that("check_clone_opts rejects out-of-range tumour options with a clear error; the defaults pass", {
+  chk = scphasedcn:::check_clone_opts
+  expect_identical(chk(list()), clone_defaults())
+  bad = list(em_rounds = 0, em_rounds = 1.5, q = 1, q = 0, p_switch = -0.1, min_post = 1, mix_w = c(0.5, 1), mix_prior = 1,
+             multiplet_prob = 1.2, min_size = 0, n_perm = NA_real_, min_win = "3", size_small = 0, trunk_dist = -1,
+             depth_delta = -0.1, same_dist = -1, split_depth = NA, repass = "yes", classes = "bogus", classes = character())
+  for (i in seq_along(bad)) {
+    k = names(bad)[i]
+    expect_error(chk(stats::setNames(list(bad[[i]]), k)), paste0("opts\\$", k, " must be"), info = k)
+  }
+  ok = chk(list(em_rounds = 1, q = 0.99, mix_w = 0.5, mix_prior = 0, multiplet_prob = 1, n_nb_trunk = Inf, allelic_exclude = character()))
+  expect_equal(ok$em_rounds, 1)
+  expect_identical(ok$allelic_exclude, character())
+})
+
+test_that("caller_tumour without allele votes stops with a clear error", {
+  inp = tum2_input()
+  i1 = inp
+  i1$votes = i1$votes[0]
+  expect_error(caller_tumour(i1, verbose = FALSE), "caller_tumour: no allele votes")
+  i2 = inp
+  i2$rho = NA_real_
+  i2$features = copy(i2$features)[, `:=`(nA = 0, nB = 0, n_hap = 0)]
+  expect_error(caller_tumour(i2, verbose = FALSE), "caller_tumour: no allele votes")
+})
+
+test_that("caller_tumour notes degenerate nulls: no control rows for the reference cleaning, no or few confirmation null rows", {
+  # the notes themselves
+  cn = scphasedcn:::confirm_null_notes
+  expect_identical(cn(ref_thr = 2.5, n_null = c(a = 20000, b = 15000), q = 0.999), character())
+  expect_identical(cn(ref_thr = NA_real_), character())
+  expect_match(cn(ref_thr = Inf), "no control rows to calibrate the allelic threshold \\(Inf\\), so no cell was removed")
+  expect_match(cn(n_null = c(segment = 0)), "no null rows .* every threshold is Inf and no cell call is confirmed")
+  few = cn(n_null = c(h1 = 20000, h2 = 900, h3 = 0), q = 0.999)
+  expect_length(few, 1)
+  expect_match(few, "2 of 3 hypotheses have fewer than 10000 null rows .*: h2 900, h3 0;")
+  # in the run: control regions that are all filtered out leave the reference cleaning without control rows
+  inp = tum2_input()
+  ctl0 = data.table(region = character(), chrom = character(), start = numeric(), end = numeric())
+  res = caller_tumour(inp, control_regions = ctl0, verbose = FALSE)
+  expect_true(any(grepl("reference pool cleaning: no control rows", res$notes)))
+  expect_true(is.infinite(res$null_fit$ref_thr))
+  expect_false(any(grepl("reference pool cleaning", tum2_result()$notes)))
+})
+
+test_that("check_clone_opts accepts the values the options allow: no cap, zero lengths and sizes", {
+  chk = scphasedcn:::check_clone_opts
+  for (o in list(list(max_cells = Inf), list(max_leaves = Inf), list(max_leaves_trunk = Inf), list(trunk_dist = 0),
+                 list(small_clone = 0), list(control_min_len = 0), list(member_post = 0), list(member_post = 1)))
+    expect_no_error(chk(o))
+  for (k in c("max_cells", "trunk_dist", "small_clone", "control_min_len", "member_post"))
+    for (bad in list(-1, NA_real_, c(1, 2), numeric()))
+      expect_error(chk(stats::setNames(list(bad), k)), paste0("opts\\$", k, " must be"), info = k)
+  expect_error(chk(list(max_cells = 2.5)), "opts\\$max_cells must be one whole number >= 1 or Inf")
+  expect_error(chk(list(small_clone = 1.5)), "opts\\$small_clone must be one whole number >= 0")
+  expect_error(chk(list(member_post = 1.5)), "opts\\$member_post must be one number in \\[0, 1\\]")
+  expect_error(chk(list(min_size = 0)), "opts\\$min_size must be one whole number >= 1, not 0")
+  expect_error(chk(list(mix_w = c(0.5, 1))), "opts\\$mix_w must be numbers strictly between 0 and 1")
+})
+
+test_that("assign_cells keeps the normal clone N0 as a hypothesis when no cell is labelled N0", {
+  res = tum2_result()
+  inp = tum2_input()
+  tr = sim_truth(sim_tum2)
+  # N0 replaces the event-free clone(s); no member is labelled N0 (as when no fitted clone was replaced)
+  sg0 = as.data.table(res$segments)[clone != "N0"]
+  K0 = unique(sg0$clone)
+  nn = add_normal_clone(list(segments = sg0, fit = list(par = data.table(clone = K0, c = 0.9, a = 0.9, rho = 0.01, s_sys = 0))), 1e7)
+  expect_true("N0" %in% nn$st$segments$clone)
+  members = as.data.table(res$assignments)[assigned == TRUE & !clone %in% c(nn$replaced, "N0"), .(cell, clone)]
+  expect_false("N0" %in% members$clone)
+  pieces = segment_pieces(nn$st$segments, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  par = as.data.table(nn$st$fit$par)[clone != "N0"]                      # no N0 row: c = median c, a = 1
+  asg = assign_cells(fp, members, nn$st$segments, inp$null_fit$tpar, inp$null_fit$rho, par = par, mixtures = FALSE)
+  expect_true("N0" %in% colnames(attr(asg, "ll")))
+  a = merge(asg, tr, by = "cell")
+  expect_gte(a[type == "normal" & mult == FALSE, mean(clone == "N0")], 0.9)
+  expect_lte(a[type != "normal" & mult == FALSE, mean(clone == "N0")], 0.05)
 })
 
 test_that("control_regions and segment_pieces partition the clone breakpoints", {

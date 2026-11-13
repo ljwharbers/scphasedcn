@@ -58,5 +58,10 @@ hypothesis in \code{null_fit$confirm_null}; the default). The refitted value is 
 by the clone's pseudobulk, so only the clone's major haplotype counts). The fallback without null rows (type-7
 quantile of \code{cell_state_scores()}) is always one-sided.
 
-A key that is not one of these defaults stops \code{\link[=caller_tumour]{caller_tumour()}} with an error.
+A key that is not one of these defaults stops \code{\link[=caller_tumour]{caller_tumour()}} with an error, and so does a value outside its range:
+\code{q}, \code{p_switch}, \code{trunk_post}, \code{min_post}, \code{ref_post}, \code{max_mix_prior} and every \code{mix_w} strictly
+between 0 and 1, \code{mix_prior} in [0, 1), \code{multiplet_prob}, \code{deep_q} and \code{member_post} in [0, 1], counts (\code{em_rounds},
+\code{min_size}, \code{n_perm}, \code{min_win}, \code{min_ref}, ...) whole numbers >= 1, the caps \code{max_cells}, \code{max_leaves} and
+\code{max_leaves_trunk} whole numbers >= 1 or \code{Inf} (no cap), \code{small_clone} a whole number >= 0, \code{trunk_dist} and
+\code{control_min_len} >= 0, the other sizes / lengths > 0, the other tolerances >= 0.
 }

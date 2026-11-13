@@ -87,8 +87,13 @@ clone_input = function(feat) {
   rho = feat$rho %||% nf$rho %||% nf$allelic
   if (is.data.frame(rho)) rho = stats::median(rho$rho, na.rm = TRUE)
   if (is.null(rho) || !is.finite(rho)) {
-    nr = features[null_cell & null_region & eligible]
-    rho = if (nrow(nr)) fit_allelic_null(nr$nA, nr$n_hap) else 0.01
+    # no input rho: the call_scn() recipe (tumour_null_fit(): flagged null cells, else cells selected as copy-number
+    # neutral, else all cells), which also gives a missing depth null; rho stays NA without votes on the null rows
+    # (caller_tumour() then stops)
+    need = c("cell", "class", "stratum", "z", "sd_null", "nA", "n_hap", "null_region", "eligible")
+    nf = if (all(need %in% names(features))) tumour_null_fit(features) else NULL
+    if (is.null(tpar)) tpar = nf$tpar
+    rho = nf$rho %||% NA_real_
   }
   win = cl_part(feat, c("win", "windows_1mb", "win1mb"), required = FALSE)
   if (!is.null(win)) win = as_clone_win(win, cells$cell)

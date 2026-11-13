@@ -17,7 +17,8 @@
 #' * `flat`: cells known to be copy-number neutral (e.g. normal cells from an orthogonal assay). Normal mode uses them
 #'   as the null cells with `null_cells = "features"`; without `flat`, use `null_cells = "select"` (`--null-cells
 #'   select`): the caller selects its own null cells. Tumour mode fits its input depth / allelic null on them (when the
-#'   features carry no null fit); its reference pool is not taken from them but is the normal clone the caller finds
+#'   features carry no null fit; without `flat` it selects copy-number-neutral cells itself, see [tumour_null_fit()],
+#'   which is the weaker null); its reference pool is not taken from them but is the normal clone the caller finds
 #'   and cleans itself.
 #' * `group`: tumour mode only, pseudobulk groups of the phase-block orientation (`groups = "group"`, `--groups
 #'   group`), e.g. spatial regions or RNA clusters; NA = all-cell pseudobulk.

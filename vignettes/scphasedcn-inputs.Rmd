@@ -189,8 +189,9 @@ extractor's `cells_qc.tsv` and your labels:
   without cell types, all cells form one reference.
 - `flat`: cells known to be copy-number neutral (e.g. from a matched assay). Normal-tissue mode uses them as its null
   cells with `null_cells = "features"`; without them use `null_cells = "select"` (the caller selects null cells from
-  the data). Tumour mode fits its input depth and allelic null on them; its normal reference pool is the normal clone
-  the caller finds and cleans itself, not these cells.
+  the data). Tumour mode fits its input depth and allelic null on them; without them it selects copy-number-neutral
+  cells itself (`tumour_null_fit()`, with a warning; all cells when none are found), which is the weaker null. Its
+  normal reference pool is the normal clone the caller finds and cleans itself, not these cells.
 - `group`: tumour mode, groups whose pseudobulk orients the phase blocks (`groups = "group"`), e.g. spatial regions
   or RNA clusters.
 

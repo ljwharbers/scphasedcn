@@ -144,6 +144,12 @@ cell metadata: they set the input depth and allelic null; the reference pool is 
 finds), groups for the block orientation (`groups`, e.g. spatial regions), known events (`events`, reported as their
 own regions) and multiplet probabilities (`multiplets`).
 
+The run below flags no normal cells. The input null is then fitted on the cells that `tumour_null_fit()` selects as
+copy-number neutral on the null rows (in practice the normal cells), the run warns that flagged cells give a better
+null, and its notes (`res_t$notes`) say which null was used. In a sample without normal cells no neutral set settles
+and the null is fitted on all cells, tumour cells included, so it absorbs the tumour's events (a note says so). When
+you know the normal cells (e.g. from a matched RNA annotation), flag them as `flat`.
+
 ```{r tumour, eval = FALSE}
 res_t = call_scn("results/tumour/extract", mode = "tumour", sex = "male",
                  events = c(`20q_gain` = "chr20:28000000-"))

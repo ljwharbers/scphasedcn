@@ -187,6 +187,82 @@ confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
   out
 }
 
+#' Input null of the tumour mode: depth t null and allelic rho
+#'
+#' The depth Student-t null ([fit_depth_null()], completed by class) and the beta-binomial rho
+#' ([fit_allelic_null()] on the arm rows with votes) that [caller_tumour()] uses for discovery, assignment and
+#' per-cell confirmation, fitted on the null rows (`null_region` and `eligible`) of a set of cells:
+#'   * `"flagged"`: the cells with `null_cell` TRUE (the `flat` column of the cell metadata, or given null cells),
+#'     whenever there is one and `select` is FALSE;
+#'   * `"selected"`: otherwise, the copy-number-neutral cells that [select_null_cells()] finds on the null rows
+#'     (chromosome and arm rows, the tumour state set, `n_iter` iterations from all cells minus `exclude`): the cells
+#'     kept by both of its last two iterations. They are used when there are at least `min_cells` of them and the last
+#'     iteration is stable (Jaccard index of the sets it started from and ended with >= `min_jaccard`). In a tumour
+#'     sample the cells without a call on the null rows are the normal cells (and tumour cells whose events all lie
+#'     outside the null rows); without such cells the selection does not settle;
+#'   * `"all"`: otherwise all cells (no neutral cells found). The fit then absorbs the tumour's events on the null
+#'     rows (inflated rho, heavy depth tails), as every tumour-mode run without flagged cells did before.
+#'
+#' A fit on all cells is wrong whenever tumour cells carry events on the null rows: rho and the t tails take up the
+#' events, which weakens assignment and per-cell confirmation. Flagged copy-number-normal cells (e.g. from a matched
+#' assay) remain the better null: the selection can only find cells that look neutral at the data's resolution. The
+#' note gives the rho of all cells next to the fitted one: a selected null whose rho is close to the all-cell rho is
+#' a set of tumour cells that carry the same events (in a sample without normal cells).
+#' @param long features long table ([cell_features()] `long`: cell, region, class, sd_class, chrom, stratum, z,
+#'   sd_null, nA, n_hap, null_region, eligible, null_cell)
+#' @param params [caller_defaults()]
+#' @param exclude cells never selected (e.g. multiplets)
+#' @param select TRUE: select null cells even when some are flagged
+#' @param n_iter iterations of the selection (>= 2)
+#' @param min_cells minimal number of selected cells
+#' @param min_jaccard minimal Jaccard index of the selection's last iteration
+#' @return NULL without null rows (of the flagged cells); else list(tpar, rho, source = "flagged" / "selected" /
+#'   "all", null_cells (the cells fitted), selection (the [select_null_cells()] log; NULL for flagged cells), note
+#'   (one line for the run notes))
+#' @export
+tumour_null_fit = function(long, params = caller_defaults(), exclude = NULL, select = FALSE, n_iter = 5, min_cells = 5,
+                           min_jaccard = 0.7) {
+  long = as.data.table(long)
+  nr = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible
+  flagged = "null_cell" %in% names(long) && any(long$null_cell %in% TRUE)
+  sel = NULL
+  if (flagged && !select) {
+    src = "flagged"
+    nr = nr & long$null_cell %in% TRUE
+    if (!any(nr)) return(NULL)
+    note = sprintf("tumour input null (depth t, allelic rho): fitted on the %d flagged null cells", uniqueN(long$cell[nr]))
+  } else {
+    if (!any(nr)) return(NULL)
+    what = if (flagged) "null-cell selection asked for" else "no flagged null cells"
+    sl = select_null_cells(long[nr], states = caller_states("tumour", params), params = params, n_iter = n_iter,
+                           exclude = exclude)
+    sel = sl$log
+    keep = intersect(sl$null_cells, sl$previous)
+    jac = length(keep) / length(union(sl$null_cells, sl$previous))
+    why = sprintf("%d cells without a call on the null rows in the last two iterations, Jaccard %.2f", length(keep), jac)
+    if (length(keep) >= min_cells && is.finite(jac) && jac >= min_jaccard) {
+      src = "selected"
+      nr = nr & long$cell %in% keep
+      note = sprintf("tumour input null (depth t, allelic rho): %s; fitted on %d copy-number-neutral cells selected on the null rows (%s)",
+                     what, length(keep), why)
+    } else {
+      src = "all"
+      note = sprintf(paste("tumour input null (depth t, allelic rho): %s; no stable set of at least %d copy-number-neutral cells",
+                           "(%s), so fitted on all cells: rho and the depth tails absorb the tumour's events on the null rows"),
+                     what, min_cells, why)
+    }
+  }
+  tpar = complete_tpar(long, fit_depth_null(long[nr]))
+  arm = nr & long$class == "arm" & long$n_hap > 0
+  rho = if (any(arm, na.rm = TRUE)) fit_allelic_null(long$nA[arm %in% TRUE], long$n_hap[arm %in% TRUE]) else NA_real_
+  note = paste0(note, sprintf("; rho %s", signif(rho, 3)))
+  if (src == "selected") {
+    a0 = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible & long$class == "arm" & long$n_hap > 0
+    note = paste0(note, sprintf(" (all cells: %s)", signif(fit_allelic_null(long$nA[a0 %in% TRUE], long$n_hap[a0 %in% TRUE]), 3)))
+  }
+  list(tpar = tpar, rho = rho, source = src, null_cells = unique(long$cell[nr]), selection = sel, note = note)
+}
+
 # per-cell call scores on a set of regions for cells of clone k (depth + allele under clone k's state)
 cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_cells = NULL) {
   # rows: data.table cell, region, cn, ploidy, f_state, c, a, oclone (orientation clone)
@@ -310,7 +386,8 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' Input `feat` (the feature step's `scn_features`, or an equivalent list): `features` (long table),
 #' `regions`, `votes`, `atoms`, `cells` (data.table with `cell`, in vote index order; `n_frag` / `stratum`),
 #' `win` (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
-#' start, end, x, e) and `null_fit` (list with `tpar` = [fit_depth_null()] table and `rho`).
+#' start, end, x, e) and `null_fit` (list with `tpar` = [fit_depth_null()] table and `rho`; without it, or without its
+#' `rho`, the input null is [tumour_null_fit()] of the features, as in [call_scn()]).
 #' @param feat scn_features list
 #' @param params [caller_defaults()]
 #' @param multiplets optional data.table cell, prob ([multiplet_table()]); cells above `opts$multiplet_prob` are excluded from

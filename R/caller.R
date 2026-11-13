@@ -662,7 +662,8 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' allelic rho on the null rows of the current set, scores every candidate
 #' cell on the `classes` regions (chromosomes and arms) with `s_comb`,
 #' thresholds at the selection quantile `q` and keeps the cells with at most
-#' `max_calls` calls. Every iteration re-evaluates all candidates (a cell
+#' `max_calls` calls (it stops early, with no null cell, when every candidate
+#' has more). Every iteration re-evaluates all candidates (a cell
 #' dropped earlier can come back), so the set does not ratchet.
 #'
 #' Thresholds (`threshold`): "parametric" (default) re-draws the null rows
@@ -694,7 +695,8 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' @param q selection quantile per row
 #' @param n_sim simulated rows per class x stratum (parametric; default max(2e4, 20 / (1 - q)))
 #' @param chroms chromosomes whose rows are scored (default autosomes chr1-chr22); NULL = all
-#' @return list(null_cells, log (per iteration), calls (per candidate cell: n_calls, null), tpar, rho, thresholds)
+#' @return list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
+#'   candidate cell: n_calls, null), tpar, rho, thresholds)
 #' @export
 select_null_cells = function(feat_long, states = caller_states("normal", params), params = caller_defaults(), n_iter = 2,
                              max_calls = 0, exclude = NULL, classes = c("chrom", "arm"), depth_model = "t",
@@ -712,7 +714,7 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
   cand = unique(d$cell)
   cur = cand
   ok_row = !is.na(d$null_region) & d$null_region & !is.na(d$eligible) & d$eligible
-  log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL
+  log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL; prev = cur
   for (it in seq_len(n_iter)) {
     isn = ok_row & d$cell %in% cur
     tpar = if (depth_model == "t") complete_tpar(d, fit_depth_null(d[isn])) else NULL
@@ -729,10 +731,12 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
     fr = 1000 * mean(sc$call_s_comb[isn], na.rm = TRUE)
     log[[it]] = data.table(iter = it, n_in = length(cur), n_out = length(new), n_dropped = length(setdiff(cur, new)),
                            n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr)
+    prev = cur
     cur = new
+    if (!length(cur)) break   # every candidate has a call: nothing to fit the next iteration on
   }
   nc[, null := cell %in% cur]
-  list(null_cells = cur, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)
+  list(null_cells = cur, previous = prev, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)
 }
 
 # ---- calling policy, calls, events -------------------------------------------------------------------

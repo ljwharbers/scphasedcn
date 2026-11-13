@@ -21,5 +21,6 @@ The per-tile table of \code{\link[=allelic_noisy_tiles]{allelic_noisy_tiles()}} 
 eligible row of a features object, before any caller run: the vote-weighted haplotype fraction \code{f0}, its
 deviation \verb{d0 = |f0 - 0.5|}, the robust z \code{z_f0} and the bias flag \code{masked_f0} (here also \code{masked}), next to
 the overdispersion columns (\code{rho}, \code{z_rho}, \code{masked_rho}). Over all cells a frequent clonal event also shows up
-as a bias; the caller's mask (\code{params$mask_f0}, \code{call_scn()}) uses the null cells only.
+as a bias; the caller's mask (\code{params$mask_f0}, \code{call_scn()}) uses the null cells only, which does not keep
+an event out of the mask when its carriers remain among the null cells (\code{\link[=allelic_noisy_tiles]{allelic_noisy_tiles()}}).
 }

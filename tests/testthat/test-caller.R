@@ -986,11 +986,13 @@ test_that("allelic_noisy_tiles bias rule (mask_f0) masks shared-bias tiles, the 
   expect_error(allelic_noisy_tiles(d, rules = "mean"), "rules")
 })
 
-test_that("the bias rule ignores a clone biased only in non-null cells; allelic_bias_tiles (all cells) shows it", {
+test_that("the bias rule ignores a clone whose carriers are all non-null cells, masks it when they are null cells; allelic_bias_tiles (all cells) shows it", {
   bf = bias_fake(); d = bf$d; tl = bf$tiles
   m = allelic_noisy_tiles(d, rules = "f0")
   expect_false(m[tile == tl$clone, masked_f0])
   expect_equal(m[tile == tl$clone, f0], 0.5, tolerance = 0.03)
+  # the limit of the rule: carriers that remain among the null cells make the clone a shared bias
+  expect_true(allelic_noisy_tiles(d, null = rep(TRUE, nrow(d)), rules = "f0")[tile == tl$clone, masked_f0])
   b = allelic_bias_tiles(d)
   expect_true(b[tile == tl$clone, masked_f0])
   expect_identical(b$masked, b$masked_f0)

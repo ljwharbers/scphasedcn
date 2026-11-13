@@ -114,8 +114,12 @@ be used alone or together (the union is masked); the run notes give the number o
 | `masked_rho` | overdispersion rule: assessed and `z_rho > mask_rho_mad` |
 | `masked_f0` | bias rule: assessed, `z_f0 > mask_f0_mad` and `d0 > mask_f0_min` |
 
-`masked_rho` and `masked_f0` are reported whether or not their rule is on. The bias rule uses null cells only on
-purpose: a stretch off 1:1 in every cell (germline copy-number variant or segmental duplication, imprinted or
-allele-specific accessible region, mapping bias, false heterozygous SNPs) is in the null cells, a real clonal event
-carried by part of the tissue is not. `allelic_bias_tiles(features)` computes the same table over all cells of a
-features object, without a caller run, to look at shared bias before calling.
+`masked_rho` and `masked_f0` are reported whether or not their rule is on; the run notes list the masked tiles.
+The bias rule masks tiles with a shared allelic imbalance among the null cells, such as a stretch off 1:1 in every
+cell (germline copy-number variant or segmental duplication, imprinted or allele-specific accessible region, mapping
+bias, false heterozygous SNPs). A real clonal event that is frequent enough for its carriers to remain among the null
+cells looks the same and can be masked: in a simulation with a focal event in 35 % of cells, 60 of 96 carriers stayed
+in the null set and all four event tiles were masked. The mask is therefore a diagnostic to be read with the list of
+masked tiles, not a filter to apply blindly to samples that may carry clonal events. `allelic_bias_tiles(features)`
+computes the same table over all cells of a features object, without a caller run, to look at shared bias before
+calling.

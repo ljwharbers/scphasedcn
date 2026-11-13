@@ -55,7 +55,8 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `mask_f0` shared-bias allelic tile mask in normal mode ([allelic_noisy_tiles()], `call_scn()`): the votes
 #'     of 5 Mb tiles whose vote-weighted null-cell haplotype fraction f0 is off 0.5 in an outlying way are left
 #'     out of the allele features (FALSE; independent of `mask_allelic`, both on = the union of the two masks;
-#'     [allelic_bias_tiles()] shows the per-tile fractions before calling);
+#'     [allelic_bias_tiles()] shows the per-tile fractions before calling); a real clonal event whose carriers
+#'     remain among the null cells can be masked too, so read the masked tiles in the run notes;
 #'   * `mask_f0_mad` bias threshold in MADs of `|f0 - 0.5|` over the assessed tiles (3);
 #'   * `mask_f0_min` minimal `|f0 - 0.5|` of a masked tile (0.03);
 #'   * `pool_sex_thr` males: the sex chromosomes get their own pooled threshold group (class x autosome / X / Y)

@@ -501,8 +501,12 @@ utils::globalVariables("sexgrp")
 #' assessed tiles. A tile is a bias outlier (`masked_f0`) when it is assessed, `z_f0 > f0_mad` and
 #' `d0 > f0_min`: a stretch whose allele fraction is off 1:1 in the null cells for reasons that are not somatic
 #' copy number (germline CNV or segmental duplication, imprinted or allele-specific accessible regions, mapping
-#' bias, false heterozygous SNPs), against which the 1:1 allele null of every cell is wrong. Only null rows are
-#' used on purpose: a real clonal event carried by part of the tissue is not in the null cells and is not masked.
+#' bias, false heterozygous SNPs), against which the 1:1 allele null of every cell is wrong. The rule sees only
+#' the null rows, but it cannot tell such a shared bias from a real clonal event whose carriers remain among the
+#' null cells: an event frequent enough for that looks the same and can be masked (in a simulation with a focal
+#' event in 35 % of cells, 60 of 96 carriers stayed in the null set and all four event tiles were masked). The
+#' mask is a diagnostic to be read with the list of masked tiles, not a filter to apply blindly to samples that
+#' may carry clonal events.
 #' `|f0 - 0.5|` covers both orientations of the allele features: under `loo` (block) orientation the fraction is
 #' major-oriented (a biased tile sits above 0.5), under chromosome-anchored orientation it sits at f0 or 1 - f0.
 #' [allelic_bias_tiles()] gives the same table over all cells before calling.
@@ -565,7 +569,8 @@ utils::globalVariables(c("assessed", "masked", "z_rho", "N4", "P", "tile", "vote
 #' eligible row of a features object, before any caller run: the vote-weighted haplotype fraction `f0`, its
 #' deviation `d0 = |f0 - 0.5|`, the robust z `z_f0` and the bias flag `masked_f0` (here also `masked`), next to
 #' the overdispersion columns (`rho`, `z_rho`, `masked_rho`). Over all cells a frequent clonal event also shows up
-#' as a bias; the caller's mask (`params$mask_f0`, `call_scn()`) uses the null cells only.
+#' as a bias; the caller's mask (`params$mask_f0`, `call_scn()`) uses the null cells only, which does not keep
+#' an event out of the mask when its carriers remain among the null cells ([allelic_noisy_tiles()]).
 #' @param features `scn_features` ([cell_features()]) or its features long table
 #' @param size tile class
 #' @param params [caller_defaults()] (`mask_min_votes`, `mask_rho_mad`, `mask_f0_mad`, `mask_f0_min`)

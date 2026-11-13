@@ -21,7 +21,7 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 | phased heterozygous SNPs | for the allele channel; required in tumour mode | VCF with `GT` phased (`0|1`) and a `PS` phase-set tag, e.g. Clair3 + longphase, selected with `scphasedcn select-hets` |
 | sex | yes | `female` or `male` (chrX / chrY copy number) |
 | cell metadata | no | cell types (normal tissue), cells known to be copy-number neutral, groups; see below |
-| known events | no | regions reported as their own calls (e.g. a known trisomy; `name=chr:start-end`, 0-based half-open, an open end = the chromosome end) |
+| known events | no | regions reported as their own calls (e.g. a known trisomy; `name=chr:start-end`, 0-based half-open, an open end = the chromosome end); normal mode calls them per cell, in pools only with `pool_events` (off by default, experimental) |
 
 The genome is hg38 only: the bundled chromosome sizes, ENCODE blacklist v2 and centromere coordinates are hg38, and
 so are the chrX centromere and acrocentric arm defaults of the caller.

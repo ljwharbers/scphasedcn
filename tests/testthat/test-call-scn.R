@@ -210,11 +210,16 @@ test_that("tumour mode dispatches to the tumour mode", {
   d = sim_dir("sim_tum2")
   s = sim_tum2
   cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
+  # multiplet scores between 0.5 and the tumour mode's multiplet_prob (0.9) are not flagged: the cells are used as singlets
+  mult = data.table(cell = cm$cell[1:4], prob = c(0.6, 0.85, 0.95, 1))
   res = call_scn(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
-                 centromeres = cs_centromeres(s$scn$bins))
+                 centromeres = cs_centromeres(s$scn$bins), multiplets = mult)
   expect_s3_class(res, "scphasedcn")
   expect_equal(res$mode, "tumour")
   expect_true(all(c("clone", "posterior") %in% names(res$cells)))
+  expect_identical(res$cells[match(mult$cell, cell), multiplet], c(FALSE, FALSE, TRUE, TRUE))
+  asg = as.data.table(res$assignments)
+  expect_identical(res$cells[match(asg$cell, cell), multiplet], asg$multiplet)
   # the tumour options of the run are kept in params (call_scn no longer replaces the caller's record)
   expect_identical(res$params$tumour, clone_defaults())
   expect_null(res$params$normal)
@@ -283,7 +288,7 @@ test_that("make_cell_meta builds the cell metadata from cells_qc and user labels
   expect_error(make_cell_meta(), "no cells")
 })
 
-test_that("cell selection: cell_meta qc_pass replaces the cell QC, without it the QC applies; `cells` bypasses QC", {
+test_that("cell selection: the cell QC applies, a cell_meta qc_pass column restricts it further; `cells` bypasses QC", {
   all = paste0("c", 1:6)
   qct = data.table(cell = all, qc_pass = c(TRUE, TRUE, TRUE, FALSE, FALSE, TRUE))
   expect_identical(feature_cells(all, qct)$keep, c("c1", "c2", "c3", "c6"))
@@ -292,13 +297,43 @@ test_that("cell selection: cell_meta qc_pass replaces the cell QC, without it th
   s = feature_cells(all, qct, cell_meta = m)
   expect_identical(s$keep, c("c2", "c6"))
   expect_identical(s$how, "QC pass")
-  # with qc_pass: the table's QC decides (as make_cell_meta() wrote it)
+  # with qc_pass: a cell must pass both the QC and the table's qc_pass (c4 fails the QC, c2 / c1 the table)
   m2 = data.table(cell = c("c6", "c4", "c2", "c1"), qc_pass = c(TRUE, TRUE, FALSE, NA))
   s2 = feature_cells(all, qct, cell_meta = m2)
-  expect_identical(s2$keep, c("c4", "c6"))
-  expect_identical(s2$how, "cell_meta qc_pass")
+  expect_identical(s2$keep, "c6")
+  expect_identical(s2$how, "QC pass and cell_meta qc_pass")
   # explicit cells: no QC, in the sample's order
   expect_identical(feature_cells(all, qct, cells = c("c5", "c4", "zz"), cell_meta = m2)$keep, c("c4", "c5"))
+})
+
+test_that("cell_features: a cell_meta qc_pass column does not override the `qc` argument", {
+  # make_cell_meta() writes qc_pass with its own QC arguments; a stricter `qc` of the run still applies
+  d = sim_dir("sim_norm_f")
+  m = make_cell_meta(d)
+  expect_true("qc_pass" %in% names(m))
+  qc = list(min_frag = 20000)
+  qct = do.call(cell_qc, c(list(read_sample_depth(d)), qc))
+  want = intersect(qct[qc_pass == TRUE, cell], m[qc_pass %in% TRUE, cell])
+  expect_lt(length(want), sum(m$qc_pass))                            # the stricter QC removes cells
+  f = suppressWarnings(cell_features(d, cell_meta = m, sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins),
+                                     qc = qc, classes = c("arm", "chrom")))
+  expect_setequal(f$cells$cell, want)
+})
+
+test_that("cell_features: the sample's sex from a cells table must be one sex", {
+  s = sim_norm_f
+  s$scn$cells = copy(s$scn$cells)[, sex := rep(c("F", "male"), length.out = .N)]
+  d = file.path(tempdir(), "mixed_sex")
+  unlink(d, recursive = TRUE)
+  invisible(capture.output(suppressMessages(write_sim_dataset(s, d))))
+  expect_error(cell_features(d, centromeres = cs_centromeres(s$scn$bins), classes = c("arm", "chrom")),
+               "cell_features: the cells' `sex` column mixes both sexes")
+  # spellings normalised, missing / empty values ignored
+  expect_identical(cells_sex(c("F", NA, "female", " ")), "female")
+  expect_identical(cells_sex(c(NA, "M")), "male")
+  expect_identical(cells_sex(c(NA, NA)), NA_character_)
+  expect_error(cells_sex(c("m", "Female")), "mixes both sexes")
+  expect_error(cells_sex(c("m", "x")), "`sex` must be")
 })
 
 test_that("call_scn.R --cell-meta without qc_pass applies the cell QC (as the R API does)", {
@@ -386,6 +421,32 @@ test_that("write_scphasedcn clears the files of a previous result and nothing el
   expect_true(dir.exists(file.path(out, "plots")))
   expect_setequal(list.files(out), c(basename(files), "my_notes.txt", "plots"))
   expect_true(all(basename(files) %in% scphasedcn_output_files()))
+})
+
+test_that("write_scphasedcn: rewriting a read-back result into its own directory keeps its scores and features", {
+  # result.rds is stored without scores / features, so they cannot be written again from a read-back object
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 10)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  res = call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500))
+  out = file.path(tempdir(), "write_roundtrip")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(res, out, write_scores = TRUE, write_features = TRUE)
+  big = file.path(out, c("scores.tsv.gz", "features.tsv.gz"))
+  expect_true(all(file.exists(big)))
+  md5 = unname(tools::md5sum(big))
+  back = read_scphasedcn(out)
+  expect_null(back$scores)
+  expect_null(back$features)
+  write_scphasedcn(back, out, write_scores = TRUE, write_features = TRUE)
+  expect_true(all(file.exists(big)))
+  expect_identical(unname(tools::md5sum(big)), md5)
+  # an object that carries them: written again when asked, cleared as stale when not
+  write_scphasedcn(res, out, write_scores = TRUE)
+  expect_true(file.exists(big[1]))
+  expect_false(file.exists(big[2]))
+  write_scphasedcn(res, out)
+  expect_false(file.exists(big[1]))
 })
 
 test_that("precomputed features: unused feature-step inputs warn; tumour-mode null_cells = 'select' warns", {

@@ -1436,7 +1436,11 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
   # borrowed thresholds (a class without null pools, borrow_thresholds()) are matched on the rows' sd_class
   brw = "borrowed_from" %in% names(thr) && any(!is.na(thr$borrowed_from)) && "sd_class" %in% names(d)
   ps = pool_scores(d, pools, states, by = c("region", "class", if (brw) "sd_class"), loo = loo, scale = scale)
-  if ("sexgrp" %in% names(thr) && !all(is.na(thr$sexgrp))) ps[, sexgrp := sex_group(region_chrom(region, class))]
+  if ("sexgrp" %in% names(thr) && !all(is.na(thr$sexgrp))) {
+    # the rows' chromosome (a named event has none in its name)
+    ch = if ("chrom" %in% names(d)) d$chrom[match(ps$region, d$region)] else region_chrom(ps$region, ps$class)
+    ps[, sexgrp := sex_group(ch)]
+  }
   ps = apply_thresholds(ps, thr, score)
   pol = as.data.table(policy)[level == "pool"]
   sc = sub("^s_", "state_", score)
@@ -1483,7 +1487,9 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' (`hstratum`, bins of n_hap of the null rows, [vote_bins()]); `params$calib_rho = "chrom"` scores the allele
 #' channel with a per-chromosome rho shrunk to the global ([rho_by_chrom()]). `params$pool_tail_q > 0` (the
 #' default) adds a per-region tail factor to the pooled region scale ([pool_scale()]), cross-fitted with
-#' `params$pool_tail_xfit` ([pooled_thresholds()]). Removed options stop with
+#' `params$pool_tail_xfit` ([pooled_thresholds()]). Named `event` regions (no null rows) borrow the per-cell
+#' thresholds of their `sd_class` ([budget_thresholds()]); their pools are called only with `params$pool_events`
+#' (experimental, off by default: [caller_defaults()]). Removed options stop with
 #' an error: `calib` "region" / "region_votes" / "votes_cont", `calib_rho` "cell" / "chrom_cell".
 #' @param feat features long table (`vignette("scphasedcn-outputs", package = "scphasedcn")`)
 #' @param params [caller_defaults()]
@@ -1562,6 +1568,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   if (!identical(length(calib_rho), 1L) || !calib_rho %in% c("global", "chrom"))
     stop("caller_normal: params$calib_rho must be 'global' or 'chrom', not '", paste(calib_rho, collapse = ", "), "'",
          call. = FALSE)
+  pool_events = params$pool_events %||% FALSE
+  if (!is.logical(pool_events) || length(pool_events) != 1L || is.na(pool_events))
+    stop("caller_normal: params$pool_events must be TRUE or FALSE, not '", paste(format(pool_events), collapse = ", "), "'",
+         call. = FALSE)
   vbins = NULL
   if (calib == "votes") {                                      # thresholds per class x stratum x vote stratum
     vbins = vote_bins(d, params$vote_bins %||% 4, params$min_null_rows, null = d$is_null, params = params)
@@ -1571,7 +1581,18 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   arm = d$is_null & d$class == "arm"
   rho = if (any(arm & d$n_hap > 0, na.rm = TRUE)) fit_allelic_null(d$nA[arm], d$n_hap[arm]) else fit_allelic_null(d$nA[d$is_null], d$n_hap[d$is_null])
   rho_tab = NULL; rho_sc = rho
-  if (calib_rho == "chrom") {                                  # per-chromosome rho, shrunk to the global
+  novotes_note = NULL
+  if (is.na(rho)) {
+    # no null row has an allele vote: without any vote at all (an unphased extraction, a VCF without phase sets, no
+    # allele layer) every allelic term is 0 and the calls are depth-only; votes elsewhere but not on the null rows
+    # cannot be scored without a rho
+    if (any(d$n_hap > 0, na.rm = TRUE))
+      stop("caller_normal: the null rows have no allele votes, so the allelic overdispersion (rho) cannot be fitted",
+           call. = FALSE)
+    novotes_note = "no allele votes (unphased extraction or no phase sets?): the calls are depth-only"
+    warning("caller_normal: ", novotes_note, call. = FALSE)
+  }
+  if (calib_rho == "chrom" && is.null(novotes_note)) {                                  # per-chromosome rho, shrunk to the global
     rho_tab = rho_by_chrom(d, rho, params$rho_chrom_k %||% 100, null = d$is_null, params = params)
     rho_sc = rho_rows(d, rho_tab, rho)
   }
@@ -1592,8 +1613,11 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   ct = setNames(ctype$cell_type, ctype$cell)
   sp = sc[class %in% pool_classes]
   # pooled null: the null rows, plus for a male the chrX / chrY rows of the null cells (one copy is their null state),
-  # so that the sex-chromosome pools get their own region scale instead of the autosomal class fallback
-  sexnull = identical(sex, "male") & sp$chrom %in% c("chrX", "chrY") & sp$null_cell %in% TRUE & sp$eligible %in% TRUE
+  # so that the sex-chromosome pools get their own region scale instead of the autosomal class fallback. Only classes
+  # with null rows take part: a class without any (named events) borrows the thresholds of its sd_class in every sex
+  # group (borrow_thresholds()) instead of holding sex-chromosome null pools that would stop it from borrowing
+  sexnull = identical(sex, "male") & sp$chrom %in% c("chrX", "chrY") & sp$null_cell %in% TRUE & sp$eligible %in% TRUE &
+    sp$class %in% sp$class[sp$is_null %in% TRUE]
   pnull = sp[is_null == TRUE | sexnull]
   # male: the sex chromosomes get their own pooled threshold group (class x {autosome, X, Y}); their depth-only,
   # neighbourhood-sensitive null is heavier-tailed than the autosomal one that sets the class threshold
@@ -1603,6 +1627,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     pby = c("class", "sexgrp")
   }
   pools = list(); pthr = list(); pcalls = list(); pscale = list()
+  # classes without null pools (named events) take the pooled thresholds of their sd_class only with pool_events
+  # (experimental: their pools are standardised with the sd_class's median scale, not their own); otherwise they get
+  # no pooled threshold and their pools are scored but never called
+  pborrow = function(th) if (pool_events) borrow_thresholds(th, sp) else th
   preg = unique(sp[, .(region, class)])
   pscore = if (pool_loo) "s_rob" else "s_comb"
   pools$type = make_pools(pc, ct[pc], params$n_pool, params$seed)
@@ -1611,7 +1639,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     th_ = pooled_thresholds(pnull, fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
                                   loo = pool_loo, standardize = pool_standardize)
     pscale$type = attr(th_, "pool_scale")
-    pthr$type = borrow_thresholds(th_, sp)[, level := "pool_type"]
+    pthr$type = pborrow(th_)[, level := "pool_type"]
     pcalls$type = call_pools(sp, pools$type, pthr$type, policy, states, regions, score = pscore, loo = pool_loo,
                              scale = pscale$type)
   }
@@ -1625,13 +1653,30 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
       th_ = pooled_thresholds(pnull[cell %in% nk], fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
                                    loo = pool_loo, standardize = pool_standardize)
       pscale$knn = attr(th_, "pool_scale")
-      pthr$knn = borrow_thresholds(th_, sp)[, level := "pool_knn"]
+      pthr$knn = pborrow(th_)[, level := "pool_knn"]
       pcalls$knn = call_pools(sp, pools$knn, pthr$knn, policy, states, regions, score = pscore, loo = pool_loo,
                               scale = pscale$knn)
     }
   }
   all_calls = rbindlist(c(list(calls), pcalls), fill = TRUE)
   events = consolidate_calls(all_calls, regions)
+  # regions left without any threshold after borrowing (a class without null rows whose sd_class has no thresholds
+  # either, e.g. an event whose sd_class is not among the region classes): scored but never called. Without
+  # pool_events the pools of classes without null pools are left uncalled by design and not listed
+  na_thr = function(x, col) if (is.null(x) || !nrow(x)) character() else x[, .(nothr_ = all(is.na(get(col)))), by = region][nothr_ == TRUE, region]
+  nt_cell = na_thr(sc, "thr_s_comb")
+  pc_ = rbindlist(pcalls, fill = TRUE)
+  if (!pool_events && nrow(pc_)) pc_ = pc_[class %in% pnull$class]
+  nt_pool = na_thr(pc_, "thr")
+  nothr = unique(c(nt_cell, nt_pool))
+  nothr_note = NULL
+  if (length(nothr)) {
+    lab = vapply(nothr, function(r) paste0(r, " (", paste(c(if (r %in% nt_cell) "per cell", if (r %in% nt_pool) "pooled"),
+                                                             collapse = ", "), ")"), character(1))
+    nothr_note = sprintf("no threshold for %d region(s), never called: %s (no null rows in their class or sd_class)",
+                         length(nothr), paste(lab, collapse = ", "))
+    warning("caller_normal: ", nothr_note, call. = FALSE)
+  }
   cells = d[, .(cell_type = cell_type[1], stratum = stratum[1], fold = fold[1], null_cell = null_cell[1]), by = cell]
   cells[, multiplet := cell %in% multiplets]
   new_scphasedcn("normal", cells = cells, regions = regions, scores = sc,
@@ -1642,7 +1687,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                               vote_bins = vbins, rho_chrom = rho_tab),
               params = params,
               notes = c(sprintf("null cells: %s (%d)", if (use_sel) "select_null_cells" else "features", sum(cells$null_cell)),
-                        sprintf("rho %.5g", rho),
+                        sprintf("rho %.5g", rho), novotes_note,
                         if (!is.null(rho_tab)) sprintf("allelic rho per chromosome (rho_chrom_k %g): %.3g-%.3g (global %.3g)", params$rho_chrom_k %||% 100,
                                                        min(rho_tab$rho), max(rho_tab$rho), rho),
                         if (!is.null(vbins)) sprintf("cell thresholds per class x stratum x vote stratum (n_hap bins, up to %d per class x stratum; %d bins)",
@@ -1650,7 +1695,11 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                         if ((params$pool_tail_q %||% 0) > 0) sprintf("pooled tail calibration q %g (pool_tail_k %g, cross-fitted %s)", params$pool_tail_q,
                                                                 params$pool_tail_k %||% 30, isTRUE(params$pool_tail_xfit %||% TRUE)),
                         sprintf("sex %s; gains resolved %s (min dl_gain %g); pools: region-standardised %s, called on %s",
-                                sex %||% "unknown", resolve_gains, gain_min_dl, pool_standardize, pscore)))
+                                sex %||% "unknown", resolve_gains, gain_min_dl, pool_standardize, pscore),
+                        if (pool_events && any(vapply(pthr, function(x) any(!is.na(x$borrowed_from %||% NA)), logical(1))))
+                          paste("pooled calls of named events (pool_events, experimental): standardised with the class-median",
+                                "scale of their sd_class and thresholded with its pooled threshold, not calibrated per event"),
+                        nothr_note))
 }
 
 # sex for the chrX policy: female when chrX rows have allele votes (males are hemizygous: depth-only chrX), NULL without chrX rows
@@ -1660,4 +1709,4 @@ infer_sex = function(d) {
   if ("allelic_ok" %in% names(x) && !all(is.na(x$allelic_ok))) return(if (any(x$allelic_ok %in% TRUE)) "female" else "male")
   if (mean(x$n_hap > 0, na.rm = TRUE) > 0.5) "female" else "male"
 }
-utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo"))
+utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_"))

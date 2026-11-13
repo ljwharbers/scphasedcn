@@ -774,14 +774,29 @@ read_sample_depth = function(dir, layers = character()) {
 }
 
 # cells of a feature run, in the order of `all` (the sample's cells): `cells` as given (no QC); else the cells that pass
-# QC (a `qc_pass` column of `cell_meta` when it has one, else cell_qc()'s), restricted to the cells of `cell_meta`.
+# cell_qc() (`qct`, with the run's `qc` arguments), restricted to the cells of `cell_meta` and, when it has a `qc_pass`
+# column, to those with `qc_pass` TRUE (both must pass: the table's QC never overrides the run's `qc`).
 # The R API and the CLI (which passes --cell-meta as `cell_meta`) select the same cells from the same table.
 feature_cells = function(all, qct, cells = NULL, cell_meta = NULL) {
   if (!is.null(cells)) return(list(keep = intersect(all, cells), how = "given"))
   meta_qc = !is.null(cell_meta) && "qc_pass" %in% names(cell_meta)
-  k = if (meta_qc) as.character(cell_meta$cell)[as.logical(cell_meta$qc_pass) %in% TRUE] else qct[qc_pass == TRUE]$cell
+  k = qct[qc_pass == TRUE]$cell
+  if (meta_qc) k = intersect(k, as.character(cell_meta$cell)[as.logical(cell_meta$qc_pass) %in% TRUE])
   if (!is.null(cell_meta)) k = intersect(k, cell_meta$cell)
-  list(keep = intersect(all, k), how = if (meta_qc) "cell_meta qc_pass" else "QC pass")
+  list(keep = intersect(all, k), how = if (meta_qc) "QC pass and cell_meta qc_pass" else "QC pass")
+}
+
+# sex of a sample from its cells' `sex` column: the one value of the non-missing entries ([check_sex()] spellings);
+# NA when there is none (missing or empty everywhere); stops when the cells disagree
+cells_sex = function(x, where = "cell_features") {
+  v = as.character(x)
+  v = unique(v[!is.na(v) & nzchar(trimws(v))])
+  if (!length(v)) return(NA_character_)
+  s = unique(vapply(v, check_sex, character(1), where = where, USE.NAMES = FALSE))
+  if (length(s) > 1)
+    stop(sprintf("%s: the cells' `sex` column mixes both sexes (%s); pass `sex` for the sample", where,
+                 paste(sprintf("\"%s\"", v), collapse = ", ")), call. = FALSE)
+  s
 }
 
 # cell metadata of a feature run: `meta` (one row per kept cell: the QC n_frag / stratum and default labels) with the
@@ -804,8 +819,8 @@ apply_cell_meta = function(meta, cell_meta) {
 
 #' Per-cell per-region features of a sample
 #'
-#' Reads an extraction directory, applies the cell QC ([cell_qc()]; a `qc_pass` column of `cell_meta` replaces it;
-#' `cells` restricts the run to a set of cells instead, without QC), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
+#' Reads an extraction directory, applies the cell QC ([cell_qc()]; with a `qc_pass` column of `cell_meta` a cell must
+#' also have `qc_pass` TRUE; `cells` restricts the run to a set of cells instead, without QC), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
 #' and chrX), normalises depth ([normalise_depth()]: `celltype` for normal tissue, `model` for tumours), builds the
 #' regions ([region_set()]), the depth features ([depth_features()]), the molecule votes
 #' ([read_votes()]) and the oriented allele features ([allelic_features()]), and joins them into the
@@ -815,13 +830,14 @@ apply_cell_meta = function(meta, cell_meta) {
 #' @param cell_meta NULL or a data.table with `cell` and optional `qc_pass, cell_type, flat, fold, group, stratum,
 #'   n_frag` (used as-is; NA cell_type = no type-matched reference; NA or missing `stratum` / `n_frag` keep the QC
 #'   values). With `cells` NULL only cells of `cell_meta` are
-#'   used, and a `qc_pass` column (e.g. [make_cell_meta()]) selects them instead of [cell_qc()] (cells with
-#'   `qc_pass` TRUE)
+#'   used, and with a `qc_pass` column (e.g. [make_cell_meta()]) only those with `qc_pass` TRUE that also pass
+#'   [cell_qc()] with the `qc` arguments
 #' @param method depth normalisation, "celltype" or "model" (any [normalise_depth()] method is accepted)
 #' @param ref_cells reference cells of the normalisation (selector; NULL = all)
 #' @param min_cells_type celltype: minimal reference cells of a type
 #' @param use NULL or a logical bin filter
-#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' `sex` column)
+#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' `sex` column, whose
+#'   non-missing values must all give the same sex)
 #' @param centromeres centromere table or path (Battenberg layout, see [arm_table()]; NULL: the hg38 table shipped with
 #'   the package, [hg38_centromeres()])
 #' @param classes region classes
@@ -864,7 +880,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   keep = sel$keep
   if (!length(keep)) stop("cell_features: no cells")
   note(sprintf("cells: %d of %d (%s)", length(keep), nrow(scn$cells), sel$how))
-  sex = sex %||% (if ("sex" %in% names(scn$cells)) as.character(scn$cells$sex[1]) else NULL)
+  sex = sex %||% (if ("sex" %in% names(scn$cells)) cells_sex(scn$cells$sex[match(keep, scn$cells$cell)]) else NULL)
   if (is.null(sex) || is.na(sex)) stop("cell_features: `sex` is needed")
   sex = check_sex(sex, "cell_features")
   scn = subset_scn(scn, cells = keep)

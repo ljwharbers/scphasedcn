@@ -29,15 +29,15 @@ call_scn(
 
 \item{mode}{"normal" or "tumour"}
 
-\item{cell_meta}{NULL, a table or a TSV path with \code{cell} and optional \verb{qc_pass, cell_type, flat, fold, group, stratum, n_frag} (passed to \code{\link[=cell_features]{cell_features()}}: without \code{cells} only its cells are called, those with \code{qc_pass}
-TRUE when it has that column, else those passing \code{\link[=cell_qc]{cell_qc()}}; \code{flat} becomes the features' \code{null_cell})}
+\item{cell_meta}{NULL, a table or a TSV path with \code{cell} and optional \verb{qc_pass, cell_type, flat, fold, group, stratum, n_frag} (passed to \code{\link[=cell_features]{cell_features()}}: without \code{cells} only its cells that pass \code{\link[=cell_qc]{cell_qc()}} are called,
+and with a \code{qc_pass} column only those that also have \code{qc_pass} TRUE; \code{flat} becomes the features' \code{null_cell})}
 
 \item{cells}{NULL (QC-pass cells) or the cells to call (vector or file; no cell QC). The barcodes of \code{cells},
 \code{cell_meta}, \code{null_cells}, \code{multiplets} and named \code{groups} lose a trailing \code{-1} (as the extractor writes them);
 the run notes give how many of them match the data's cells, and a warning says when none does}
 
 \item{sex}{"female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
-uses a \code{sex} column of \code{cells_qc.tsv} if there is one, as in simulated data)}
+uses a \code{sex} column of \code{cells_qc.tsv} if there is one, as in simulated data; its non-missing values must agree)}
 
 \item{events}{named events: a table \verb{region, chrom, start, end} (0-based half-open), \code{\link[=cli_events]{cli_events()}} output or a
 named vector of region strings (\verb{20q_gain = "chr20:28000000-"}; unnamed ones are named after the region, see
@@ -50,7 +50,9 @@ features carry no \code{null_fit}; they are not the reference pool (the caller f
 itself); "select" is ignored with a warning}
 
 \item{multiplets}{NULL or multiplet flags (\code{\link[=multiplet_table]{multiplet_table()}} forms); normal mode: cells with prob > 0.5
-are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}}
+are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}, which sets aside the cells
+above its \code{multiplet_prob} option (default 0.9). The \code{multiplet} column of the cells table flags the cells each
+mode set aside}
 
 \item{control_regions}{tumour mode: control regions for the null (regions table)}
 

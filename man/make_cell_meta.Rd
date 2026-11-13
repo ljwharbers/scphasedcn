@@ -35,7 +35,7 @@ Builds the \code{cell_meta} table of \code{\link[=call_scn]{call_scn()}} (the \c
 optional for the caller:
 \itemize{
 \item \code{qc_pass}: the cells to call. \code{\link[=call_scn]{call_scn()}} (and \code{call_scn.R --cell-meta}) without \code{cells} calls the cells of the
-table with \code{qc_pass} TRUE; without the column, those of the table that pass \code{\link[=cell_qc]{cell_qc()}}.
+table that pass \code{\link[=cell_qc]{cell_qc()}} (with the run's \code{qc} arguments) and, with this column, also have \code{qc_pass} TRUE.
 \item \code{cell_type}: the depth reference of normal-tissue mode is matched by cell type (types with fewer than 20 cells,
 and cells with \code{NA}, use the reference of all cells). Without cell types the reference is the all-cell one.
 \item \code{flat}: cells known to be copy-number neutral (e.g. normal cells from an orthogonal assay). Normal mode uses them

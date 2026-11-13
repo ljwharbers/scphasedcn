@@ -310,13 +310,13 @@ utils::globalVariables(c("st", "k", "region"))
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
 #' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
-#'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells are called, those with `qc_pass`
-#'   TRUE when it has that column, else those passing [cell_qc()]; `flat` becomes the features' `null_cell`)
+#'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells that pass [cell_qc()] are called,
+#'   and with a `qc_pass` column only those that also have `qc_pass` TRUE; `flat` becomes the features' `null_cell`)
 #' @param cells NULL (QC-pass cells) or the cells to call (vector or file; no cell QC). The barcodes of `cells`,
 #'   `cell_meta`, `null_cells`, `multiplets` and named `groups` lose a trailing `-1` (as the extractor writes them);
 #'   the run notes give how many of them match the data's cells, and a warning says when none does
 #' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
-#'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data)
+#'   uses a `sex` column of `cells_qc.tsv` if there is one, as in simulated data; its non-missing values must agree)
 #' @param events named events: a table `region, chrom, start, end` (0-based half-open), [cli_events()] output or a
 #'   named vector of region strings (`20q_gain = "chr20:28000000-"`; unnamed ones are named after the region, see
 #'   [region_set()]); scored as `event` regions; in tumour mode their chromosomes are excluded from the null rows
@@ -326,7 +326,9 @@ utils::globalVariables(c("st", "k", "region"))
 #'   features carry no `null_fit`; they are not the reference pool (the caller finds and cleans the normal clone
 #'   itself); "select" is ignored with a warning
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
-#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`
+#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`, which sets aside the cells
+#'   above its `multiplet_prob` option (default 0.9). The `multiplet` column of the cells table flags the cells each
+#'   mode set aside
 #' @param control_regions tumour mode: control regions for the null (regions table)
 #' @param groups tumour mode: pseudobulk groups of the block orientation (a column of `cell_meta`, a vector named
 #'   by cell, or one label per cell); ignored with a warning in normal mode
@@ -553,7 +555,12 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     for (cn in intersect(c("clone", "posterior", "doublet_like", "ref_pool", "assigned"), names(asg))) if (!cn %in% names(ct))
       set(ct, j = cn, value = asg[[cn]][match(ct$cell, as.character(asg$cell))])
   }
-  if (!is.null(mult) && !"multiplet" %in% names(ct)) ct[, multiplet := cell %in% mult[prob > 0.5, cell]]
+  if (!is.null(mult) && !"multiplet" %in% names(ct)) {
+    # the flag the caller used: normal mode sets it itself (cells with prob > 0.5); tumour mode excludes the cells
+    # above its `multiplet_prob` option (its assignments' `multiplet`)
+    mthr = if (mode == "tumour") res$params$tumour$multiplet_prob %||% clone_defaults()$multiplet_prob else 0.5
+    ct[, multiplet := cell %in% mult[prob > mthr, cell]]
+  }
   lead = intersect(c("cell", "qc", "stratum", "fold", "null_cell", "n_calls", "n_events", "clone", "posterior", "doublet_like", "ref_pool"), names(ct))
   setcolorder(ct, lead)
   res$cells = ct
@@ -623,7 +630,8 @@ utils::globalVariables("part")
 #' `summary.tsv` ([scphasedcn_summary()]) and `NOTES.md`. Optional: `scores.tsv.gz`, `features.tsv.gz`.
 #' The files of a previous result in `out` (the names above) are removed first, so a re-run never leaves stale
 #' tables behind (e.g. `clones.tsv` of a tumour run, `scores.tsv.gz` of a run with `write_scores`); other files in
-#' `out` are left alone.
+#' `out` are left alone. An object without scores (or features), e.g. one read back with [read_scphasedcn()],
+#' leaves an existing `scores.tsv.gz` (`features.tsv.gz`) in place: it cannot write them again.
 #' @param obj `scphasedcn` from [call_scn()]
 #' @param out output directory (created)
 #' @param write_scores also write the per cell x region scores
@@ -634,8 +642,10 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
   obj = relabel_legacy(obj)
   if (!inherits(obj, "scphasedcn")) stop("write_scphasedcn: not a scphasedcn object")
   dir.create(out, recursive = TRUE, showWarnings = FALSE)
-  # the files this writer owns: clear those of a previous result (never anything else)
-  old = file.path(out, scphasedcn_output_files())
+  # the files this writer owns: clear those of a previous result (never anything else). The scores / features
+  # files stay when the object carries none (result.rds is stored without them): they could not be rewritten
+  keep = c(if (is.null(obj$scores)) "scores.tsv.gz", if (is.null(obj$features)) "features.tsv.gz")
+  old = file.path(out, setdiff(scphasedcn_output_files(), keep))
   old = old[file.exists(old) & !dir.exists(old)]
   if (length(old)) unlink(old)
   files = character()

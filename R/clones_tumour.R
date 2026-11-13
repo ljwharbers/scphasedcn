@@ -68,9 +68,11 @@ utils::globalVariables(c(
 #' hypothesis in `null_fit$confirm_null`; the default). The refitted value is `null_fit$rho_confirm`.
 #'
 #' A key that is not one of these defaults stops [caller_tumour()] with an error, and so does a value outside its range:
-#' `q`, `p_switch`, `trunk_post`, `min_post`, `member_post`, `ref_post`, `max_mix_prior` and every `mix_w` strictly
-#' between 0 and 1, `mix_prior` in \[0, 1), `multiplet_prob` and `deep_q` in \[0, 1\], counts (`em_rounds`, `min_size`,
-#' `n_perm`, `min_win`, `min_ref`, ...) whole numbers >= 1, sizes / lengths > 0, the other tolerances >= 0.
+#' `q`, `p_switch`, `trunk_post`, `min_post`, `ref_post`, `max_mix_prior` and every `mix_w` strictly
+#' between 0 and 1, `mix_prior` in \[0, 1), `multiplet_prob`, `deep_q` and `member_post` in \[0, 1\], counts (`em_rounds`,
+#' `min_size`, `n_perm`, `min_win`, `min_ref`, ...) whole numbers >= 1, the caps `max_cells`, `max_leaves` and
+#' `max_leaves_trunk` whole numbers >= 1 or `Inf` (no cap), `small_clone` a whole number >= 0, `trunk_dist` and
+#' `control_min_len` >= 0, the other sizes / lengths > 0, the other tolerances >= 0.
 #' @return named list (see [caller_tumour()])
 #' @export
 clone_defaults = function() {
@@ -108,22 +110,27 @@ check_clone_opts = function(opts) {
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
       stop("caller_tumour: opts$", k, " (segment_clone() rule) must be one number >= 0, not ", paste(format(v), collapse = ", "), call. = FALSE)
   }
-  # ranges of the other numeric options: `what` names the allowed range in the error
-  chk = function(keys, ok, what, n = 1) for (k in keys) {
+  # ranges of the other numeric options: `what` names the allowed range in the error ("one <noun> <what>")
+  chk = function(keys, ok, what, n = 1, noun = "number") for (k in keys) {
     v = opts[[k]]
     good = is.numeric(v) && (is.null(n) || length(v) == n) && length(v) >= 1 && !anyNA(v) && all(ok(v))
-    if (!good) stop("caller_tumour: opts$", k, " must be ", if (is.null(n)) "numbers " else "one number ", what, ", not ",
-                    if (length(v)) paste(format(v), collapse = ", ") else "empty", call. = FALSE)
+    if (!good) stop("caller_tumour: opts$", k, " must be ", if (is.null(n)) paste0(noun, "s ") else paste0("one ", noun, " "), what,
+                    ", not ", if (length(v)) paste(format(v), collapse = ", ") else "empty", call. = FALSE)
   }
   whole = function(v) is.finite(v) & v == round(v)
-  chk(c("q", "p_switch", "trunk_post", "min_post", "member_post", "ref_post", "max_mix_prior"), function(v) v > 0 & v < 1,
+  chk(c("q", "p_switch", "trunk_post", "min_post", "ref_post", "max_mix_prior"), function(v) v > 0 & v < 1,
       "strictly between 0 and 1")
   chk("mix_w", function(v) v > 0 & v < 1, "strictly between 0 and 1", n = NULL)
   chk("mix_prior", function(v) v >= 0 & v < 1, "in [0, 1)")
-  chk(c("multiplet_prob", "deep_q"), function(v) v >= 0 & v <= 1, "in [0, 1]")
-  chk(c("em_rounds", "min_size", "min_n", "n_pc", "k", "max_leaves", "max_leaves_trunk", "n_perm", "max_cells", "small_clone",
-        "split_max", "split_cand", "min_win", "min_ref"), function(v) whole(v) & v >= 1, "a whole number >= 1")
-  chk(c("cap", "size_small", "trunk_dist", "split_min_len", "control_min_len", "n_nb_trunk"), function(v) v > 0, "> 0")
+  chk(c("multiplet_prob", "deep_q", "member_post"), function(v) v >= 0 & v <= 1, "in [0, 1]")   # member_post: posterior >= it
+  chk(c("em_rounds", "min_size", "min_n", "n_pc", "k", "n_perm", "split_max", "split_cand", "min_win", "min_ref"),
+      function(v) whole(v) & v >= 1, ">= 1", noun = "whole number")
+  # caps on a count: Inf = no cap (no subsampling / no limit on the leaves of the over-cut)
+  chk(c("max_leaves", "max_leaves_trunk", "max_cells"), function(v) (whole(v) & v >= 1) | v == Inf, ">= 1 or Inf",
+      noun = "whole number")
+  chk("small_clone", function(v) whole(v) & v >= 0, ">= 0", noun = "whole number")   # 0: no clone is small
+  chk(c("cap", "size_small", "split_min_len", "n_nb_trunk"), function(v) v > 0, "> 0")
+  chk(c("trunk_dist", "control_min_len"), function(v) v >= 0, ">= 0")   # 0: every clone its own trunk / every piece a control
   chk(c("depth_delta", "disp_min", "imb_min", "depth_w", "split_sep", "split_min_df", "split_min_excess", "min_llr", "mix_margin",
         "mix_rel", "mix_min_dist", "same_dist", "doublet_delta", "normal_min_event"), function(v) v >= 0, ">= 0")
   for (k in c("split_depth", "repass", "normal_hypothesis")) {
@@ -137,6 +144,34 @@ check_clone_opts = function(opts) {
   if (!is.null(opts$allelic_exclude) && !is.character(opts$allelic_exclude))
     stop("caller_tumour: opts$allelic_exclude must be chromosome names", call. = FALSE)
   opts
+}
+
+# run notes on degenerate nulls of the tumour mode (the calls are not changed): `ref_thr` = the reference-pool
+# cleaning threshold of clean_reference() (Inf: no control rows, nothing removed); `n_null` = null rows per
+# confirmation hypothesis (named; all 0: no null rows at all, every threshold Inf); a hypothesis with fewer than
+# 10 / (1 - q) null rows has a poorly determined type-7 `q` quantile (below 1 / (1 - q) rows: about the largest null
+# score, which falls short of the true quantile)
+confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
+  out = character()
+  if (length(ref_thr) == 1 && !is.na(ref_thr) && is.infinite(ref_thr))
+    out = c(out, paste("reference pool cleaning: no control rows to calibrate the allelic threshold (Inf), so no cell was",
+                       "removed from the reference pool"))
+  if (length(n_null)) {
+    if (all(n_null == 0)) {
+      out = c(out, paste("per-cell confirmation: no null rows (no reference-pool cell and no control piece): every",
+                         "threshold is Inf and no cell call is confirmed"))
+    } else {
+      n_min = ceiling(10 / (1 - q))
+      few = n_null[n_null < n_min]
+      if (length(few))
+        out = c(out, sprintf(paste("per-cell confirmation: %d of %d hypotheses have fewer than %d null rows (10 / (1 - q), q %g): %s;",
+                                   "their thresholds rest on few null rows (below 1 / (1 - q) rows the quantile is about the",
+                                   "largest null score and falls short of the true one, so false confirmations there can exceed",
+                                   "1 - q; Inf without null rows)"), length(few), length(n_null), n_min, q,
+                             paste(sprintf("%s %d", names(few), as.integer(few)), collapse = ", ")))
+    }
+  }
+  out
 }
 
 # per-cell call scores on a set of regions for cells of clone k (depth + allele under clone k's state)
@@ -263,6 +298,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   say = function(...) if (verbose) message(format(Sys.time(), "%H:%M:%S"), " [tumour] ", ...)
   opts = check_clone_opts(opts)
   inp = clone_input(feat)
+  if (!nrow(inp$votes) || length(inp$rho) != 1 || !is.finite(inp$rho))
+    stop("caller_tumour: no allele votes (no molecule votes, or none on the null rows to fit rho); the tumour mode needs ",
+         "read-phased allele votes", call. = FALSE)
   cells = inp$cells$cell
   notes = character()
   if (length(opts$allelic_exclude)) {
@@ -518,6 +556,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                        min_event = opts$normal_min_event,
                        control = if (is.null(control_regions)) NULL else as.data.table(control_regions)[, .(region, chrom, start, end)])
   ref_pool = cr$pool
+  notes = c(notes, confirm_null_notes(ref_thr = cr$thr))
   say("reference pool: ", length(ref_pool), " cells (normal clone(s) ", paste(cr$normal, collapse = ", "), "; flagged ",
       sum(cr$table$flag %||% FALSE), ", thr ", signif(cr$thr, 3), ")")
   if (opts$repass && length(ref_pool) >= opts$min_ref && uniqueN(members$clone) >= 2) {
@@ -630,6 +669,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       mn = b_matched_null(sc, nsc_rows, tpar_c, rho_c, params)
       sc = mn$sc; nb = mn$nb
       nb[, class := hyp]
+      nb_class = nb$class
       bt = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
                                       null = rep(TRUE, nrow(nb)))
       sc[, class := hyp]
@@ -661,6 +701,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       sc[bs, score := i.s_comb, on = .(cell, region)]
       nb = b_score(nsc_rows, tpar_c, rho_c, params, states = b_fun("caller_states")("tumour", params))
       nb[, class := "segment"]
+      nb_n = nrow(nb)
       bt = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
                                       null = rep(TRUE, nrow(nb)))
       sc[, class := "segment"]
@@ -679,6 +720,12 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       sc[thr_tab, thr := i.thr, on = "stratum"]
       sc[is.na(thr), thr := thr_tab[stratum == "pooled", thr][1]]
     }
+    # degenerate confirmation nulls (notes only): no null rows at all, or hypotheses with too few null rows
+    n_null_h = if (use_b && matched) {
+      hc = table(factor(nb_class, levels = unique(c(nb_class, sc$hyp))))
+      stats::setNames(as.integer(hc), names(hc))
+    } else if (use_b) c(segment = nb_n) else c(segment = nrow(nsc))
+    notes = c(notes, confirm_null_notes(n_null = n_null_h, q = params$null_q))
     sc[is.na(thr), thr := Inf]
     calls = sc[, .(cell, region, class = "segment", chrom, start = ev$start[match(region, ev$region)],
                    end = ev$end[match(region, ev$region)], state = label, score, thr, called = score > thr, level = "cell",

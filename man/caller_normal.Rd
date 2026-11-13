@@ -96,6 +96,8 @@ Opt-in calibrations: \code{params$calib = "votes"} keys the per-cell thresholds 
 (\code{hstratum}, bins of n_hap of the null rows, \code{\link[=vote_bins]{vote_bins()}}); \code{params$calib_rho = "chrom"} scores the allele
 channel with a per-chromosome rho shrunk to the global (\code{\link[=rho_by_chrom]{rho_by_chrom()}}). \code{params$pool_tail_q > 0} (the
 default) adds a per-region tail factor to the pooled region scale (\code{\link[=pool_scale]{pool_scale()}}), cross-fitted with
-\code{params$pool_tail_xfit} (\code{\link[=pooled_thresholds]{pooled_thresholds()}}). Removed options stop with
+\code{params$pool_tail_xfit} (\code{\link[=pooled_thresholds]{pooled_thresholds()}}). Named \code{event} regions (no null rows) borrow the per-cell
+thresholds of their \code{sd_class} (\code{\link[=budget_thresholds]{budget_thresholds()}}); their pools are called only with \code{params$pool_events}
+(experimental, off by default: \code{\link[=caller_defaults]{caller_defaults()}}). Removed options stop with
 an error: \code{calib} "region" / "region_votes" / "votes_cont", \code{calib_rho} "cell" / "chrom_cell".
 }

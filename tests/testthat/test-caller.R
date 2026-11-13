@@ -387,6 +387,11 @@ test_that("resolve_nested gate 'z': a null quantile of z on top of the midpoint,
   # a row without a null fit (stratum NA) has no depth support
   ct2 = copy(ct)[1, `:=`(z = 5, stratum = NA_character_)]
   expect_equal(resolve_nested(ct2, gate = "z", tpar = tp)[1, resolved], "no_depth")
+  # a class x stratum without a fit in tpar stops (as in score_cells); NA sd_null counts as 1, not as no support
+  expect_error(resolve_nested(copy(ct)[1, stratum := "other"], gate = "z", tpar = tp), "no t fit")
+  r3 = resolve_nested(copy(ct)[2, sd_null := NA_real_], gate = "z", tpar = tp)
+  expect_equal(r3$gate_thr[2], max(tp$t_m + p$shifts[["gain"]] / pmax(1, p$sd_floor) / 2, qz))
+  expect_true(r3$reportable[2])
   expect_error(resolve_nested(ct, gate = "z", gate_q = 1), "gate_q")
   expect_error(resolve_nested(ct[, !"sd_null"], gate = "z", tpar = tp), "sd_null")
   expect_error(resolve_nested(ct, gate = "q"))

@@ -939,7 +939,8 @@ utils::globalVariables("size_")
 #' @param gate_q null quantile of the `"z"` gate (0.95: about 5 % of all null-depth rows pass; more among rows
 #'   already called as gains and on female chrX, see Details)
 #' @param tpar `"z"` gate: the Student-t fits per class x stratum ([fit_depth_null()], completed as in
-#'   [caller_normal()]); NULL = the Gaussian depth null N(0, 1)
+#'   [caller_normal()]); NULL = the Gaussian depth null N(0, 1). A gated row whose class x stratum has no fit is an
+#'   error ([match_depth_null()]); a row with NA class or stratum has no depth support
 #' @param params [caller_defaults()] (`shifts`, `sd_floor`; the `"z"` gate)
 #' @return `calls` with column `resolved` (NA = unchanged) and updated `reportable`; with `gate = "z"` also
 #'   `gate_z` (the z the gate used) and `gate_thr` (its z threshold), set on the gated gain rows and NA elsewhere
@@ -997,7 +998,9 @@ utils::globalVariables(c("resolved", "row_", "gate_z", "gate_thr"))
 
 # the "z" gain gate of resolve_nested(): per gain row its z and the z threshold max(t_m + mu / 2, t_m + t_s * q) with
 # mu = shift_gain / pmax(sd_null, sd_floor) (sd_null NA -> 1, as in score_cells) and q the gate_q quantile of the row's
-# null (Student-t of its class x stratum, or N(0, 1) without tpar); rows without z, sd_null or a null fit get NA
+# null (Student-t of its class x stratum, or N(0, 1) without tpar). NA z, or NA class / stratum with tpar, gives NA (no
+# depth support); NA sd_null counts as 1; a class x stratum that tpar has no fit for stops (match_depth_null), as in
+# score_cells
 gain_gate_z = function(rows, scores, gate_q, tpar, params) {
   rows = as.data.table(rows)
   need = c("z", "sd_null", if (!is.null(tpar)) c("class", "stratum"))

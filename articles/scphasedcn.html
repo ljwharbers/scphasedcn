@@ -196,10 +196,11 @@ chr1p loss):</p>
 <code class="sourceCode R"><span><span class="va">out</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"caller"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/invisible.html" class="external-link">invisible</a></span><span class="op">(</span><span class="fu"><a href="../reference/write_scphasedcn.html">write_scphasedcn</a></span><span class="op">(</span><span class="va">res</span>, <span class="va">out</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">list.files</a></span><span class="op">(</span><span class="va">out</span><span class="op">)</span></span>
-<span><span class="co">#&gt;  [1] "calls.tsv"        "cells.tsv"        "events.tsv"       "false_calls.tsv" </span></span>
-<span><span class="co">#&gt;  [5] "false_events.tsv" "NOTES.md"         "null_fit.tsv"     "params.yaml"     </span></span>
-<span><span class="co">#&gt;  [9] "pooled_calls.tsv" "regions.tsv"      "result.rds"       "summary.tsv"     </span></span>
-<span><span class="co">#&gt; [13] "thresholds.tsv"</span></span>
+<span><span class="co">#&gt;  [1] "calls.tsv"          "cells.tsv"          "events.tsv"        </span></span>
+<span><span class="co">#&gt;  [4] "expected_false.tsv" "false_calls.tsv"    "false_events.tsv"  </span></span>
+<span><span class="co">#&gt;  [7] "NOTES.md"           "null_fit.tsv"       "params.yaml"       </span></span>
+<span><span class="co">#&gt; [10] "pooled_calls.tsv"   "regions.tsv"        "result.rds"        </span></span>
+<span><span class="co">#&gt; [13] "summary.tsv"        "thresholds.tsv"</span></span>
 <span><span class="fu"><a href="../reference/scphasedcn_summary.html">scphasedcn_summary</a></span><span class="op">(</span><span class="va">res</span><span class="op">)</span></span>
 <span><span class="co">#&gt;          section                                 item        value     n</span></span>
 <span><span class="co">#&gt;           &lt;char&gt;                               &lt;char&gt;        &lt;num&gt; &lt;num&gt;</span></span>
@@ -233,48 +234,64 @@ chr1p loss):</p>
 <span><span class="co">#&gt; 28: false_events        arm_calls_per_null_cell|cnloh   0.00000000    97</span></span>
 <span><span class="co">#&gt; 29:       events      reportable_cell_events_per_cell   0.22500000    27</span></span>
 <span><span class="co">#&gt; 30:       events reportable_cell_events_per_null_cell   0.00000000    97</span></span>
-<span><span class="co">#&gt; 31:       events                         pooled_calls 630.00000000 10206</span></span>
-<span><span class="co">#&gt; 32:       events                     pooled_calls|knn 617.00000000  9720</span></span>
-<span><span class="co">#&gt; 33:       events                    pooled_calls|type  13.00000000   486</span></span>
+<span><span class="co">#&gt; 31:       events            cell_events_in_null_cells   0.00000000    97</span></span>
+<span><span class="co">#&gt; 32:       events           expected_false_cell_events   0.00000000    27</span></span>
+<span><span class="co">#&gt; 33:       events   expected_false_cell_event_fraction   0.00000000    27</span></span>
+<span><span class="co">#&gt; 34:       events         expected_false_cell_events|A   0.00000000    27</span></span>
+<span><span class="co">#&gt; 35:       events         expected_false_cell_events|X   0.00000000     0</span></span>
+<span><span class="co">#&gt; 36:        calls expected_false_reportable_cell_calls   0.00000000    27</span></span>
+<span><span class="co">#&gt; 37:       events             cell_events_q_below_0.05  27.00000000    27</span></span>
+<span><span class="co">#&gt; 38:       events                    empirical_p_floor   0.01020408  2040</span></span>
+<span><span class="co">#&gt; 39:       events                         pooled_calls 630.00000000 10206</span></span>
+<span><span class="co">#&gt; 40:       events                     pooled_calls|knn 617.00000000  9720</span></span>
+<span><span class="co">#&gt; 41:       events                    pooled_calls|type  13.00000000   486</span></span>
 <span><span class="co">#&gt;          section                                 item        value     n</span></span>
 <span><span class="co">#&gt;           &lt;char&gt;                               &lt;char&gt;        &lt;num&gt; &lt;num&gt;</span></span>
-<span><span class="co">#&gt;                                    note</span></span>
-<span><span class="co">#&gt;                                  &lt;char&gt;</span></span>
-<span><span class="co">#&gt;  1:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt;  2:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt;  3:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt;  4:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt;  5:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt;  6: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt;  7: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt;  8: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt;  9: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 10: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 11: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 12: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 13: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 14: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 15: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 16: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 17: value = called rows, n = reportable</span></span>
-<span><span class="co">#&gt; 18:            null rows, CV thresholds</span></span>
-<span><span class="co">#&gt; 19:            null rows, CV thresholds</span></span>
-<span><span class="co">#&gt; 20:            null rows, CV thresholds</span></span>
-<span><span class="co">#&gt; 21:            null rows, CV thresholds</span></span>
-<span><span class="co">#&gt; 22:            null rows, CV thresholds</span></span>
-<span><span class="co">#&gt; 23:            null rows, CV thresholds</span></span>
-<span><span class="co">#&gt; 24:                          max 10.526</span></span>
-<span><span class="co">#&gt; 25:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 26:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 27:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 28:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 29:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 30:                                &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 31:        called pool rows / pool rows</span></span>
-<span><span class="co">#&gt; 32:            kNN pools (one per cell)</span></span>
-<span><span class="co">#&gt; 33:       random pools within cell type</span></span>
-<span><span class="co">#&gt;                                    note</span></span>
-<span><span class="co">#&gt;                                  &lt;char&gt;</span></span></code></pre></div>
+<span><span class="co">#&gt;                                                                                                                                                                                                                                                        note</span></span>
+<span><span class="co">#&gt;                                                                                                                                                                                                                                                      &lt;char&gt;</span></span>
+<span><span class="co">#&gt;  1:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;  2:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;  3:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;  4:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;  5:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;  6:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt;  7:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt;  8:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt;  9:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 10:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 11:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 12:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 13:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 14:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 15:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 16:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 17:                                                                                                                                                                                                                     value = called rows, n = reportable</span></span>
+<span><span class="co">#&gt; 18:                                                                                                                                                                                                                                null rows, CV thresholds</span></span>
+<span><span class="co">#&gt; 19:                                                                                                                                                                                                                                null rows, CV thresholds</span></span>
+<span><span class="co">#&gt; 20:                                                                                                                                                                                                                                null rows, CV thresholds</span></span>
+<span><span class="co">#&gt; 21:                                                                                                                                                                                                                                null rows, CV thresholds</span></span>
+<span><span class="co">#&gt; 22:                                                                                                                                                                                                                                null rows, CV thresholds</span></span>
+<span><span class="co">#&gt; 23:                                                                                                                                                                                                                                null rows, CV thresholds</span></span>
+<span><span class="co">#&gt; 24:                                                                                                                                                                                                                                              max 10.526</span></span>
+<span><span class="co">#&gt; 25:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 26:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 27:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 28:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 29:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 30:                                                                                                                                                                                                                                                    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 31:                                                                                                                                                                                                 n = null cells (selected on autosomes; chrX unscreened)</span></span>
+<span><span class="co">#&gt; 32:                                                                                                      lower bound (null rate of the selected null cells x rows; chrX borrows the autosomal rate); n = cell events; per class x state: expected_false.tsv</span></span>
+<span><span class="co">#&gt; 33:                                                                                                                                                                                                              expected false / cell events (lower bound)</span></span>
+<span><span class="co">#&gt; 34:                                                                                                                                                                                                                              autosomes; n = cell events</span></span>
+<span><span class="co">#&gt; 35:                                                                                                                                                                                                       X (borrowed autosomal null rate); n = cell events</span></span>
+<span><span class="co">#&gt; 36:                                                                                                                                                                                                            lower bound; n = reportable called cell rows</span></span>
+<span><span class="co">#&gt; 37: cell events whose top region has a row-level BH q below 0.05 (over 2040 tested per-cell rows, tail exponential); descriptive only: not a false discovery rate and not a filter (rows, not events; relative to the selected null cells; see event_fdr())</span></span>
+<span><span class="co">#&gt; 38:                                                                                                                        largest 1 / (n_null + 1) of the null groups; n = tests m; with tail none a lone event's q cannot fall below ~ m x p_floor = 20.8</span></span>
+<span><span class="co">#&gt; 39:                                                                                                                                                                                                                            called pool rows / pool rows</span></span>
+<span><span class="co">#&gt; 40:                                                                                                                                                                                                                                kNN pools (one per cell)</span></span>
+<span><span class="co">#&gt; 41:                                                                                                                                                                                                                           random pools within cell type</span></span>
+<span><span class="co">#&gt;                                                                                                                                                                                                                                                        note</span></span>
+<span><span class="co">#&gt;                                                                                                                                                                                                                                                      &lt;char&gt;</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="from-the-command-line">From the command line<a class="anchor" aria-label="anchor" href="#from-the-command-line"></a>

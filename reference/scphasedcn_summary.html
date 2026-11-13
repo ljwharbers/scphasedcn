@@ -62,7 +62,14 @@
 cells, multiplets, cells with a reportable call / event), <code>calls</code> (called cell / pool / clone rows per
 level, class and state; <code>n</code> = reportable among them), <code>false_calls</code> (null false calls per 1,000 per class
 over all strata; <code>n</code> = null rows), <code>false_events</code> (false autosomal arm calls per null cell, any state and
-per state), <code>events</code> (reportable events per cell and per null cell, pooled calls), <code>clones</code> (clones,
+per state), <code>events</code> (reportable events per cell and per null cell, pooled calls; normal mode with
+<code><a href="event_fdr.html">event_fdr()</a></code> output: <code>cell_events_in_null_cells</code>, <code>expected_false_cell_events</code> (per chromosome group when there
+is more than one) and <code>expected_false_cell_event_fraction</code> (lower bounds, see <code><a href="event_fdr.html">event_fdr()</a></code>),
+<code>cell_events_q_below_0.05</code> (a descriptive count at a row-level q: not a false discovery rate and not a filter,
+see <code><a href="event_fdr.html">event_fdr()</a></code>),
+<code>empirical_p_floor</code>; <code>calls</code> then also has <code>expected_false_reportable_cell_calls</code>),
+<code>null_check</code> (selection-free exceedances per 1,000 per class, an upper bound of the null rate: real events
+count too, <code><a href="null_selection_check.html">null_selection_check()</a></code>), <code>clones</code> (clones,
 assigned cells, reference pool).</p>
     </div>
 

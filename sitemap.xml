@@ -69,6 +69,7 @@
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/detect_phasing.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/discover_clones.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/discover_within.html</loc></url>
+<url><loc>https://ljwharbers.github.io/scphasedcn/reference/event_fdr.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/feature_windows.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/fit_allelic_null.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/fit_bb_rho.html</loc></url>
@@ -96,6 +97,7 @@
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/new_scphasedcn.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/normalise_depth.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/null_false_calls.html</loc></url>
+<url><loc>https://ljwharbers.github.io/scphasedcn/reference/null_selection_check.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/orient_blocks.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/orient_clone_states.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/parse_region.html</loc></url>

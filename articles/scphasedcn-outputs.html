@@ -107,7 +107,11 @@ experimental, not calibrated per event)</td>
 </tr>
 <tr class="even">
 <td><code>events.tsv</code></td>
-<td>a cell’s overlapping called regions merged into events</td>
+<td>a cell’s overlapping called regions merged into events (normal mode:
+with <code>null_cell</code>, <code>p</code>, <code>q</code>,
+<code>null_borrowed</code>; <code>q</code> is descriptive, not a false
+discovery rate, see <a href="#false-event-load-normal-mode">False-event
+load</a>)</td>
 </tr>
 <tr class="odd">
 <td><code>thresholds.tsv</code></td>
@@ -133,6 +137,17 @@ overdispersion <code>rho</code>
 <code>false_calls.tsv</code>, <code>false_events.tsv</code>
 </td>
 <td>normal mode: the realised false-call rate on the null cells</td>
+</tr>
+<tr class="odd">
+<td><code>expected_false.tsv</code></td>
+<td>normal mode: expected false calls and events per class x state
+(<code><a href="../reference/event_fdr.html">event_fdr()</a></code>; lower bounds)</td>
+</tr>
+<tr class="even">
+<td><code>null_selection_check.tsv</code></td>
+<td>normal mode with <code>call_scn(null_check = TRUE)</code> /
+<code>--null-check</code>: the selection-free check of the per-cell null
+(<code><a href="../reference/null_selection_check.html">null_selection_check()</a></code>)</td>
 </tr>
 <tr class="odd">
 <td>
@@ -269,11 +284,209 @@ molecule votes of the cell in the region (not in tumour mode)</td>
 tumour mode)</td>
 </tr>
 <tr class="even">
+<td>
+<code>p</code>, <code>q</code>, <code>null_borrowed</code>
+</td>
+<td>normal mode, tested per-cell rows: the empirical p-value against the
+null rows, the row-level Benjamini-Hochberg q-value (descriptive: not a
+false discovery rate, not a filter) and whether the row’s chromosome
+(chrX) or class has no null rows of its own (see below); NA on other
+rows</td>
+</tr>
+<tr class="odd">
 <td><code>confident</code></td>
 <td>tumour mode: the cell’s clone assignment is confident</td>
 </tr>
 </tbody>
 </table>
+</div>
+<div class="section level2">
+<h2 id="false-event-load-normal-mode">False-event load (normal mode)<a class="anchor" aria-label="anchor" href="#false-event-load-normal-mode"></a>
+</h2>
+<p>Normal mode calls a cell-region when its score exceeds the 1 / 1,000
+quantile of the null rows of its class and depth stratum
+(<code>null_q</code>). The budget is per cell-region, and a cell has
+about a hundred reportable rows (chromosomes, arms, 50 Mb tiles), so
+among thousands of cells a run carries a predictable number of false
+per-cell events. <code><a href="../reference/event_fdr.html">event_fdr()</a></code> (run by
+<code><a href="../reference/call_scn.html">call_scn()</a></code>) makes that number visible; it changes no call,
+threshold or score.</p>
+<p><strong>Expected false calls and events</strong>
+(<code>expected_false.tsv</code>, one row per class x state x chromosome
+group):</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>column</th>
+<th>meaning</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>
+<code>class</code>, <code>state</code>
+</td>
+<td>the reportable per-cell class x state (e.g. <code>chrom</code>
+<code>gain</code>, <code>arm</code> <code>loss</code>)</td>
+</tr>
+<tr class="even">
+<td><code>chrom_group</code></td>
+<td>
+<code>A</code> (autosomes), <code>X</code>, <code>Y</code>
+</td>
+</tr>
+<tr class="odd">
+<td><code>null_borrowed</code></td>
+<td>the rate comes from the autosomal null rows (chrX rows are never
+null rows), or from the <code>sd_class</code> of a class without null
+rows</td>
+</tr>
+<tr class="even">
+<td><code>n_rows</code></td>
+<td>per-cell rows of the class (every cell x region; each one a null
+hypothesis)</td>
+</tr>
+<tr class="odd">
+<td><code>n_tested</code></td>
+<td>of these, the rows whose best state is this state and that would be
+reportable if called (calling policy, gain depth gate)</td>
+</tr>
+<tr class="even">
+<td>
+<code>n_called</code>, <code>n_events</code>
+</td>
+<td>reportable called rows of this state; events whose top region is of
+this class and state</td>
+</tr>
+<tr class="odd">
+<td>
+<code>n_null</code>, <code>n_null_called</code>,
+<code>n_null_events</code>, <code>null_per_1000</code>
+</td>
+<td>null rows of the class, how many of them are reportable calls of
+this state (fold-cross-validated thresholds, policy and gain gate
+applied as for every cell), how many null-cell events have such a top
+region, and the call rate per 1,000 null rows</td>
+</tr>
+<tr class="even">
+<td>
+<code>expected_false_calls</code>,
+<code>expected_false_events</code>
+</td>
+<td>the null rate per depth stratum x <code>n_rows</code> of that
+stratum, summed over the strata; <code>_lo</code> / <code>_hi</code>: 95
+% Poisson interval of the null count</td>
+</tr>
+<tr class="odd">
+<td>
+<code>false_frac_calls</code>, <code>false_frac_events</code>
+</td>
+<td>expected false / called (capped at 1): the implied false proportion
+(a lower bound, see below)</td>
+</tr>
+</tbody>
+</table>
+<p>These are <strong>lower bounds</strong>. Every row counts as a null
+hypothesis, but the null rate is measured on the selected null cells,
+which were chosen for having no chromosome or arm call at a stricter
+threshold (<code><a href="../reference/select_null_cells.html">select_null_cells()</a></code>). Their rows are cleaner
+than those of an unselected normal cell; when the parametric selection
+null is too thin (shared allelic bias, noisier cells), the selection
+truncates the null tail and the realised false rate of the other cells
+is higher. chrX rows (and their events) take the autosomal rate, which
+ignores X-inactivation driven allelic imbalance in females.
+<code>summary.tsv</code> carries the headline:
+<code>events | cell_events_in_null_cells</code> (events found in the
+null cells themselves; their chrX is not screened),
+<code>events | expected_false_cell_events</code> (and per chromosome
+group), <code>events | expected_false_cell_event_fraction</code>,
+<code>calls | expected_false_reportable_cell_calls</code>.</p>
+<p><strong>p- and q-values.</strong> For every tested per-cell row
+(classes reportable per cell, plus 20 Mb rows promoted by the nesting
+rule) <code>p</code> compares the score of a <em>reportable</em> call
+(the score when the row would be reportable if called, else minus
+infinity) with the same statistic on the null rows of the row’s
+threshold group, in the cross-validation folds its threshold was trained
+on: <code>p = (1 + #{null &gt;= score}) / (n + 1)</code> (a conformal
+p-value). A named <code>event</code> region borrows the thresholds of
+its <code>sd_class</code>, and its rows are compared with the same null
+rows (those of the sd_class group and folds), scored as event rows would
+be (<code>null_borrowed = TRUE</code>). With <code>n</code> null rows
+<code>p</code> cannot go below <code>1 / (n + 1)</code>; a strong event
+would then get a q-value that only reflects how many other events are as
+strong (with <code>m</code> tests no single event can reach a q below
+about <code>m / (n + 1)</code>, which is above 1 on real data). Beyond
+the (51st) largest null score of the group, <code>p</code> therefore
+follows an exponential tail fitted to the top 50 null scores times the
+reportable share of that tail (<code>event_fdr(tail = "none")</code>
+gives the plain conformal p-value; <code>summary.tsv</code>
+<code>events | empirical_p_floor</code> reports the floor).
+<code>q</code> is the Benjamini-Hochberg q-value over all tested rows,
+called or not. In <code>events.tsv</code>, <code>p</code> /
+<code>q</code> / <code>null_borrowed</code> are those of the event’s top
+region and <code>null_cell</code> says whether the event is in a
+selected null cell. <strong><code>q</code> is a descriptive column: it
+is not a false discovery rate and must not be used as a filter.</strong>
+Two independent limits make it too small, and no event-level q-value is
+computed:</p>
+<ul>
+<li>
+<em>Relative to the selected null.</em> <code>p</code>, and the
+exponential tail beyond the largest null scores, are computed against
+the selected null cells. The selection removes the cells with the
+heaviest tails (e.g. cells with more allelic overdispersion than
+modelled), so for cells like those <code>p</code> is too small and the
+tail model extrapolates a truncated distribution; the tail is
+conservative only for a correctly specified null with light tails. In a
+sample where part of the cells are noisier than the null cells, the
+default tail can give false events a small <code>q</code> that
+<code>event_fdr(tail = "none")</code> does not (on a simulated null in
+which 10 % of the cells had a higher allelic overdispersion, 28 events
+reached <code>q</code> &lt; 0.05, all false; none with
+<code>tail = "none"</code>); compare the two when the null is in
+doubt.</li>
+<li>
+<em>Rows, not events.</em> Benjamini-Hochberg runs over rows, and
+one real event usually rejects several nested rows (chromosome, arms,
+tiles), while rows of one cell are positively dependent. A cut on
+<code>q</code> in <code>events.tsv</code> is therefore not an
+event-level false discovery rate: the share of false events below the
+cut can be well above it (in a simulation with 300 planted chromosome
+losses in 3,000 cells, 12 % of the events with <code>q</code> &lt; 0.05
+were false). The same holds for <code>summary.tsv</code>
+<code>events | cell_events_q_below_0.05</code>, a descriptive count of
+events at a row-level <code>q</code>.</li>
+</ul>
+<p><strong>Selection-free check</strong>
+(<code>null_selection_check.tsv</code>,
+<code>call_scn(null_check = TRUE)</code> / <code>--null-check</code>; it
+costs about one more scoring pass). The autosomes are split into odd and
+even chromosomes; null cells are selected on one half only, thresholds
+are trained as usual on that half’s null rows, and exceedances are
+counted on the other half of the same cells, rows that neither the
+selection nor the thresholds saw; then the halves swap. Per class x
+stratum (and <code>all</code>): <code>n_rows</code>,
+<code>n_exceed</code>, <code>per_1000</code> with a 95 % Clopper-Pearson
+interval (<code>lo_per_1000</code>, <code>hi_per_1000</code>; rows of
+one cell overlap, so the interval is somewhat narrow),
+<code>nominal_per_1000</code> (<code>1000 x (1 - null_q)</code>),
+<code>insample_per_1000</code> (the cross-validated rate on the
+selection half of the same passes) and <code>cv_per_1000</code> (the
+run’s own in-sample rate, <code>false_calls.tsv</code>). Cells are
+selected on one half only, so a cell with a real event on the measured
+half stays in and that event’s rows count as exceedances:
+<code>per_1000</code> is the null rate plus the rate of real events on
+the measured half, an upper bound of the null rate. A rate clearly above
+the nominal and in-sample rates has two possible causes: a selected null
+that is cleaner than the cells it is applied to (the expected false
+counts above are then too low), or real events. Read it next to the
+share of cells with a called event (<code>cells.tsv</code>
+<code>n_events</code>, <code>summary.tsv</code>): in a sample without
+real events the excess measures the selection; in a sample with them it
+is an upper bound. The halves carry different chromosomes, so a class
+whose regions differ in their null spread shows up here as well.</p>
 </div>
 <div class="section level2">
 <h2 id="clone-segments-tumour-mode">Clone segments (tumour mode)<a class="anchor" aria-label="anchor" href="#clone-segments-tumour-mode"></a>
@@ -310,11 +523,12 @@ looks like a doublet of two clones (<code>doublet_like</code>,
 <span>                                                                             cen_right <span class="op">=</span> <span class="fl">0.4</span> <span class="op">*</span> <span class="va">len</span>, cend <span class="op">=</span> <span class="va">len</span><span class="op">)</span><span class="op">]</span></span>
 <span><span class="va">res</span> <span class="op">=</span> <span class="fu"><a href="../reference/call_scn.html">call_scn</a></span><span class="op">(</span><span class="va">d</span>, <span class="st">"normal"</span>, sex <span class="op">=</span> <span class="st">"female"</span>, centromeres <span class="op">=</span> <span class="va">cen</span>, null_cells <span class="op">=</span> <span class="st">"select"</span>, verbose <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">res</span><span class="op">)</span></span>
-<span><span class="co">#&gt;  [1] "mode"         "cells"        "regions"      "features"     "scores"      </span></span>
-<span><span class="co">#&gt;  [6] "thresholds"   "calls"        "events"       "pools"        "clones"      </span></span>
-<span><span class="co">#&gt; [11] "assignments"  "segments"     "profiles"     "null_fit"     "params"      </span></span>
-<span><span class="co">#&gt; [16] "notes"        "false_calls"  "false_events" "embedding"    "feature_info"</span></span>
-<span><span class="co">#&gt; [21] "run"</span></span>
+<span><span class="co">#&gt;  [1] "mode"           "cells"          "regions"        "features"      </span></span>
+<span><span class="co">#&gt;  [5] "scores"         "thresholds"     "calls"          "events"        </span></span>
+<span><span class="co">#&gt;  [9] "pools"          "clones"         "assignments"    "segments"      </span></span>
+<span><span class="co">#&gt; [13] "profiles"       "null_fit"       "params"         "notes"         </span></span>
+<span><span class="co">#&gt; [17] "false_calls"    "false_events"   "expected_false" "fdr_info"      </span></span>
+<span><span class="co">#&gt; [21] "embedding"      "feature_info"   "run"</span></span>
 <span><span class="va">res</span><span class="op">$</span><span class="va">thresholds</span><span class="op">[</span><span class="va">level</span> <span class="op">==</span> <span class="st">"cell"</span> <span class="op">&amp;</span> <span class="va">fold</span> <span class="op">==</span> <span class="fl">0</span><span class="op">]</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">5</span>, <span class="fu">.</span><span class="op">(</span><span class="va">score</span>, <span class="va">class</span>, <span class="va">stratum</span>, <span class="va">q</span>, <span class="va">thr</span>, <span class="va">n_null</span><span class="op">)</span><span class="op">]</span></span>
 <span><span class="co">#&gt;        score  class stratum     q        thr n_null</span></span>
 <span><span class="co">#&gt;       &lt;char&gt; &lt;char&gt;  &lt;char&gt; &lt;num&gt;      &lt;num&gt;  &lt;int&gt;</span></span>
@@ -391,12 +605,23 @@ selected</td>
 details</td>
 </tr>
 <tr class="odd">
+<td>
+<code>false_calls</code>, <code>false_events</code>,
+<code>expected_false</code>, <code>fdr_info</code>,
+<code>null_check</code>
+</td>
+<td>null false-call rates, expected false calls / events, the q-value
+settings (tests, tail, calibration groups), the selection check (with
+<code>null_check = TRUE</code>)</td>
+<td>NULL</td>
+</tr>
+<tr class="even">
 <td><code>params</code></td>
 <td>all parameters, including the <code>normal:</code> caller
 arguments</td>
 <td>all parameters, including the <code>tumour:</code> options</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>
 <code>features</code>, <code>feature_info</code>,
 <code>embedding</code>, <code>notes</code>

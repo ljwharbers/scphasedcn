@@ -200,6 +200,10 @@
 - [`discover_within()`](https://ljwharbers.github.io/scphasedcn/reference/discover_within.md)
   : Clone discovery within a trunk
 
+- [`event_fdr()`](https://ljwharbers.github.io/scphasedcn/reference/event_fdr.md)
+  : False-event accounting of a normal-mode result: p- and q-values,
+  expected false calls and events
+
 - [`feature_windows()`](https://ljwharbers.github.io/scphasedcn/reference/feature_windows.md)
   : 1 Mb window depth of a precomputed features object
 
@@ -282,6 +286,9 @@
 
 - [`null_false_calls()`](https://ljwharbers.github.io/scphasedcn/reference/null_false_calls.md)
   : Realised false calls on the null rows of a scored table
+
+- [`null_selection_check()`](https://ljwharbers.github.io/scphasedcn/reference/null_selection_check.md)
+  : Selection-free check of the per-cell null
 
 - [`orient_blocks()`](https://ljwharbers.github.io/scphasedcn/reference/orient_blocks.md)
   : Orient phase blocks by a leave-one-out pseudobulk

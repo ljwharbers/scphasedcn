@@ -76,6 +76,7 @@ segments, cell assignment, per-cell inherited / confirmed calls).</p>
 <span>  embedding <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  verbose <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  keep_scores <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  null_check <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  caller_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  phasing <span class="op">=</span> <span class="st">"auto"</span>,</span>
 <span>  <span class="va">...</span></span>
@@ -164,6 +165,11 @@ or a cells x components matrix with cell row names</p></dd>
 <dd><p>keep the per cell x region scores in the result (normal mode; large)</p></dd>
 
 
+<dt id="arg-null-check">null_check<a class="anchor" aria-label="anchor" href="#arg-null-check"></a></dt>
+<dd><p>normal mode: also run the selection-free check of the per-cell null (<code><a href="null_selection_check.html">null_selection_check()</a></code>;
+about doubles the scoring time), stored as <code>null_check</code> and written as <code>null_selection_check.tsv</code></p></dd>
+
+
 <dt id="arg-caller-args">caller_args<a class="anchor" aria-label="anchor" href="#arg-caller-args"></a></dt>
 <dd><p>extra arguments for <code><a href="caller_normal.html">caller_normal()</a></code> / <code><a href="caller_tumour.html">caller_tumour()</a></code> (e.g. <code>n_draws</code>, <code>opts</code>); they take
 precedence over <code>params$normal</code> / <code>params$tumour</code> (tumour: <code>opts</code> merged key by key)</p></dd>
@@ -189,7 +195,10 @@ chromosome-scale phasing (read-based blocks, oriented per clone, are preferable 
     <p><code>scphasedcn</code> with <code>features</code> (the long table), <code>feature_info</code> (path, cells, phasing, phasing_chrom (the
 per-chromosome phasing regimes, <code><a href="phasing_by_chrom.html">phasing_by_chrom()</a></code>), notes), <code>scores</code>
 (normal, <code>keep_scores</code>), <code>thresholds</code>, <code>calls</code>, <code>events</code>, <code>pools</code>, <code>null_fit</code>, <code>false_calls</code> (normal:
-<code><a href="null_false_calls.html">null_false_calls()</a></code>), <code>embedding</code>, clone components (tumour), <code>params</code> (the caller parameters plus the
+<code><a href="null_false_calls.html">null_false_calls()</a></code>), normal mode: <code>p</code>, <code>q</code>, <code>null_borrowed</code> on the per-cell calls and <code>null_cell</code>, <code>p</code>, <code>q</code>,
+<code>null_borrowed</code> on the events (<code><a href="event_fdr.html">event_fdr()</a></code>; <code>q</code> is descriptive: not a false discovery rate, not a filter),
+<code>expected_false</code> (expected false calls / events per class x state, <code><a href="event_fdr.html">event_fdr()</a></code>), <code>null_check</code> (<code><a href="null_selection_check.html">null_selection_check()</a></code>, with <code>null_check = TRUE</code>), <code>embedding</code>, clone
+components (tumour), <code>params</code> (the caller parameters plus the
 arguments used: <code>normal</code> = every <code><a href="caller_normal.html">caller_normal()</a></code> argument of the run, <code>tumour</code> = the full tumour options) and
 <code>notes</code> (run time, host, inputs, git revision)</p>
     </div>

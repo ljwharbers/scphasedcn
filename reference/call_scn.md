@@ -36,6 +36,7 @@ call_scn(
   embedding = TRUE,
   verbose = TRUE,
   keep_scores = TRUE,
+  null_check = FALSE,
   caller_args = list(),
   phasing = "auto",
   ...
@@ -158,6 +159,13 @@ call_scn(
 
   keep the per cell x region scores in the result (normal mode; large)
 
+- null_check:
+
+  normal mode: also run the selection-free check of the per-cell null
+  ([`null_selection_check()`](https://ljwharbers.github.io/scphasedcn/reference/null_selection_check.md);
+  about doubles the scoring time), stored as `null_check` and written as
+  `null_selection_check.tsv`
+
 - caller_args:
 
   extra arguments for
@@ -199,8 +207,17 @@ cells, phasing, phasing_chrom (the per-chromosome phasing regimes,
 notes), `scores` (normal, `keep_scores`), `thresholds`, `calls`,
 `events`, `pools`, `null_fit`, `false_calls` (normal:
 [`null_false_calls()`](https://ljwharbers.github.io/scphasedcn/reference/null_false_calls.md)),
-`embedding`, clone components (tumour), `params` (the caller parameters
-plus the arguments used: `normal` = every
+normal mode: `p`, `q`, `null_borrowed` on the per-cell calls and
+`null_cell`, `p`, `q`, `null_borrowed` on the events
+([`event_fdr()`](https://ljwharbers.github.io/scphasedcn/reference/event_fdr.md);
+`q` is descriptive: not a false discovery rate, not a filter),
+`expected_false` (expected false calls / events per class x state,
+[`event_fdr()`](https://ljwharbers.github.io/scphasedcn/reference/event_fdr.md)),
+`null_check`
+([`null_selection_check()`](https://ljwharbers.github.io/scphasedcn/reference/null_selection_check.md),
+with `null_check = TRUE`), `embedding`, clone components (tumour),
+`params` (the caller parameters plus the arguments used: `normal` =
+every
 [`caller_normal()`](https://ljwharbers.github.io/scphasedcn/reference/caller_normal.md)
 argument of the run, `tumour` = the full tumour options) and `notes`
 (run time, host, inputs, git revision)

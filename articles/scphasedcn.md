@@ -142,10 +142,11 @@ Write all tables, the parameters and the run notes:
 out = file.path(tempdir(), "caller")
 invisible(write_scphasedcn(res, out))
 list.files(out)
-#>  [1] "calls.tsv"        "cells.tsv"        "events.tsv"       "false_calls.tsv" 
-#>  [5] "false_events.tsv" "NOTES.md"         "null_fit.tsv"     "params.yaml"     
-#>  [9] "pooled_calls.tsv" "regions.tsv"      "result.rds"       "summary.tsv"     
-#> [13] "thresholds.tsv"
+#>  [1] "calls.tsv"          "cells.tsv"          "events.tsv"        
+#>  [4] "expected_false.tsv" "false_calls.tsv"    "false_events.tsv"  
+#>  [7] "NOTES.md"           "null_fit.tsv"       "params.yaml"       
+#> [10] "pooled_calls.tsv"   "regions.tsv"        "result.rds"        
+#> [13] "summary.tsv"        "thresholds.tsv"
 scphasedcn_summary(res)
 #>          section                                 item        value     n
 #>           <char>                               <char>        <num> <num>
@@ -179,48 +180,64 @@ scphasedcn_summary(res)
 #> 28: false_events        arm_calls_per_null_cell|cnloh   0.00000000    97
 #> 29:       events      reportable_cell_events_per_cell   0.22500000    27
 #> 30:       events reportable_cell_events_per_null_cell   0.00000000    97
-#> 31:       events                         pooled_calls 630.00000000 10206
-#> 32:       events                     pooled_calls|knn 617.00000000  9720
-#> 33:       events                    pooled_calls|type  13.00000000   486
+#> 31:       events            cell_events_in_null_cells   0.00000000    97
+#> 32:       events           expected_false_cell_events   0.00000000    27
+#> 33:       events   expected_false_cell_event_fraction   0.00000000    27
+#> 34:       events         expected_false_cell_events|A   0.00000000    27
+#> 35:       events         expected_false_cell_events|X   0.00000000     0
+#> 36:        calls expected_false_reportable_cell_calls   0.00000000    27
+#> 37:       events             cell_events_q_below_0.05  27.00000000    27
+#> 38:       events                    empirical_p_floor   0.01020408  2040
+#> 39:       events                         pooled_calls 630.00000000 10206
+#> 40:       events                     pooled_calls|knn 617.00000000  9720
+#> 41:       events                    pooled_calls|type  13.00000000   486
 #>          section                                 item        value     n
 #>           <char>                               <char>        <num> <num>
-#>                                    note
-#>                                  <char>
-#>  1:                                <NA>
-#>  2:                                <NA>
-#>  3:                                <NA>
-#>  4:                                <NA>
-#>  5:                                <NA>
-#>  6: value = called rows, n = reportable
-#>  7: value = called rows, n = reportable
-#>  8: value = called rows, n = reportable
-#>  9: value = called rows, n = reportable
-#> 10: value = called rows, n = reportable
-#> 11: value = called rows, n = reportable
-#> 12: value = called rows, n = reportable
-#> 13: value = called rows, n = reportable
-#> 14: value = called rows, n = reportable
-#> 15: value = called rows, n = reportable
-#> 16: value = called rows, n = reportable
-#> 17: value = called rows, n = reportable
-#> 18:            null rows, CV thresholds
-#> 19:            null rows, CV thresholds
-#> 20:            null rows, CV thresholds
-#> 21:            null rows, CV thresholds
-#> 22:            null rows, CV thresholds
-#> 23:            null rows, CV thresholds
-#> 24:                          max 10.526
-#> 25:                                <NA>
-#> 26:                                <NA>
-#> 27:                                <NA>
-#> 28:                                <NA>
-#> 29:                                <NA>
-#> 30:                                <NA>
-#> 31:        called pool rows / pool rows
-#> 32:            kNN pools (one per cell)
-#> 33:       random pools within cell type
-#>                                    note
-#>                                  <char>
+#>                                                                                                                                                                                                                                                        note
+#>                                                                                                                                                                                                                                                      <char>
+#>  1:                                                                                                                                                                                                                                                    <NA>
+#>  2:                                                                                                                                                                                                                                                    <NA>
+#>  3:                                                                                                                                                                                                                                                    <NA>
+#>  4:                                                                                                                                                                                                                                                    <NA>
+#>  5:                                                                                                                                                                                                                                                    <NA>
+#>  6:                                                                                                                                                                                                                     value = called rows, n = reportable
+#>  7:                                                                                                                                                                                                                     value = called rows, n = reportable
+#>  8:                                                                                                                                                                                                                     value = called rows, n = reportable
+#>  9:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 10:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 11:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 12:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 13:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 14:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 15:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 16:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 17:                                                                                                                                                                                                                     value = called rows, n = reportable
+#> 18:                                                                                                                                                                                                                                null rows, CV thresholds
+#> 19:                                                                                                                                                                                                                                null rows, CV thresholds
+#> 20:                                                                                                                                                                                                                                null rows, CV thresholds
+#> 21:                                                                                                                                                                                                                                null rows, CV thresholds
+#> 22:                                                                                                                                                                                                                                null rows, CV thresholds
+#> 23:                                                                                                                                                                                                                                null rows, CV thresholds
+#> 24:                                                                                                                                                                                                                                              max 10.526
+#> 25:                                                                                                                                                                                                                                                    <NA>
+#> 26:                                                                                                                                                                                                                                                    <NA>
+#> 27:                                                                                                                                                                                                                                                    <NA>
+#> 28:                                                                                                                                                                                                                                                    <NA>
+#> 29:                                                                                                                                                                                                                                                    <NA>
+#> 30:                                                                                                                                                                                                                                                    <NA>
+#> 31:                                                                                                                                                                                                 n = null cells (selected on autosomes; chrX unscreened)
+#> 32:                                                                                                      lower bound (null rate of the selected null cells x rows; chrX borrows the autosomal rate); n = cell events; per class x state: expected_false.tsv
+#> 33:                                                                                                                                                                                                              expected false / cell events (lower bound)
+#> 34:                                                                                                                                                                                                                              autosomes; n = cell events
+#> 35:                                                                                                                                                                                                       X (borrowed autosomal null rate); n = cell events
+#> 36:                                                                                                                                                                                                            lower bound; n = reportable called cell rows
+#> 37: cell events whose top region has a row-level BH q below 0.05 (over 2040 tested per-cell rows, tail exponential); descriptive only: not a false discovery rate and not a filter (rows, not events; relative to the selected null cells; see event_fdr())
+#> 38:                                                                                                                        largest 1 / (n_null + 1) of the null groups; n = tests m; with tail none a lone event's q cannot fall below ~ m x p_floor = 20.8
+#> 39:                                                                                                                                                                                                                            called pool rows / pool rows
+#> 40:                                                                                                                                                                                                                                kNN pools (one per cell)
+#> 41:                                                                                                                                                                                                                           random pools within cell type
+#>                                                                                                                                                                                                                                                        note
+#>                                                                                                                                                                                                                                                      <char>
 ```
 
 ## From the command line

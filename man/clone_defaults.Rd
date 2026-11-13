@@ -10,7 +10,8 @@ clone_defaults()
 named list (see \code{\link[=caller_tumour]{caller_tumour()}})
 }
 \description{
-Discovery: \code{classes}, \code{depth_delta}, \code{cap}, \code{min_n}, \code{n_pc}, \code{k}, \code{max_leaves}, \code{min_size}, \code{q}, \code{n_perm}, \code{max_cells},
+Discovery: \code{classes}, \code{depth_delta}, \code{cap}, \code{min_n}, \code{disc_allele}, \code{test_allele}, \code{n_pc}, \code{k}, \code{max_leaves}, \code{min_size},
+\code{q}, \code{n_perm}, \code{drift_test}, \code{max_cells},
 \code{split_depth} (discovery / test halves of the window depth as well as of the votes). Merge / split tests
 (\code{\link[=merge_clones]{merge_clones()}}, \code{\link[=discover_within]{discover_within()}}, the split pass; \code{perm_decision}): \code{"quantile"} (default) = the observed
 contrast above the type-7 \code{q}-quantile of \code{n_perm} permutations (with 200 permutations at \code{q = 0.999} this is
@@ -18,7 +19,36 @@ contrast above the type-7 \code{q}-quantile of \code{n_perm} permutations (with 
 \verb{(1 + #null >= observed) / (1 + permutations) <= 1 - q}, over \code{max(n_perm, ceiling(1 / (1 - q)) - 1)} permutations
 (999 at \code{q = 0.999}) with an exact early stop for "same" (as soon as p can no longer reach \code{1 - q}); a "different"
 verdict runs every permutation. The run notes give the number of tests and the expected false splits
-\verb{n_tests x (1 - q)}. Hierarchy: trunks =
+\verb{n_tests x (1 - q)}.
+}
+\details{
+Allele scale of discovery and tests (opt-in, coverage-free): \code{disc_allele} = the allelic columns of the discovery
+feature matrices (\code{\link[=clone_feature_matrix]{clone_feature_matrix()}}, \code{\link[=discover_within]{discover_within()}}); \code{test_allele} = the per-cell allele values of the
+merge / split contrast. \code{"z"} (default) = the standardised count \code{(nA - n / 2) / sd(n)}, whose expectation in an
+imbalanced region grows like \verb{(f - 0.5) sqrt(n)}: deep and shallow cells of one clone form separate leaves and test
+different. \code{"fraction"} = the cell's oriented fraction \code{nA / n}, whose expectation does not depend on the cell's
+depth (discovery: in units of the null SD at the region's median vote count, the same scale as \code{"z"} for a typical
+cell; a cell below \code{min_n} votes gets the region's mean instead of 0; the regions of \code{\link[=discover_within]{discover_within()}} are still
+selected on \code{"z"}); \code{test_allele = "centred"} = the standardised count about the compared cells' pooled fraction
+instead of 1 / 2 (mean 0 at any depth when the two sets share the fraction; weights the cells like \code{"z"}). The
+imbalance term of the contrast (depth support) always uses \code{"z"}.
+
+Drift-aware split test (\code{drift_test}, opt-in): the discovery and test halves of the votes are thinned from the same
+molecules, so a cell-level drift of the haplotype share beyond binomial noise is in both: leaves that discovery cut
+along the drift of one clone differ on the test half too, and the permutation null of random splits does not model
+that selection. \code{"none"} (default) = the permutation contrast decides. \code{"modes"} = a pair the contrast calls
+different stays different when a depth term alone beats the null threshold (the drift is allelic); an allele-driven
+difference must in addition be discrete on at least one of the (up to 3) regions whose allele term alone beats the
+threshold: the per-cell oriented fractions there of the population under discovery (all leaf cells of the merge: the
+discovery cells, or a trunk's deep cells; the clone itself in the split pass; test half, phase blocks oriented
+leave-one-out by the population, cells with >= 10 votes, at most 1,500 cells) are multimodal by Silverman's critical
+bandwidth test (smoothed bootstrap, 199 draws, level 0.01; a continuous drift, also a skewed one, has one mode, a
+subclone adds one), and the two clones lie on different sides of the antimode (their fractions above it differ by >=
+0.5). The population, not the union of the two clones, is tested because two leaves cut from one continuum can make a
+union with two modes. A subclone whose allelic difference is smaller than the drift has no mode of its own and is
+merged. The tests tables gain \code{differ_contrast} (the contrast's verdict), \code{by_depth}, \code{discrete}, \code{mode_p}, \code{mode_sep}.
+
+Hierarchy: trunks =
 average-linkage groups of \code{\link[=clone_allelic_distance]{clone_allelic_distance()}} cut at \code{trunk_dist} (bp x haplotype fraction; e.g. 100 Mb
 differing by 0.3); trunk cells = trunk posterior >= \code{trunk_post}; \code{\link[=discover_within]{discover_within()}} with \code{disp_min}, \code{imb_min},
 \code{deep_q}, \code{depth_w}, \code{max_leaves_trunk}, \code{n_nb_trunk}; final split pass after the EM rounds (\code{split_pass}): \code{FALSE}
@@ -37,11 +67,16 @@ and \code{min_bal_len} (support of balanced 2:2 runs).
 Assignment: \code{mix_prior}, \code{mix_w}, \code{mix_margin}, \code{mix_rel},
 \code{mix_min_dist} (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 \code{max_mix_prior}, \code{min_post} (confident), \code{member_post} (pseudobulk members), \code{em_rounds}, \code{same_dist} (clones whose
-states differ on < this many bp within a trunk are merged). Reference: \code{ref_post}, \code{min_ref}. Other:
+states differ on < this many bp within a trunk are merged after each round). \code{same_post} = the membership posterior
+of \code{\link[=assign_cells]{assign_cells()}} that \code{min_post} and \code{member_post} cut: \code{"clone"} (default) = the best clone's posterior;
+\code{"group"} (opt-in) = summed over the clones of the best clone's trunk whose states differ on < \code{same_dist} bp (the
+clones the same-state merge joins; \code{assignments} gains \code{post_clone}, the single clone's posterior). Two clones with
+the same states otherwise share each cell's posterior, few cells reach \code{member_post}, both can fall below
+\code{min_size} and be dropped before the merge, and their cells end in another clone (e.g. the normal clone).
+Reference: \code{ref_post}, \code{min_ref}. Other:
 \code{doublet_delta}, \code{multiplet_prob} (cells above it are excluded from discovery and pseudobulks), \code{control_min_len},
 \code{repass}, \code{allelic_exclude}.
-}
-\details{
+
 \code{checkpoint} (resume cache, "" = off): an .rds path. When the file does not exist the global discovery
 (leaves, merged clones) and the first EM round are saved there; when it exists they are read from it and the run
 continues from the within-trunk discovery (useful when rerunning the later steps on a large sample). The cache is

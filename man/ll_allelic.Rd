@@ -31,6 +31,6 @@ molecule votes \code{nA} of \code{n} (one vote per molecule). Two-sided (default
 takes the better of \code{f} and \code{1 - f} (the orientation of the counts is
 unknown or may be wrong). With several \code{f} the best LLR over the grid is
 returned (the attenuation-aware 1:0 / 2:0 term over \code{f_att}). Rows with
-\code{n = 0} (or NA) give 0. The scorer uses llr_20 at
+\code{n = 0} (or NA) give 0; without any vote \code{rho} is not used (it may be NA). The scorer uses llr_20 at
 \code{f = 1 - eps}, llr_21 at 2/3, llr_31 at 3/4 and the grid form over \code{f_att}.
 }

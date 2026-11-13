@@ -31,9 +31,12 @@ cell_features(
 \arguments{
 \item{dir}{extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)}
 
-\item{cells}{NULL (QC-pass cells) or the cells to use}
+\item{cells}{NULL (QC-pass cells) or the cells to use (no QC)}
 
-\item{cell_meta}{NULL or a data.table with \code{cell} and optional \verb{cell_type, flat, fold, group, stratum, n_frag} (used as-is; NA cell_type = no type-matched reference)}
+\item{cell_meta}{NULL or a data.table with \code{cell} and optional \verb{qc_pass, cell_type, flat, fold, group, stratum, n_frag} (used as-is; NA cell_type = no type-matched reference; NA or missing \code{stratum} / \code{n_frag} keep the QC
+values). With \code{cells} NULL only cells of \code{cell_meta} are
+used, and with a \code{qc_pass} column (e.g. \code{\link[=make_cell_meta]{make_cell_meta()}}) only those with \code{qc_pass} TRUE that also pass
+\code{\link[=cell_qc]{cell_qc()}} with the \code{qc} arguments}
 
 \item{method}{depth normalisation, "celltype" or "model" (any \code{\link[=normalise_depth]{normalise_depth()}} method is accepted)}
 
@@ -43,7 +46,8 @@ cell_features(
 
 \item{use}{NULL or a logical bin filter}
 
-\item{sex}{"female" / "male" (NULL: the cells' \code{sex} column)}
+\item{sex}{"female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' \code{sex} column, whose
+non-missing values must all give the same sex)}
 
 \item{centromeres}{centromere table or path (Battenberg layout, see \code{\link[=arm_table]{arm_table()}}; NULL: the hg38 table shipped with
 the package, \code{\link[=hg38_centromeres]{hg38_centromeres()}})}
@@ -79,8 +83,8 @@ cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)}
 the votes' cell index), \code{votes}, \code{atoms}, \code{win} (\code{\link[=window_matrices]{window_matrices()}}), \code{params}, \code{notes}, \code{use}, \code{phasing}
 }
 \description{
-Reads an extraction directory, applies the cell QC (\code{\link[=cell_qc]{cell_qc()}}; \code{cells} restricts the run to a set
-of cells instead), annotates arms, filters bins (default: \code{\link[=bin_filter]{bin_filter()}} on the kept cells, chr1-22
+Reads an extraction directory, applies the cell QC (\code{\link[=cell_qc]{cell_qc()}}; with a \code{qc_pass} column of \code{cell_meta} a cell must
+also have \code{qc_pass} TRUE; \code{cells} restricts the run to a set of cells instead, without QC), annotates arms, filters bins (default: \code{\link[=bin_filter]{bin_filter()}} on the kept cells, chr1-22
 and chrX), normalises depth (\code{\link[=normalise_depth]{normalise_depth()}}: \code{celltype} for normal tissue, \code{model} for tumours), builds the
 regions (\code{\link[=region_set]{region_set()}}), the depth features (\code{\link[=depth_features]{depth_features()}}), the molecule votes
 (\code{\link[=read_votes]{read_votes()}}) and the oriented allele features (\code{\link[=allelic_features]{allelic_features()}}), and joins them into the

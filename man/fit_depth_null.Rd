@@ -21,5 +21,5 @@ data.table with the \code{by} columns, \code{t_m}, \code{t_s}, \code{t_df}, \cod
 \description{
 Location-scale Student-t (\code{MASS::fitdistr(x, "t")}) of the finite null z
 per group, on a seeded subsample of at most \code{n_max} rows per group;
-fallback median / mad / df 30 when the fit fails.
+fallback median / mad / df 30 when the fit fails (the scale floored at the sd and at 1e-3).
 }

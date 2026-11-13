@@ -41,7 +41,8 @@ Per chromosome: \verb{tabix <file> <chrom> | cut -f2,3,4,7,11,13} read with \cod
 \code{\link[=read_fragments]{read_fragments()}} when the tabix binary or index is missing; fragments of \code{cells} with haplotype
 A / B and a phase set are collapsed into molecules (\code{\link[=collapse_molecules]{collapse_molecules()}}), each molecule is assigned
 to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
-stays per chromosome (integer cell indices, \code{gc()} between chromosomes).
+stays per chromosome (integer cell indices, \code{gc()} between chromosomes). A failing tabix command stops with its
+error; a chromosome with atoms but no haplotype-assigned fragment of \code{cells} gives a warning.
 }
 \details{
 \code{clean = TRUE} keeps only the fragments the extractor counts in the depth layers (no blacklist bit in \code{flags},

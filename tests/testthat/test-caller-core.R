@@ -216,3 +216,16 @@ test_that("simulated fragments carry the phase set of their first SNP", {
   expect_setequal(unique(sim_tum2$truth$events$type), c("cloneA", "cloneB"))
   expect_equal(sim_norm_f$params$sex, "female")
 })
+
+test_that("fit_depth_null: the fallback scale is never 0, and ll_depth_shift refuses a zero scale", {
+  # mostly tied z: the t fit fails and the MAD is 0; the fallback scale is floored so no depth LLR is NaN
+  d = data.table(class = "arm", stratum = "s", z = c(rep(0, 50), 1, -1))
+  tp = fit_depth_null(d)
+  expect_gt(tp$t_s, 0)
+  expect_equal(tp$t_df, 30)
+  expect_true(all(is.finite(ll_depth_shift(c(0, 1, -1, 3), -1, tp))))
+  sc = score_cells(d[, `:=`(sd_null = 1, nA = 0, n_hap = 0)], tpar = tp, rho = 0.01)
+  expect_false(anyNA(sc$s_comb))
+  expect_error(ll_depth_shift(0, 1, list(t_m = 0, t_s = 0, t_df = 5)), "t_s must be > 0")
+  expect_error(ll_depth_shift(c(0, 1), 1, list(t_m = 0, t_s = c(1, -1), t_df = 5)), "t_s must be > 0")
+})

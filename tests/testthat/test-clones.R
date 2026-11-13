@@ -970,3 +970,54 @@ test_that("assign_cells(same_groups): two clones with the same states no longer 
   expect_identical(a1$clone, a0$clone)
   expect_false("post_clone" %in% names(a0))
 })
+
+test_that("caller_tumour: disc_allele, test_allele, same_post, drift_test at their defaults are today's code paths; checked", {
+  d = clone_defaults()
+  expect_identical(d[c("disc_allele", "test_allele", "same_post", "drift_test")],
+                   list(disc_allele = "z", test_allele = "z", same_post = "clone", drift_test = "none"))
+  r0 = tum2_result()
+  r1 = caller_tumour(tum2_input(), opts = list(disc_allele = "z", test_allele = "z", same_post = "clone", drift_test = "none"),
+                     verbose = FALSE)
+  # (data.table auto-indices that other tests' queries leave on the cached result are not part of the result)
+  strip = function(x) if (is.data.table(x)) setattr(copy(x), "index", NULL) else if (is.list(x) && !is.data.frame(x)) lapply(x, strip) else x
+  for (nm in c("assignments", "segments", "calls", "clones", "thresholds", "profiles", "events", "null_fit", "notes"))
+    expect_identical(strip(r1[[nm]]), strip(r0[[nm]]))
+  expect_false(any(c("discrete", "post_clone") %in% c(names(r0$null_fit$clones$tests), names(r0$assignments))))
+  inp = tum2_input()
+  for (k in c("disc_allele", "test_allele", "same_post", "drift_test"))
+    expect_error(caller_tumour(inp, opts = stats::setNames(list("x"), k), verbose = FALSE), "should be one of")
+  expect_error(caller_tumour(inp, opts = list(disc_allele = "centred"), verbose = FALSE), "should be one of")
+})
+
+test_that("same_state_groups: the clones the same-state merge joins (one trunk, same states)", {
+  sg = copy(tum2_result()$segments)
+  k = sg[label != "neutral", .N, by = clone][order(-N), clone][1]
+  sg2 = rbind(sg, copy(sg[clone == k])[, clone := "Kdup"])
+  K = unique(sg2$clone)
+  g1 = scphasedcn:::same_state_groups(sg2, stats::setNames(rep("T1", length(K)), K), 5e6)
+  expect_identical(unname(g1[c(k, "Kdup")]), rep(g1[[k]], 2))
+  expect_equal(uniqueN(g1), uniqueN(sg$clone))
+  expect_true(all(g1[setdiff(K, c(k, "Kdup"))] == setdiff(K, c(k, "Kdup"))))
+  # different trunks are never grouped
+  g2 = scphasedcn:::same_state_groups(sg2, stats::setNames(ifelse(K == "Kdup", "T2", "T1"), K), 5e6)
+  expect_identical(unname(g2["Kdup"]), "Kdup")
+})
+
+test_that("caller_tumour with the coverage-free / drift-aware opt-ins finds sim_tum2's clones and states", {
+  r0 = tum2_result()
+  r1 = clone_cached("clones_tum2_c2", function() caller_tumour(tum2_input(), opts = list(disc_allele = "fraction", test_allele = "centred",
+                                                                                      same_post = "group", drift_test = "modes"), verbose = FALSE))
+  tr = sim_truth(sim_tum2)[mult == FALSE]
+  s0 = r0$assignments[tr, on = "cell", nomatch = NULL][doublet_like == FALSE]
+  s1 = r1$assignments[tr, on = "cell", nomatch = NULL][doublet_like == FALSE]
+  expect_gte(clone_ari(s1$clone, s1$type), clone_ari(s0$clone, s0$type) - 0.02)
+  expect_equal(sum(!r1$clones$doublet), sum(!r0$clones$doublet))
+  key = function(r) r$segments[label != "neutral", .(n = .N), by = .(chrom, state)][order(chrom, state)]
+  expect_equal(key(r1), key(r0))
+  tt = r1$null_fit$clones$tests
+  expect_true(all(c("discrete", "differ_contrast", "by_depth", "mode_p", "mode_sep") %in% names(tt)))
+  expect_true(all(tt$differ <= tt$differ_contrast))
+  expect_true("post_clone" %in% names(r1$assignments))
+  expect_identical(r1$params$tumour[c("disc_allele", "test_allele", "same_post", "drift_test")],
+                   list(disc_allele = "fraction", test_allele = "centred", same_post = "group", drift_test = "modes"))
+})

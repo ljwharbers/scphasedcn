@@ -31,7 +31,8 @@ utils::globalVariables(c(
 
 #' Defaults of the tumour mode
 #'
-#' Discovery: `classes`, `depth_delta`, `cap`, `min_n`, `n_pc`, `k`, `max_leaves`, `min_size`, `q`, `n_perm`, `max_cells`,
+#' Discovery: `classes`, `depth_delta`, `cap`, `min_n`, `disc_allele`, `test_allele`, `n_pc`, `k`, `max_leaves`, `min_size`,
+#' `q`, `n_perm`, `drift_test`, `max_cells`,
 #' `split_depth` (discovery / test halves of the window depth as well as of the votes). Merge / split tests
 #' ([merge_clones()], [discover_within()], the split pass; `perm_decision`): `"quantile"` (default) = the observed
 #' contrast above the type-7 `q`-quantile of `n_perm` permutations (with 200 permutations at `q = 0.999` this is
@@ -39,7 +40,35 @@ utils::globalVariables(c(
 #' `(1 + #null >= observed) / (1 + permutations) <= 1 - q`, over `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations
 #' (999 at `q = 0.999`) with an exact early stop for "same" (as soon as p can no longer reach `1 - q`); a "different"
 #' verdict runs every permutation. The run notes give the number of tests and the expected false splits
-#' `n_tests x (1 - q)`. Hierarchy: trunks =
+#' `n_tests x (1 - q)`.
+#'
+#' Allele scale of discovery and tests (opt-in, coverage-free): `disc_allele` = the allelic columns of the discovery
+#' feature matrices ([clone_feature_matrix()], [discover_within()]); `test_allele` = the per-cell allele values of the
+#' merge / split contrast. `"z"` (default) = the standardised count `(nA - n / 2) / sd(n)`, whose expectation in an
+#' imbalanced region grows like `(f - 0.5) sqrt(n)`: deep and shallow cells of one clone form separate leaves and test
+#' different. `"fraction"` = the cell's oriented fraction `nA / n`, whose expectation does not depend on the cell's
+#' depth (discovery: in units of the null SD at the region's median vote count, the same scale as `"z"` for a typical
+#' cell; a cell below `min_n` votes gets the region's mean instead of 0; the regions of [discover_within()] are still
+#' selected on `"z"`); `test_allele = "centred"` = the standardised count about the compared cells' pooled fraction
+#' instead of 1 / 2 (mean 0 at any depth when the two sets share the fraction; weights the cells like `"z"`). The
+#' imbalance term of the contrast (depth support) always uses `"z"`.
+#'
+#' Drift-aware split test (`drift_test`, opt-in): the discovery and test halves of the votes are thinned from the same
+#' molecules, so a cell-level drift of the haplotype share beyond binomial noise is in both: leaves that discovery cut
+#' along the drift of one clone differ on the test half too, and the permutation null of random splits does not model
+#' that selection. `"none"` (default) = the permutation contrast decides. `"modes"` = a pair the contrast calls
+#' different stays different when a depth term alone beats the null threshold (the drift is allelic); an allele-driven
+#' difference must in addition be discrete on at least one of the (up to 3) regions whose allele term alone beats the
+#' threshold: the per-cell oriented fractions there of the population under discovery (all leaf cells of the merge: the
+#' discovery cells, or a trunk's deep cells; the clone itself in the split pass; test half, phase blocks oriented
+#' leave-one-out by the population, cells with >= 10 votes, at most 1,500 cells) are multimodal by Silverman's critical
+#' bandwidth test (smoothed bootstrap, 199 draws, level 0.01; a continuous drift, also a skewed one, has one mode, a
+#' subclone adds one), and the two clones lie on different sides of the antimode (their fractions above it differ by >=
+#' 0.5). The population, not the union of the two clones, is tested because two leaves cut from one continuum can make a
+#' union with two modes. A subclone whose allelic difference is smaller than the drift has no mode of its own and is
+#' merged. The tests tables gain `differ_contrast` (the contrast's verdict), `by_depth`, `discrete`, `mode_p`, `mode_sep`.
+#'
+#' Hierarchy: trunks =
 #' average-linkage groups of [clone_allelic_distance()] cut at `trunk_dist` (bp x haplotype fraction; e.g. 100 Mb
 #' differing by 0.3); trunk cells = trunk posterior >= `trunk_post`; [discover_within()] with `disp_min`, `imb_min`,
 #' `deep_q`, `depth_w`, `max_leaves_trunk`, `n_nb_trunk`; final split pass after the EM rounds (`split_pass`): `FALSE`
@@ -58,7 +87,13 @@ utils::globalVariables(c(
 #' Assignment: `mix_prior`, `mix_w`, `mix_margin`, `mix_rel`,
 #' `mix_min_dist` (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 #' `max_mix_prior`, `min_post` (confident), `member_post` (pseudobulk members), `em_rounds`, `same_dist` (clones whose
-#' states differ on < this many bp within a trunk are merged). Reference: `ref_post`, `min_ref`. Other:
+#' states differ on < this many bp within a trunk are merged after each round). `same_post` = the membership posterior
+#' of [assign_cells()] that `min_post` and `member_post` cut: `"clone"` (default) = the best clone's posterior;
+#' `"group"` (opt-in) = summed over the clones of the best clone's trunk whose states differ on < `same_dist` bp (the
+#' clones the same-state merge joins; `assignments` gains `post_clone`, the single clone's posterior). Two clones with
+#' the same states otherwise share each cell's posterior, few cells reach `member_post`, both can fall below
+#' `min_size` and be dropped before the merge, and their cells end in another clone (e.g. the normal clone).
+#' Reference: `ref_post`, `min_ref`. Other:
 #' `doublet_delta`, `multiplet_prob` (cells above it are excluded from discovery and pseudobulks), `control_min_len`,
 #' `repass`, `allelic_exclude`.
 #'
@@ -85,15 +120,15 @@ utils::globalVariables(c(
 #' @return named list (see [caller_tumour()])
 #' @export
 clone_defaults = function() {
-  list(classes = c("arm", "20Mb"), depth_delta = 0.2, cap = 6, min_n = 5, n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
-       q = 0.999, n_perm = 200, perm_decision = "quantile", max_cells = 250, size_small = 5e6, small_clone = 50,
+  list(classes = c("arm", "20Mb"), depth_delta = 0.2, cap = 6, min_n = 5, disc_allele = "z", test_allele = "z", n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
+       q = 0.999, n_perm = 200, perm_decision = "quantile", drift_test = "none", max_cells = 250, size_small = 5e6, small_clone = 50,
        profile_orient = "ps", split_depth = TRUE,
        trunk_dist = 3e7, trunk_post = 0.9, disp_min = 1.5, imb_min = 1, deep_q = 0.5, depth_w = 1,
        max_leaves_trunk = 20, n_nb_trunk = Inf, split_pass = FALSE, split_sep = 2, split_max = 4, split_cand = 3,
        split_min_len = 1e7, split_min_df = 0.15, split_min_excess = 0.05,
        p_switch = 1e-3, min_win = 3, min_llr = 10, min_excess = 0.5, max_contra = 0.1, bal_frac = 0.75, min_bal_len = 2e7,
        mix_prior = 0.05, mix_w = c(1 / 3, 1 / 2, 2 / 3), mix_margin = 10,
-       mix_rel = 0.1, mix_min_dist = 3e7, max_mix_prior = 0.5, min_post = 0.9, member_post = 0.9, em_rounds = 2, same_dist = 5e6,
+       mix_rel = 0.1, mix_min_dist = 3e7, max_mix_prior = 0.5, min_post = 0.9, member_post = 0.9, same_post = "clone", em_rounds = 2, same_dist = 5e6,
        ref_post = 0.9, min_ref = 30, doublet_delta = 10, multiplet_prob = 0.9, control_min_len = 2e7,
        repass = TRUE, allelic_exclude = c("chrX", "chrY"), checkpoint = "", normal_hypothesis = TRUE,
        normal_min_event = 1e7, ref_null = "none", confirm_null = "matched", confirm_sided = "two")
@@ -117,6 +152,10 @@ check_clone_opts = function(opts) {
   opts$confirm_sided = match.arg(as.character(opts$confirm_sided)[1], c("two", "one"))
   opts$perm_decision = match.arg(as.character(opts$perm_decision)[1], c("quantile", "pvalue"))
   opts$profile_orient = match.arg(as.character(opts$profile_orient)[1], c("ps", "window"))
+  opts$disc_allele = match.arg(as.character(opts$disc_allele)[1], c("z", "fraction"))
+  opts$test_allele = match.arg(as.character(opts$test_allele)[1], c("z", "fraction", "centred"))
+  opts$same_post = match.arg(as.character(opts$same_post)[1], c("clone", "group"))
+  opts$drift_test = match.arg(as.character(opts$drift_test)[1], c("none", "modes"))
   for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len")) {
     v = opts[[k]]
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
@@ -162,6 +201,18 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
 utils::globalVariables(c("s_depth", "s_allele", "i.oA", "i.oN", "oclone"))
 
 b_fun = function(f) get(f, envir = asNamespace("scphasedcn"))
+
+# same-state groups of the caller's merge_same(): clones of one trunk whose segment states differ on < same_dist bp
+# ([clone_state_distance()] with min_df = 0.01, min_dcn = 1; single linkage). Returns the representative clone (the
+# group's first clone in the distance matrix order) named by clone.
+same_state_groups = function(segments, trunks, same_dist) {
+  dm = clone_state_distance(segments, min_df = 0.01, min_dcn = 1)
+  K = rownames(dm)
+  if (length(K) < 2) return(stats::setNames(K, K))
+  g = stats::cutree(stats::hclust(stats::as.dist(dm), method = "single"), h = max(same_dist - 1, 0))
+  key = paste(trunks[K], g)
+  stats::setNames(K[match(key, key)], K)
+}
 
 # run note on the merge / split tests: their number and the expected false splits if every tested pair were one clone,
 # n_tests x (1 - q) for the p-value decision; the quantile decision of n permutations runs at ~(n + 1 - h) / (n + 1) per
@@ -318,13 +369,14 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   } else {
     X = clone_feature_matrix(feat_disc[cell %in% disc_cells], opts$classes, inp$rho, opts$cap, opts$min_n,
                              vs$disc, inp$atoms, inp$regions, cells,
-                             keep_orient = character())
+                             keep_orient = character(), allele = opts$disc_allele)
     disc = discover_clones(X, opts$n_pc, opts$k, opts$max_leaves, opts$min_size, params$seed)
     disc$pc = NULL
     say(length(unique(disc$leaves)), " leaves")
     mc = merge_clones(NULL, NULL, inp$atoms, inp$regions, disc$leaves, disc, q = opts$q, n_perm = opts$n_perm,
                       seed = params$seed, rho = inp$rho, classes = opts$classes, cells = cells, max_cells = opts$max_cells, cdata = cd,
-                      depth_delta = opts$depth_delta, perm_decision = opts$perm_decision)
+                      depth_delta = opts$depth_delta, perm_decision = opts$perm_decision, allele = opts$test_allele,
+                      drift_test = opts$drift_test)
     say(length(unique(mc$clones)), " clones after merging (", nrow(mc$tests), " split tests)")
   }
   members = data.table(cell = names(mc$clones), clone = paste0("G", mc$clones))
@@ -411,9 +463,13 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     mp = cbind(rownames(dm)[ij[, 1]], colnames(dm)[ij[, 2]])
     pieces = segment_pieces(st$segments, inp$regions)
     fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = cells)
+    # same_post "group": membership posteriors summed over the clones merge_same() would merge (same trunk, same states),
+    # so two same-state clones do not split each cell's posterior below member_post before they are merged
+    sg_ = if (opts$same_post == "group") same_state_groups(st$segments, tr, opts$same_dist) else NULL
     asg = assign_cells(fp, members, st$segments, inp$tpar, inp$rho, par = st$fit$par, mixtures = TRUE, min_post = opts$min_post,
                        mix_prior = opts$mix_prior, ref_cells = st$ref, mix_w = opts$mix_w, mix_margin = opts$mix_margin, mix_rel = opts$mix_rel,
-                       params = params, mix_pairs = mp, mult_prior = mult_prob, trunks = tr, max_mix_prior = opts$max_mix_prior)
+                       params = params, mix_pairs = mp, mult_prior = mult_prob, trunks = tr, max_mix_prior = opts$max_mix_prior,
+                       same_groups = sg_)
     asg[, multiplet := cell %in% mult]
     say(label, ": ", uniqueN(st$segments$clone), " clones in ", uniqueN(tr), " trunk(s), ", nrow(mp), " mixture pairs; confident ",
         sum(asg$confident), " / ", nrow(asg), "; trunk posterior >= ", opts$trunk_post, " ", sum(asg$p_trunk >= opts$trunk_post),
@@ -428,12 +484,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   }
   # clones of one trunk whose segment states differ on < same_dist bp (any state difference) are merged
   merge_same = function(r, members) {
-    dm = clone_state_distance(r$st$segments, min_df = 0.01, min_dcn = 1)
-    K = rownames(dm)
+    rep_ = same_state_groups(r$st$segments, r$trunks, opts$same_dist)
+    K = names(rep_); rep_ = unname(rep_)
     if (length(K) < 2) return(list(members = members, n = 0L))
-    g = stats::cutree(stats::hclust(stats::as.dist(dm), method = "single"), h = max(opts$same_dist - 1, 0))
-    key = paste(r$trunks[K], g)
-    rep_ = K[match(key, key)]
     n = sum(rep_ != K)
     if (n) {
       say("merging clones with the same states: ", paste(sprintf("%s -> %s", K[rep_ != K], rep_[rep_ != K]), collapse = ", "))

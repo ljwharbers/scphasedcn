@@ -535,8 +535,12 @@ split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, s
 #' the smoothed PC space) are candidate pairs; the pairs are tested in order of distance with the clone contrast (`split_test`)
 #' against the `q`-quantile of the same statistic on random splits of the pooled pair at matching sizes
 #' (`n_perm` permutations, sequential early stop), and non-different pairs are merged (each clone at most once
-#' per round). Stops when every candidate pair of the remaining clones differs at the budget (`q = 0.999` = 1
-#' false split per 1,000 tests). Each half is subsampled to `max_cells` cells (observed and null alike).
+#' per round). Stops when every candidate pair of the remaining clones differs at the budget (`q = 0.999`, aimed at 1
+#' false split per 1,000 tests; with `n_perm = 200` the type-7 0.999 quantile of the permutations sits near their
+#' maximum, so the quantile rule alone splits a null pair at about 1 / 201 per test, and the early "different" stop
+#' (observed statistic above 3 x the null maximum after 20 / 50 / 100 permutations) adds about 0.0006-0.001 per test
+#' at the minimum leaf size, 20 against 20 cells; there is no correction for the number of tests). Each half is
+#' subsampled to `max_cells` cells (observed and null alike).
 #' Nearest neighbours rather than Ward siblings only: once two sibling clones differ, a sibling-only rule never
 #' compares either of them with any other clone.
 #' @param feat_long features long table

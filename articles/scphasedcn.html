@@ -105,7 +105,12 @@ from the clone or confirmed by the cell.</li>
 <li>
 <strong>Phase</strong> heterozygous SNPs of the sample (e.g. Clair3
 + longphase on the pooled BAM) and select them with
-<code>scphasedcn select-hets</code>.</li>
+<code>scphasedcn select-hets</code>. For normal tissue, chromosome-scale
+haplotypes are recommended: orient the read-backed blocks with a
+population phase of the same sample
+(<code>scphasedcn hybrid-phase</code>; see
+<code><a href="../articles/scphasedcn-inputs.html">vignette("scphasedcn-inputs")</a></code> for what it does and does not
+achieve); tumour mode uses the blocks as they are.</li>
 <li>
 <strong>Extract</strong> with the Python package
 <code>scphasedcn</code> (<code>scphasedcn run</code>): per-cell 100 kb
@@ -125,7 +130,9 @@ the input files and the cell metadata;
 <p>The package simulates SPLONGGET-like data and writes it in the layout
 the extractor produces. Here: 120 cells of normal tissue (female) in
 three cell types, a few cells carrying private events (a chr1p loss, a
-chr8 gain), and one phase block per chromosome.</p>
+chr8 gain), and one phase block per chromosome (chromosome-scale phasing
+without switch errors; real population phasing has them, see
+<code><a href="../articles/scphasedcn-inputs.html">vignette("scphasedcn-inputs")</a></code>).</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/ljwharbers/scphasedcn" class="external-link">scphasedcn</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://r-datatable.com" class="external-link">data.table</a></span><span class="op">)</span></span>

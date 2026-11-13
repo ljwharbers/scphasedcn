@@ -77,6 +77,7 @@ segments, cell assignment, per-cell inherited / confirmed calls).</p>
 <span>  verbose <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  keep_scores <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  caller_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>  phasing <span class="op">=</span> <span class="st">"auto"</span>,</span>
 <span>  <span class="va">...</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -168,13 +169,25 @@ or a cells x components matrix with cell row names</p></dd>
 precedence over <code>params$normal</code> / <code>params$tumour</code> (tumour: <code>opts</code> merged key by key)</p></dd>
 
 
+<dt id="arg-phasing">phasing<a class="anchor" aria-label="anchor" href="#arg-phasing"></a></dt>
+<dd><p>phasing / block orientation of the allele features (<code><a href="cell_features.html">cell_features()</a></code>: "auto", "chromosome",
+"block", "loo" or "mirrored"; both modes; ignored with precomputed <code>features</code>). Normal mode with <code>loo</code> on
+block phasing (read-backed blocks without a population phase) gives a warning and a run note: it aligns allelic
+bias shared by all cells (false per-cell events) and cannot show allelic events carried by few cells, so
+chromosome-scale phasing is recommended (<code>scphasedcn hybrid-phase</code>; <code><a href="../articles/scphasedcn-inputs.html">vignette("scphasedcn-inputs")</a></code> for its
+limits). <code>chromosome</code> on block phasing (overall, or on a chromosome with votes) and, in normal
+mode, <code>mirrored</code> (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
+chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)</p></dd>
+
+
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
 <dd><p>extra arguments for <code><a href="cell_features.html">cell_features()</a></code> (e.g. <code>centromeres</code>, <code>classes</code>, <code>qc</code>)</p></dd>
 
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p><code>scphasedcn</code> with <code>features</code> (the long table), <code>feature_info</code> (path, cells, phasing, notes), <code>scores</code>
+    <p><code>scphasedcn</code> with <code>features</code> (the long table), <code>feature_info</code> (path, cells, phasing, phasing_chrom (the
+per-chromosome phasing regimes, <code><a href="phasing_by_chrom.html">phasing_by_chrom()</a></code>), notes), <code>scores</code>
 (normal, <code>keep_scores</code>), <code>thresholds</code>, <code>calls</code>, <code>events</code>, <code>pools</code>, <code>null_fit</code>, <code>false_calls</code> (normal:
 <code><a href="null_false_calls.html">null_false_calls()</a></code>), <code>embedding</code>, clone components (tumour), <code>params</code> (the caller parameters plus the
 arguments used: <code>normal</code> = every <code><a href="caller_normal.html">caller_normal()</a></code> argument of the run, <code>tumour</code> = the full tumour options) and

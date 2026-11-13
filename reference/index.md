@@ -293,6 +293,9 @@
 - [`parse_region()`](https://ljwharbers.github.io/scphasedcn/reference/parse_region.md)
   : Parse a region string "chr20:28000000-" or "chr5" into a data.table
 
+- [`phasing_by_chrom()`](https://ljwharbers.github.io/scphasedcn/reference/phasing_by_chrom.md)
+  : Phasing regime per chromosome
+
 - [`pool_scale()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scale.md)
   : Per-region scale of pooled null scores
 

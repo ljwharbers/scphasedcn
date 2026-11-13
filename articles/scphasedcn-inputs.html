@@ -105,8 +105,9 @@ or removed</td>
 <td>for the allele channel; required in tumour mode</td>
 <td>VCF with <code>GT</code> phased (<code>0|1</code>) and a
 <code>PS</code> phase-set tag, e.g. Clair3 + longphase, selected with
-<code>scphasedcn select-hets</code>
-</td>
+<code>scphasedcn select-hets</code>; normal-tissue mode: preferably
+joined into chromosome-wide haplotypes with
+<code>scphasedcn hybrid-phase</code> (section 1)</td>
 </tr>
 <tr class="odd">
 <td>sex</td>
@@ -178,19 +179,85 @@ the sites with a population SNV panel, e.g. the 1000 Genomes sites on
 GRCh38 (position, REF and ALT must match), which removes most systematic
 long-read genotyping errors; chrX is kept without the intersect by
 default (<code>--no-loci-contigs</code>).</p>
-<p>longphase phase blocks are not oriented relative to each other. The
-caller handles that: normal-tissue mode orients each block of a cell on
-the pseudobulk of the other cells (leave-one-out), tumour mode per
-clone. Population (reference-panel) phasing that joins the blocks into
-chromosome-wide haplotypes is not needed. It is used when present (one
-phase set per chromosome), but statistical phasing flips a fraction of
-the block junctions, which tumour mode then has to undo.</p>
+<p>longphase phase blocks (typically tens to a few hundred kb) are not
+oriented relative to each other. What the caller needs on top of them
+depends on the mode.</p>
+<p><strong>Normal tissue: chromosome-scale haplotypes are
+recommended.</strong> With blocks alone, <code><a href="../reference/call_scn.html">call_scn()</a></code> orients
+each block of a cell by the pseudobulk of the other cells
+(<code>loo</code>). The orientation of a block is then set by the
+majority of the cells, so an event carried by few cells is averaged away
+(its oriented allele fraction stays near 0.5), and allelic bias shared
+by all cells (germline copy-number variants, mapping bias, X
+inactivation) is aligned the same way in every cell, which produces
+false per-cell events. In one normal-tissue sample, per-cell events on
+the autosomes fell from 258 to 129 when the same sample was phased with
+the recipe below. Join the blocks with a population (reference-panel)
+phase of the same sample’s genotypes (what this does for per-cell losses
+and copy-neutral LOH is limited by the population phase’s switch errors;
+see the limits below):</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="co"># 5. population phasing of the sample's heterozygous SNVs, one chromosome at a time (here Beagle 5 with the</span></span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a><span class="co">#    1000 Genomes GRCh38 panel and its genetic maps; SHAPEIT works as well). The panel's contig names must match</span></span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a><span class="co">#    the VCF's; impute=false keeps the output to the sample's own sites.</span></span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="cf">for</span> c <span class="kw">in</span> <span class="va">$(</span><span class="bu">echo</span> chr<span class="dt">{</span><span class="dv">1</span><span class="dt">..</span><span class="dv">22</span><span class="dt">}</span> chrX<span class="va">)</span><span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>  <span class="ex">java</span> <span class="at">-jar</span> beagle.jar gt=pass_het.vcf.gz ref=panel/1kGP_<span class="va">${c}</span>.vcf.gz map=maps/<span class="va">${c}</span>.GRCh38.map <span class="dt">\</span></span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>      chrom=<span class="va">${c}</span> impute=false nthreads=8 out=popphased_<span class="va">${c}</span></span>
+<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>  <span class="ex">tabix</span> <span class="at">-p</span> vcf popphased_<span class="va">${c}</span>.vcf.gz</span>
+<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a><span class="cf">done</span></span>
+<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a><span class="co"># 6. orient the longphase blocks by the population phase: one phase set per chromosome</span></span>
+<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a><span class="ex">scphasedcn</span> hybrid-phase <span class="at">--blocks</span> het_phased.vcf.gz <span class="at">--population</span> <span class="st">'popphased_{chrom}.vcf.gz'</span> <span class="dt">\</span></span>
+<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a>    <span class="at">--out</span> het_hybrid.vcf.gz <span class="at">--block-tsv</span> hybrid_blocks.tsv <span class="at">--chrom-tsv</span> hybrid_chroms.tsv</span></code></pre></div>
+<p>and extract with the hybrid VCF
+(<code>--snps het_hybrid.vcf.gz --phased</code>, section 2).
+<code>hybrid-phase</code> lets every heterozygous SNV that both files
+phase (same REF / ALT; imputed markers excluded) vote on its block’s
+orientation, flips the blocks whose majority disagrees with the
+population phase and gives all oriented blocks one phase set per
+chromosome; blocks without votes or with a tie keep their own phase set.
+<code><a href="../reference/call_scn.html">call_scn()</a></code> then sums the votes per region
+(<code>chromosome</code> orientation). It warns in normal mode when the
+allele features were oriented <code>loo</code> on block phasing, and
+<code><a href="../reference/cell_features.html">cell_features()</a></code> notes chromosomes whose phasing differs
+from the rest (e.g. chrX left in blocks when the panel has no chrX; the
+unoriented blocks of such a chromosome are summed as they are, so its
+allele channel carries little or no signal).</p>
+<p><strong>Tumour mode keeps the block-only recipe (steps 1-4).</strong>
+It orients each block by the pseudobulk of the cell’s clone, which is
+the right reference for events shared by a clone, and it does not need
+the population phase: the junction flips of statistical phasing (below)
+would only add switch errors that the clone orientation has to undo.</p>
+<p>Limits:</p>
+<ul>
+<li>Statistical phasing flips a fraction of the block junctions (switch
+errors). A flipped block puts its votes on the wrong haplotype in every
+cell, so the oriented allele fraction of a real event moves towards 0.5.
+Normal mode scores losses and copy-neutral LOH at a major-haplotype
+fraction of 0.98; at an attenuated fraction a gain state can fit better,
+and the event is not called. In simulations, per-cell recall of an arm
+loss fell from 1.00 without switch errors to 0.88, 0.65 and 0.00 with a
+switch error every 20, 10 and 2 Mb, with a large spread between
+simulated genomes. Copy-neutral LOH, which has no depth signal, fell
+further (0.53 and 0.00 at 20 and 10 Mb): losses with a clear depth shift
+(whole chromosomes, large losses) are less affected than copy-neutral
+events, but not immune. Per-cell recall of losses and copy-neutral LOH
+on hybrid phasing therefore depends on the switch-error rate of the
+population phase and has not been validated on real data. An
+attenuation-aware state set for normal mode is planned. The
+<code>--chrom-tsv</code> report gives, per chromosome, how often the
+population phase disagrees with the reads inside blocks
+(<code>switch_rate</code>, <code>minority_frac</code>).</li>
+<li>With blocks alone, only events shared by several percent of the
+cells are visible in the allele channel. The depth channel does not
+depend on phasing.</li>
+</ul>
 </div>
 <div class="section level2">
 <h2 id="extraction-scphasedcn">2. Extraction (<code>scphasedcn</code>)<a class="anchor" aria-label="anchor" href="#extraction-scphasedcn"></a>
 </h2>
-<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="ex">scphasedcn</span> run <span class="at">--bam</span> sample.bam <span class="at">--barcodes</span> barcodes.tsv.gz <span class="at">--fasta</span> GRCh38.fa <span class="dt">\</span></span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>    <span class="at">--snps</span> het_phased.vcf.gz <span class="at">--phased</span> <span class="at">--out</span> results/sample/extract <span class="at">--jobs</span> 8</span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="co"># normal tissue: the hybrid VCF of step 6; tumour: het_phased.vcf.gz of step 4</span></span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="ex">scphasedcn</span> run <span class="at">--bam</span> sample.bam <span class="at">--barcodes</span> barcodes.tsv.gz <span class="at">--fasta</span> GRCh38.fa <span class="dt">\</span></span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>    <span class="at">--snps</span> het_hybrid.vcf.gz <span class="at">--phased</span> <span class="at">--out</span> results/sample/extract <span class="at">--jobs</span> 8</span></code></pre></div>
 <p><code>run</code> extracts every chromosome in parallel
 (<code>--jobs</code>; a deep chromosome takes a few GB of memory) and
 merges. On a cluster, run
@@ -199,32 +266,32 @@ chromosome and <code>scphasedcn merge</code> after them, with the same
 options. A sample yaml keeps the paths in one place
 (<code>--config sample.yaml --sample &lt;key&gt;</code>, also read by
 the caller’s command line):</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">readLines</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_template.yaml"</span>, <span class="at">package =</span> <span class="st">"scphasedcn"</span>)), <span class="at">sep =</span> <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
-<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="co"># Sample yaml shared by the extractor (`scphasedcn ... --config &lt;yaml&gt; --sample &lt;key&gt;`) and the caller</span></span>
-<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a><span class="co"># (`call_scn.R --config &lt;yaml&gt; --sample &lt;key&gt;`). Copy it, fill in your paths, delete what you do not use.</span></span>
-<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a><span class="co"># Paths are absolute. The keys shown are the documented ones; unknown keys are ignored.</span></span>
-<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>reference<span class="sc">:</span></span>
-<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>  fasta<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>GRCh38<span class="sc">/</span>genome.fa                 <span class="co"># required: hg38 with "chr" names, indexed (.fai); gives the GC per bin</span></span>
-<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>  <span class="co"># centromeres: /path/to/centromeres.tsv          # optional: default = the hg38 table shipped with both packages</span></span>
-<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>  <span class="co"># blacklist_v2: /path/to/hg38-blacklist.v2.bed   # optional: default = the ENCODE blacklist v2 shipped with the Python extractor</span></span>
-<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>  <span class="co"># trf: /path/to/simple_repeats.trf.bed           # optional: tandem repeats (fraction per bin; omitted = no TRF mask)</span></span>
-<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a>outputs<span class="sc">:</span></span>
-<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a>  root<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>results                           <span class="co"># per-sample outputs: &lt;root&gt;/&lt;sample&gt;/extract, &lt;root&gt;/&lt;sample&gt;/caller/&lt;tag&gt;</span></span>
-<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a>samples<span class="sc">:</span></span>
-<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>  my_sample<span class="sc">:</span></span>
-<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>    type<span class="sc">:</span> normal                                   <span class="co"># normal | tumour (or tumor; the caller's default --mode)</span></span>
-<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>    sex<span class="sc">:</span> female                                    <span class="co"># female | male</span></span>
-<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>    bam<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>my_sample.dna.bam                <span class="co"># SPLONGGET DNA BAM (coordinate sorted, indexed, CB tag per read)</span></span>
-<span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a>    barcodes<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>cell_barcodes.tsv.gz        <span class="co"># cell whitelist, one barcode per line (a trailing -1 is stripped)</span></span>
-<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a>    <span class="co"># barcode_map: /path/to/barcode_mapping.tsv    # only if the whitelist is in RNA-barcode space: columns</span></span>
-<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a>    <span class="co">#                                              # atac_barcode, rna_barcode (translated to the BAM's ATAC space)</span></span>
-<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a>    phased_vcf<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>het_phased.vcf.gz         <span class="co"># phased heterozygous SNPs (GT with |, PS tag), e.g. from</span></span>
-<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a>    <span class="co">#                                              # Clair3 + longphase + `scphasedcn select-hets`</span></span>
-<span id="cb3-22"><a href="#cb3-22" tabindex="-1"></a>    <span class="co"># chroms: [chr1, chr2, ..., chr22, chrX]       # default: chr1-22, chrX, chrY, chrM (`run`: those in the BAM)</span></span>
-<span id="cb3-23"><a href="#cb3-23" tabindex="-1"></a>    <span class="co"># peaks: /path/to/peaks.bed                    # optional: ATAC peaks (FRiP in the QC table only)</span></span>
-<span id="cb3-24"><a href="#cb3-24" tabindex="-1"></a>    events<span class="sc">:</span>                                        <span class="co"># optional: known events, reported as their own regions</span></span>
-<span id="cb3-25"><a href="#cb3-25" tabindex="-1"></a>      <span class="co"># chr5_gain: "chr5"</span></span>
-<span id="cb3-26"><a href="#cb3-26" tabindex="-1"></a>      <span class="co"># 20q_gain: "chr20:28000000-"</span></span></code></pre></div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">readLines</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_template.yaml"</span>, <span class="at">package =</span> <span class="st">"scphasedcn"</span>)), <span class="at">sep =</span> <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a><span class="co"># Sample yaml shared by the extractor (`scphasedcn ... --config &lt;yaml&gt; --sample &lt;key&gt;`) and the caller</span></span>
+<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a><span class="co"># (`call_scn.R --config &lt;yaml&gt; --sample &lt;key&gt;`). Copy it, fill in your paths, delete what you do not use.</span></span>
+<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a><span class="co"># Paths are absolute. The keys shown are the documented ones; unknown keys are ignored.</span></span>
+<span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a>reference<span class="sc">:</span></span>
+<span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a>  fasta<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>GRCh38<span class="sc">/</span>genome.fa                 <span class="co"># required: hg38 with "chr" names, indexed (.fai); gives the GC per bin</span></span>
+<span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a>  <span class="co"># centromeres: /path/to/centromeres.tsv          # optional: default = the hg38 table shipped with both packages</span></span>
+<span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a>  <span class="co"># blacklist_v2: /path/to/hg38-blacklist.v2.bed   # optional: default = the ENCODE blacklist v2 shipped with the Python extractor</span></span>
+<span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a>  <span class="co"># trf: /path/to/simple_repeats.trf.bed           # optional: tandem repeats (fraction per bin; omitted = no TRF mask)</span></span>
+<span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a>outputs<span class="sc">:</span></span>
+<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a>  root<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>results                           <span class="co"># per-sample outputs: &lt;root&gt;/&lt;sample&gt;/extract, &lt;root&gt;/&lt;sample&gt;/caller/&lt;tag&gt;</span></span>
+<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a>samples<span class="sc">:</span></span>
+<span id="cb4-13"><a href="#cb4-13" tabindex="-1"></a>  my_sample<span class="sc">:</span></span>
+<span id="cb4-14"><a href="#cb4-14" tabindex="-1"></a>    type<span class="sc">:</span> normal                                   <span class="co"># normal | tumour (or tumor; the caller's default --mode)</span></span>
+<span id="cb4-15"><a href="#cb4-15" tabindex="-1"></a>    sex<span class="sc">:</span> female                                    <span class="co"># female | male</span></span>
+<span id="cb4-16"><a href="#cb4-16" tabindex="-1"></a>    bam<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>my_sample.dna.bam                <span class="co"># SPLONGGET DNA BAM (coordinate sorted, indexed, CB tag per read)</span></span>
+<span id="cb4-17"><a href="#cb4-17" tabindex="-1"></a>    barcodes<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>cell_barcodes.tsv.gz        <span class="co"># cell whitelist, one barcode per line (a trailing -1 is stripped)</span></span>
+<span id="cb4-18"><a href="#cb4-18" tabindex="-1"></a>    <span class="co"># barcode_map: /path/to/barcode_mapping.tsv    # only if the whitelist is in RNA-barcode space: columns</span></span>
+<span id="cb4-19"><a href="#cb4-19" tabindex="-1"></a>    <span class="co">#                                              # atac_barcode, rna_barcode (translated to the BAM's ATAC space)</span></span>
+<span id="cb4-20"><a href="#cb4-20" tabindex="-1"></a>    phased_vcf<span class="sc">:</span> <span class="er">/</span>path<span class="sc">/</span>to<span class="sc">/</span>het_phased.vcf.gz         <span class="co"># phased heterozygous SNPs (GT with |, PS tag), e.g. from</span></span>
+<span id="cb4-21"><a href="#cb4-21" tabindex="-1"></a>    <span class="co">#                                              # Clair3 + longphase + `scphasedcn select-hets`</span></span>
+<span id="cb4-22"><a href="#cb4-22" tabindex="-1"></a>    <span class="co"># chroms: [chr1, chr2, ..., chr22, chrX]       # default: chr1-22, chrX, chrY, chrM (`run`: those in the BAM)</span></span>
+<span id="cb4-23"><a href="#cb4-23" tabindex="-1"></a>    <span class="co"># peaks: /path/to/peaks.bed                    # optional: ATAC peaks (FRiP in the QC table only)</span></span>
+<span id="cb4-24"><a href="#cb4-24" tabindex="-1"></a>    events<span class="sc">:</span>                                        <span class="co"># optional: known events, reported as their own regions</span></span>
+<span id="cb4-25"><a href="#cb4-25" tabindex="-1"></a>      <span class="co"># chr5_gain: "chr5"</span></span>
+<span id="cb4-26"><a href="#cb4-26" tabindex="-1"></a>      <span class="co"># 20q_gain: "chr20:28000000-"</span></span></code></pre></div>
 <p>Reference files: the FASTA is required. The blacklist, centromeres
 and chromosome sizes default to the bundled hg38 tables; a tandem-repeat
 BED (<code>--trf</code>) is optional (it adds the repeat fraction of
@@ -276,7 +343,7 @@ chrM.</li>
 SNP), <code>summary.json</code>, and <code>partials/</code> (the
 per-chromosome pieces).</p>
 <p>The package’s simulator writes the same layout:</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/ljwharbers/scphasedcn" class="external-link">scphasedcn</a></span><span class="op">)</span></span>
 <span><span class="va">sim</span> <span class="op">=</span> <span class="fu"><a href="../reference/simulate_scn.html">simulate_scn</a></span><span class="op">(</span>n_cells <span class="op">=</span> <span class="fl">40</span>, seed <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
 <span><span class="va">d</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"sim_extract"</span><span class="op">)</span></span>
@@ -345,7 +412,7 @@ cleans itself, not these cells.</li>
 phase blocks (<code>groups = "group"</code>), e.g. spatial regions or
 RNA clusters.</li>
 </ul>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">qc</span> <span class="op">=</span> <span class="fu">data.table</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fread.html" class="external-link">fread</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">d</span>, <span class="st">"cells_qc.tsv"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="va">types</span> <span class="op">=</span> <span class="fu">data.table</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span>cell <span class="op">=</span> <span class="va">qc</span><span class="op">$</span><span class="va">cell</span>, cell_type <span class="op">=</span> <span class="va">sim</span><span class="op">$</span><span class="va">scn</span><span class="op">$</span><span class="va">cells</span><span class="op">$</span><span class="va">cell_type</span><span class="op">)</span></span>
 <span><span class="va">m</span> <span class="op">=</span> <span class="fu"><a href="../reference/make_cell_meta.html">make_cell_meta</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">d</span>, <span class="st">"cells_qc.tsv"</span><span class="op">)</span>, cell_types <span class="op">=</span> <span class="va">types</span><span class="op">)</span></span>

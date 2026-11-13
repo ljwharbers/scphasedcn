@@ -30,6 +30,12 @@ Two modes:
 
 1.  **Phase** heterozygous SNPs of the sample (e.g. Clair3 + longphase
     on the pooled BAM) and select them with `scphasedcn select-hets`.
+    For normal tissue, chromosome-scale haplotypes are recommended:
+    orient the read-backed blocks with a population phase of the same
+    sample (`scphasedcn hybrid-phase`; see
+    [`vignette("scphasedcn-inputs")`](https://ljwharbers.github.io/scphasedcn/articles/scphasedcn-inputs.md)
+    for what it does and does not achieve); tumour mode uses the blocks
+    as they are.
 2.  **Extract** with the Python package `scphasedcn` (`scphasedcn run`):
     per-cell 100 kb bin counts, a fragment table with the haplotype of
     every fragment, and per-cell QC.
@@ -47,7 +53,9 @@ the result tables.
 The package simulates SPLONGGET-like data and writes it in the layout
 the extractor produces. Here: 120 cells of normal tissue (female) in
 three cell types, a few cells carrying private events (a chr1p loss, a
-chr8 gain), and one phase block per chromosome.
+chr8 gain), and one phase block per chromosome (chromosome-scale phasing
+without switch errors; real population phasing has them, see
+[`vignette("scphasedcn-inputs")`](https://ljwharbers.github.io/scphasedcn/articles/scphasedcn-inputs.md)).
 
 ``` r
 

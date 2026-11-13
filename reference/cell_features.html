@@ -143,7 +143,11 @@ the package, <code><a href="hg38_centromeres.html">hg38_centromeres()</a></code>
 
 
 <dt id="arg-phasing">phasing<a class="anchor" aria-label="anchor" href="#arg-phasing"></a></dt>
-<dd><p>"auto", "chromosome", "block" (= "loo"), "loo" or "mirrored"</p></dd>
+<dd><p>"auto", "chromosome", "block" (= "loo"), "loo" or "mirrored". <code>auto</code> = <code>chromosome</code> when
+<code><a href="detect_phasing.html">detect_phasing()</a></code> finds chromosome-wide phase sets, else <code>loo</code>. Chromosome-wide phasing is recommended for
+normal tissue (<code>scphasedcn hybrid-phase</code>; <code><a href="../articles/scphasedcn-inputs.html">vignette("scphasedcn-inputs")</a></code> for its limits): <code>loo</code> orients each
+block by the other cells, cannot show allelic events carried by few cells and aligns allelic bias shared by all
+cells</p></dd>
 
 
 <dt id="arg-groups">groups<a class="anchor" aria-label="anchor" href="#arg-groups"></a></dt>
@@ -183,7 +187,9 @@ cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)<
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p><code>scn_features</code> list: <code>long</code> (features, keyed by cell and region), <code>regions</code>, <code>cells</code> (row order =
-the votes' cell index), <code>votes</code>, <code>atoms</code>, <code>win</code> (<code><a href="window_matrices.html">window_matrices()</a></code>), <code>params</code>, <code>notes</code>, <code>use</code>, <code>phasing</code></p>
+the votes' cell index), <code>votes</code>, <code>atoms</code>, <code>win</code> (<code><a href="window_matrices.html">window_matrices()</a></code>), <code>params</code>, <code>notes</code>, <code>use</code>, <code>phasing</code>
+(<code>detected</code>, <code>orientation</code>), <code>phasing_chrom</code> (the per-chromosome regimes, <code><a href="phasing_by_chrom.html">phasing_by_chrom()</a></code>; the notes name
+chromosomes whose regime differs from <code>detected</code>)</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

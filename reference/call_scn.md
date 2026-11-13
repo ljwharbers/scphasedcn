@@ -37,6 +37,7 @@ call_scn(
   verbose = TRUE,
   keep_scores = TRUE,
   caller_args = list(),
+  phasing = "auto",
   ...
 )
 ```
@@ -166,6 +167,24 @@ call_scn(
   (e.g. `n_draws`, `opts`); they take precedence over `params$normal` /
   `params$tumour` (tumour: `opts` merged key by key)
 
+- phasing:
+
+  phasing / block orientation of the allele features
+  ([`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md):
+  "auto", "chromosome", "block", "loo" or "mirrored"; both modes;
+  ignored with precomputed `features`). Normal mode with `loo` on block
+  phasing (read-backed blocks without a population phase) gives a
+  warning and a run note: it aligns allelic bias shared by all cells
+  (false per-cell events) and cannot show allelic events carried by few
+  cells, so chromosome-scale phasing is recommended
+  (`scphasedcn hybrid-phase`;
+  [`vignette("scphasedcn-inputs")`](https://ljwharbers.github.io/scphasedcn/articles/scphasedcn-inputs.md)
+  for its limits). `chromosome` on block phasing (overall, or on a
+  chromosome with votes) and, in normal mode, `mirrored` (a diagnostic
+  orientation) also give a warning and a run note; so does tumour mode
+  on chromosome-scale phasing (read-based blocks, oriented per clone,
+  are preferable there)
+
 - ...:
 
   extra arguments for
@@ -175,8 +194,10 @@ call_scn(
 ## Value
 
 `scphasedcn` with `features` (the long table), `feature_info` (path,
-cells, phasing, notes), `scores` (normal, `keep_scores`), `thresholds`,
-`calls`, `events`, `pools`, `null_fit`, `false_calls` (normal:
+cells, phasing, phasing_chrom (the per-chromosome phasing regimes,
+[`phasing_by_chrom()`](https://ljwharbers.github.io/scphasedcn/reference/phasing_by_chrom.md)),
+notes), `scores` (normal, `keep_scores`), `thresholds`, `calls`,
+`events`, `pools`, `null_fit`, `false_calls` (normal:
 [`null_false_calls()`](https://ljwharbers.github.io/scphasedcn/reference/null_false_calls.md)),
 `embedding`, clone components (tumour), `params` (the caller parameters
 plus the arguments used: `normal` = every

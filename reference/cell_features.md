@@ -116,7 +116,15 @@ cell_features(
 
 - phasing:
 
-  "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored"
+  "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored". `auto` =
+  `chromosome` when
+  [`detect_phasing()`](https://ljwharbers.github.io/scphasedcn/reference/detect_phasing.md)
+  finds chromosome-wide phase sets, else `loo`. Chromosome-wide phasing
+  is recommended for normal tissue (`scphasedcn hybrid-phase`;
+  [`vignette("scphasedcn-inputs")`](https://ljwharbers.github.io/scphasedcn/articles/scphasedcn-inputs.md)
+  for its limits): `loo` orients each block by the other cells, cannot
+  show allelic events carried by few cells and aligns allelic bias
+  shared by all cells
 
 - groups:
 
@@ -164,4 +172,7 @@ cell_features(
 `regions`, `cells` (row order = the votes' cell index), `votes`,
 `atoms`, `win`
 ([`window_matrices()`](https://ljwharbers.github.io/scphasedcn/reference/window_matrices.md)),
-`params`, `notes`, `use`, `phasing`
+`params`, `notes`, `use`, `phasing` (`detected`, `orientation`),
+`phasing_chrom` (the per-chromosome regimes,
+[`phasing_by_chrom()`](https://ljwharbers.github.io/scphasedcn/reference/phasing_by_chrom.md);
+the notes name chromosomes whose regime differs from `detected`)

@@ -460,8 +460,12 @@ null_selection_check = function(feat, params = caller_defaults(), multiplets = N
     sel = do.call(select_null_cells, c(list(feat_long = d, params = params, exclude = multiplets, depth_model = depth_model,
                                             chroms = sel_ch), sa0))
     d[, null_cell := cell %in% sel$null_cells]
-    r = caller_normal(d, params = params, multiplets = multiplets, regions = regions, null_cells = "features",
-                      depth_model = depth_model, pool_classes = character(), resolve_gains = FALSE, null_chroms = sel_ch)
+    # a class whose null rows all lie on the other half (e.g. a tile class on one chromosome) has no threshold in this
+    # pass: its rows are not measured here (call_s_comb NA), so caller_normal's "no threshold" warning is expected
+    r = withCallingHandlers(
+      caller_normal(d, params = params, multiplets = multiplets, regions = regions, null_cells = "features",
+                    depth_model = depth_model, pool_classes = character(), resolve_gains = FALSE, null_chroms = sel_ch),
+      warning = function(w) if (grepl("^caller_normal: no threshold for", conditionMessage(w))) invokeRestart("muffleWarning"))
     sc = r$scores
     k = !is.na(sc$call_s_comb)
     mrow = k & sc$null_cell %in% TRUE & sc$null_region %in% TRUE & sc$chrom %in% oth

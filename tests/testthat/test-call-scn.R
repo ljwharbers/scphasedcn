@@ -227,8 +227,11 @@ test_that("call_scn(null_check = TRUE) adds the selection check and changes no c
             phasing = res$feature_info$phasing, notes = character())
   nulls = res$cells[null_cell == TRUE, cell]
   ra = call_scn(sim_dir("sim_norm_f"), "normal", features = fe, null_cells = nulls, embedding = FALSE, verbose = FALSE)
-  rb = call_scn(sim_dir("sim_norm_f"), "normal", features = fe, null_cells = nulls, embedding = FALSE, verbose = FALSE,
-                null_check = TRUE)
+  # no warning: a class without null rows on one half has no threshold in that half's pass by design
+  expect_no_warning({
+    rb = call_scn(sim_dir("sim_norm_f"), "normal", features = fe, null_cells = nulls, embedding = FALSE, verbose = FALSE,
+                  null_check = TRUE)
+  })
   for (k in c("calls", "events", "thresholds", "cells", "expected_false", "false_calls")) expect_equal(rb[[k]], ra[[k]], info = k)
   nc = rb$null_check
   expect_true(all(c("class", "stratum", "per_1000", "lo_per_1000", "hi_per_1000", "insample_per_1000", "cv_per_1000") %in% names(nc)))

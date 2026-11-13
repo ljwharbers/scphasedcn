@@ -81,6 +81,7 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
             log(f"[warn] {c}: not in the loci file and not in no_loci_contigs -> all sites dropped")
         lit = lf.fetch(c) if use_loci else None
         lrec = next(lit, None) if lit is not None else None
+        lbuf_pos, lbuf = None, []          # loci at the current position (kept for a second record at that position)
         for rec in vcf.fetch(c):
             ok, _ = is_candidate(rec, min_gq, min_dp)
             if not ok:
@@ -90,14 +91,16 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
                 n["dp_above_q"] += 1
                 continue
             if use_loci:
-                while lrec is not None and lrec.pos < rec.pos:
-                    lrec = next(lit, None)
-                hit = pos_hit = False
-                while lrec is not None and lrec.pos == rec.pos:   # several loci can share a position
-                    pos_hit = True
-                    if lrec.ref == rec.ref and lrec.alts and rec.alts[0] in lrec.alts:
-                        hit = True
-                    lrec = next(lit, None)
+                if rec.pos != lbuf_pos:
+                    while lrec is not None and lrec.pos < rec.pos:
+                        lrec = next(lit, None)
+                    lbuf = []
+                    while lrec is not None and lrec.pos == rec.pos:   # several loci can share a position
+                        lbuf.append((lrec.ref, lrec.alts))
+                        lrec = next(lit, None)
+                    lbuf_pos = rec.pos
+                pos_hit = bool(lbuf)
+                hit = any(r == rec.ref and alts and rec.alts[0] in alts for r, alts in lbuf)
                 if not hit:
                     n["pos_in_loci_allele_mismatch" if pos_hit else "not_in_loci"] += 1
                     continue

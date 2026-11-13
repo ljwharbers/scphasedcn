@@ -168,6 +168,15 @@ h5_write_df = function(df, file, name, index_col) {
   invisible(TRUE)
 }
 
+# an HDF5 vector as rhdf5 reads it, made a plain R vector: no dim, raw -> integer, and an enum {FALSE, TRUE} (how h5py /
+# anndata write a boolean array; read as a factor) -> logical. Other enums keep their labels (character).
+h5_plain = function(v) {
+  if (is.factor(v) && length(levels(v)) && all(levels(v) %in% c("FALSE", "TRUE"))) return(as.logical(as.character(v)))
+  if (is.array(v)) v = as.vector(v)
+  if (is.raw(v)) v = as.integer(v)
+  v
+}
+
 h5_read_df = function(file, name) {
   at = tryCatch(rhdf5::h5readAttributes(file, name), error = function(e) list())
   index_col = as.character(at[["_index"]] %||% "_index")
@@ -185,14 +194,13 @@ h5_read_df = function(file, name) {
         v = cats[codes + 1L]
         v[codes < 0] = NA
       } else if (all(c("values", "mask") %in% sub)) {
-        v = rhdf5::h5read(file, paste0(path, "/values"), bit64conversion = "double")
-        mask = as.logical(rhdf5::h5read(file, paste0(path, "/mask")))
-        v[mask] = NA
+        # nullable integer / boolean / string array: values with a mask of the missing entries
+        v = h5_plain(rhdf5::h5read(file, paste0(path, "/values"), bit64conversion = "double"))
+        mask = as.logical(h5_plain(rhdf5::h5read(file, paste0(path, "/mask"))))
+        v[mask %in% TRUE] = NA
       } else next
     } else {
-      v = rhdf5::h5read(file, path, bit64conversion = "double")
-      if (is.array(v)) v = as.vector(v)
-      if (is.raw(v)) v = as.integer(v)
+      v = h5_plain(rhdf5::h5read(file, path, bit64conversion = "double"))
     }
     out[[nm]] = v
   }
@@ -360,7 +368,8 @@ write_fragments = function(fr, file, extra = NULL) {
 #' @param file fragments.tsv.gz
 #' @param regions optional data.table (chrom, start, end) from [parse_region()]; uses the tabix index
 #' @param cells optional character vector of cells to keep
-#' @return data.table chrom, start, end, cell, strand, mapq, flags (+ extras), hap decoded from flags when absent
+#' @return data.table chrom, start, end, cell, strand, mapq, flags (+ extras), `hap` (the file's `hap` column as U / A / B /
+#'   N labels; "U" for every fragment when the file has none, nothing is decoded from `flags`), `len` (end - start when absent)
 #' @export
 read_fragments = function(file, regions = NULL, cells = NULL) {
   con = gzfile(file)
@@ -369,11 +378,27 @@ read_fragments = function(file, regions = NULL, cells = NULL) {
   cols = if (startsWith(hdr, "#")) strsplit(sub("^#", "", hdr), "\t")[[1]] else c("chrom", "start", "end", "cell", "strand", "mapq", "flags")
   if (!is.null(regions) && file.exists(paste0(file, ".tbi")) && requireNamespace("Rsamtools", quietly = TRUE)) {
     tb = Rsamtools::TabixFile(file)
-    rr = copy(regions)
+    rr = copy(as.data.table(regions))
     cs = tryCatch(Rsamtools::seqnamesTabix(tb), error = function(e) NULL)
+    if (!is.null(cs)) rr = rr[chrom %in% cs]     # a contig absent from the index has no fragments (as without tabix)
     rr[is.na(end), end := 536870911]            # tabix limit (2^29 - 1), beyond any chromosome
-    gr = GenomicRanges::GRanges(rr$chrom, IRanges::IRanges(rr$start + 1, rr$end))
-    lines = unlist(Rsamtools::scanTabix(tb, param = gr))
+    lines = character()
+    if (nrow(rr)) {
+      # overlapping / adjacent query ranges merged; a fragment spanning two disjoint ranges is returned by both
+      # queries and kept from the first only (start before the end of the previous range on the same contig)
+      gr = GenomicRanges::reduce(GenomicRanges::GRanges(rr$chrom, IRanges::IRanges(rr$start + 1, rr$end)))
+      res = Rsamtools::scanTabix(tb, param = gr)
+      gch = as.character(GenomicRanges::seqnames(gr)); gend = GenomicRanges::end(gr)
+      js = match("start", cols); if (is.na(js)) js = 2L
+      for (i in seq_along(res)) {
+        li = res[[i]]
+        if (i > 1 && length(li) && gch[i] == gch[i - 1]) {
+          st = as.numeric(vapply(strsplit(li, "\t", fixed = TRUE), `[`, "", js))
+          li = li[!(st < gend[i - 1])]
+        }
+        lines = c(lines, li)
+      }
+    }
     d = if (length(lines)) fread(text = lines, header = FALSE, col.names = cols) else as.data.table(setNames(replicate(length(cols), character()), cols))
   } else {
     d = fread(cmd = paste("gzip -dc", shQuote(file)), header = FALSE, skip = if (startsWith(hdr, "#")) 1 else 0, col.names = cols)

@@ -494,6 +494,10 @@ test_that("caller_normal checks its calibration options", {
   expect_equal(p$calib, "class")
   expect_error(caller_normal(sf, regions = rg, n_draws = 500, pool_classes = character(), params = modifyList(p, list(calib = "x"))), "calib")
   expect_error(caller_normal(sf, regions = rg, n_draws = 500, pool_classes = character(), params = modifyList(p, list(calib_rho = "x"))), "calib_rho")
+  expect_false(p$pool_events)
+  for (v in list("yes", NA, c(TRUE, FALSE), 1))
+    expect_error(caller_normal(sf, regions = rg, n_draws = 500, pool_classes = character(), params = modifyList(p, list(pool_events = v))),
+                 "pool_events must be TRUE or FALSE")
 })
 
 test_that("pool_scale tail_q: a heavier-tailed region gets tail > 1, homogeneous regions ~1; pool_combine divides by it", {
@@ -1002,4 +1006,179 @@ test_that("the bias rule ignores a clone whose carriers are all non-null cells, 
   # a features object works as its long table
   expect_identical(allelic_bias_tiles(list(long = d)), b)
   expect_error(allelic_bias_tiles(list()), "features")
+})
+
+# ---- named events (class `event`: no null rows) ------------------------------------------------------------------
+
+test_that("named event regions borrow the thresholds of their sd_class (per cell; pooled with pool_events); other classes unchanged", {
+  rg0 = fake_regions(tiles = c("20Mb" = 2e7))
+  ev_row = copy(rg0[region == "chr8"])[, `:=`(region = "chr8_event", class = "event", sd_class = "chrom", null_region = FALSE)]
+  rg = rbind(rg0, ev_row)
+  ff = fake_features(300, rg, events = data.table(cell = 1:12, region = "chr8_event", state = "loss"), seed = 21)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  set.seed(5)
+  emb = matrix(rnorm(300 * 5), 300, 5, dimnames = list(unique(ff$cell), NULL)); emb[1:12, 1] = emb[1:12, 1] + 30
+  run = function(ff, rg, pe = NULL) caller_normal(ff, regions = rg, embedding = emb, null_cells = "features", n_draws = 1500,
+                                                  params = if (is.null(pe)) caller_defaults() else modifyList(caller_defaults(), list(pool_events = pe)))
+  res = run(ff, rg, pe = TRUE)
+  th = res$thresholds
+  expect_true("borrowed_from" %in% names(th))
+  te = th[level == "cell" & class == "event"]
+  expect_gt(nrow(te), 0)
+  expect_false(anyNA(te$thr))
+  expect_true(all(te$borrowed_from == "chrom"))
+  tc = th[level == "cell" & class == "chrom"]
+  k = match(paste(te$score, te$stratum, te$fold), paste(tc$score, tc$stratum, tc$fold))
+  expect_false(anyNA(k))
+  expect_identical(te$thr, tc$thr[k])
+  expect_true(all(is.na(th[class != "event", borrowed_from])))
+  # per-cell rows carry the borrowed threshold; the spiked carriers are called (reportable events)
+  ev_sc = res$scores[region == "chr8_event"]
+  expect_false(anyNA(ev_sc$thr_s_comb))
+  ce = res$calls[level == "cell" & region == "chr8_event" & called & state == "loss"]
+  expect_gte(sum(sprintf("cell_%04d", 1:12) %in% ce$cell), 10)
+  expect_true(all(ce$reportable))
+  expect_lt(sum(!ce$cell %in% sprintf("cell_%04d", 1:12)), 3)
+  # pool_events: a non-NA borrowed pooled threshold, the event's pools are thresholded, and the run notes it
+  for (lv in c("pool_type", "pool_knn")) {
+    tp = th[level == lv & class == "event"]
+    expect_gt(nrow(tp), 0)
+    expect_false(anyNA(tp$thr))
+    expect_true(all(tp$borrowed_from == "chrom"))
+  }
+  pe = res$calls[level == "pool" & region == "chr8_event"]
+  expect_gt(nrow(pe), 0)
+  expect_false(anyNA(pe$thr))
+  expect_gt(sum(pe$called), 0)
+  expect_length(grep("pooled calls of named events (pool_events, experimental)", res$notes, fixed = TRUE), 1)
+  # default (pool_events FALSE): the event's pools are scored but get no borrowed threshold and are never called
+  rd = run(ff, rg)
+  expect_false(any(rd$thresholds[level != "cell", class] == "event"))
+  pd = rd$calls[level == "pool" & region == "chr8_event"]
+  expect_identical(nrow(pd), nrow(pe))
+  expect_true(all(is.na(pd$thr)))
+  expect_false(any(pd$called))
+  expect_false(any(grepl("pool_events", rd$notes)))
+  expect_false(any(grepl("no threshold", rd$notes)))
+  # per-cell event calls, scores and thresholds do not depend on pool_events
+  expect_identical(rd$scores, res$scores)
+  expect_identical(rd$thresholds[level == "cell"], res$thresholds[level == "cell"])
+  expect_identical(rd$calls[level == "cell"], res$calls[level == "cell"])
+  # the other classes: identical pooled thresholds and calls with and without pool_events, and without the event row
+  r0 = run(ff[class != "event"], rg0)
+  expect_false("borrowed_from" %in% names(r0$thresholds))
+  th1 = th[class != "event"][, borrowed_from := NULL]
+  expect_identical(th1, r0$thresholds)
+  expect_identical(rd$thresholds[class != "event"][, borrowed_from := NULL], r0$thresholds)
+  expect_identical(res$calls[region != "chr8_event"], r0$calls)
+  expect_identical(rd$calls[region != "chr8_event"], r0$calls)
+  expect_identical(rd$null_fit$pool_scale, res$null_fit$pool_scale)
+  # vote calibration: the event rows take the vote strata of their sd_class
+  p = modifyList(caller_defaults(), list(calib = "votes", min_null_rows = 200))
+  rv = caller_normal(ff, regions = rg, null_cells = "features", n_draws = 500, pool_classes = character(), params = p)
+  sv = rv$scores[region == "chr8_event"]
+  expect_true(all(sv$hstratum %in% c(rv$null_fit$vote_bins[class == "chrom", hstratum], "none")))
+  expect_false(anyNA(sv$thr_s_comb))
+  tv = rv$thresholds[level == "cell" & class == "chrom" & score == "s_comb"]
+  expect_identical(sv$thr_s_comb, tv$thr[match(paste(sv$stratum, sv$hstratum, sv$fold), paste(tv$stratum, tv$hstratum, tv$fold))])
+})
+
+test_that("male sample: an autosomal and a chrX named event are both pooled-thresholded with pool_events; other classes unchanged", {
+  # male: chrX is depth-only and its rows of the null cells join the pooled null in their own sex group. A named
+  # event never has null rows of its own, so with pool_events an autosomal event borrows its sd_class threshold of
+  # the autosomal group and a chrX event the one of the X group, whether or not the other event is present.
+  rg0 = fake_regions(tiles = c("20Mb" = 2e7), sex = "male")
+  mk = function(src, name) copy(rg0[region == src])[, `:=`(region = name, class = "event", sd_class = "chrom", null_region = FALSE)]
+  rgA = rbind(rg0, mk("chr8", "ev8"))
+  rgB = rbind(rgA, mk("chrX", "evX"))
+  ffB = fake_features(300, rgB, events = data.table(cell = 1:12, region = "ev8", state = "loss"), seed = 21)
+  ffB[chrom == "chrX", `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_)]
+  ffB[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  run = function(ff, rg, pe = TRUE) caller_normal(ff, regions = rg, null_cells = "features", n_draws = 1500, sex = "male",
+                                                 params = modifyList(caller_defaults(), list(pool_events = pe)))
+  rB = run(ffB, rgB)
+  rA = run(ffB[region != "evX"], rgA)
+  r0 = run(ffB[class != "event"], rg0)
+  pt = rB$thresholds[level == "pool_type"]
+  pe = rB$calls[level == "pool" & class == "event"]
+  expect_setequal(unique(pe$region), c("ev8", "evX"))
+  expect_false(anyNA(pe$thr))
+  # each event is thresholded in the sex group of its chromosome, with its sd_class threshold
+  te = pt[class == "event" & fold == 0L & score == "s_rob"]
+  tc = pt[class == "chrom" & fold == 0L & score == "s_rob"]
+  expect_true(all(te$borrowed_from == "chrom"))
+  expect_true(all(pe[region == "ev8", thr] == tc[sexgrp == "A", thr]))
+  expect_true(all(pe[region == "evX", thr] == tc[sexgrp == "X", thr]))
+  # the autosomal event's pools are called as without the chrX event
+  expect_identical(rB$calls[level == "pool" & region == "ev8"], rA$calls[level == "pool" & region == "ev8"])
+  expect_gt(sum(rB$calls[level == "pool" & region == "ev8", called]), 0)
+  # other classes: identical thresholds and calls without any event
+  th1 = rB$thresholds[class != "event"][, borrowed_from := NULL]
+  expect_identical(th1, r0$thresholds)
+  expect_identical(rB$calls[class != "event"], r0$calls)
+  # default (pool_events FALSE): no pooled event threshold in any sex group, no pooled event call; the rest unchanged
+  rD = run(ffB, rgB, pe = FALSE)
+  expect_false(any(rD$thresholds[level != "cell", class] == "event"))
+  pd = rD$calls[level == "pool" & class == "event"]
+  expect_setequal(unique(pd$region), c("ev8", "evX"))
+  expect_true(all(is.na(pd$thr)))
+  expect_false(any(pd$called))
+  expect_identical(rD$thresholds[class != "event"][, borrowed_from := NULL], r0$thresholds)
+  expect_identical(rD$calls[class != "event"], r0$calls)
+  expect_identical(rD$calls[level == "cell"], rB$calls[level == "cell"])
+  expect_identical(rD$scores, rB$scores)
+})
+
+test_that("a region left without thresholds after borrowing warns once and is noted; results unchanged", {
+  # an event whose sd_class (10 Mb tiles) is not among the region classes: nothing to borrow, never called
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ev = copy(rg[region == "chr8"])[, `:=`(region = "ev8_10Mb", class = "event", sd_class = "10Mb", null_region = FALSE)]
+  rg2 = rbind(rg, ev)
+  ff = fake_features(200, rg2, events = data.table(cell = 1:10, region = "ev8_10Mb", state = "loss"), seed = 3)
+  ws = character()
+  r = withCallingHandlers(caller_normal(ff, regions = rg2, null_cells = "features", n_draws = 500),
+                          warning = function(w) { ws <<- c(ws, conditionMessage(w)); invokeRestart("muffleWarning") })
+  expect_true(all(is.na(r$scores[region == "ev8_10Mb", thr_s_comb])))
+  expect_length(grep("ev8_10Mb", ws), 1)
+  expect_match(ws[grep("ev8_10Mb", ws)], "ev8_10Mb (per cell", fixed = TRUE)
+  expect_true(any(grepl("no threshold for 1 region(s), never called: ev8_10Mb (per cell)", r$notes, fixed = TRUE)))
+  # pool_events borrows nothing either (no pooled threshold of the sd_class): same calls and notes
+  rp = suppressWarnings(caller_normal(ff, regions = rg2, null_cells = "features", n_draws = 500,
+                                      params = modifyList(caller_defaults(), list(pool_events = TRUE))))
+  expect_identical(rp$notes, r$notes)
+  expect_identical(rp$calls, r$calls)
+  r0 = caller_normal(ff[region != "ev8_10Mb"], regions = rg, null_cells = "features", n_draws = 500)
+  expect_identical(r$calls[region != "ev8_10Mb"], r0$calls)
+  expect_false(any(grepl("no threshold", r0$notes)))
+})
+
+test_that("without any allele votes caller_normal runs depth-only with one warning, in every null-cell path", {
+  # an unphased extraction (or a VCF without phase sets): nA = nB = n_hap = 0 everywhere, rho cannot be fitted
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(300, rg, seed = 3)
+  ff[, `:=`(nA = 0, nB = 0, n_hap = 0, f = NA_real_)]
+  run = function(...) {
+    ws = character()
+    r = withCallingHandlers(caller_normal(ff, regions = rg, n_draws = 500, ...),
+                            warning = function(w) { ws <<- c(ws, conditionMessage(w)); invokeRestart("muffleWarning") })
+    list(r = r, ws = ws)
+  }
+  for (a in list(list(null_cells = "features"), list(null_cells = "select"),
+                 list(null_cells = "select", select_args = list(threshold = "empirical")),
+                 list(null_cells = "features", params = modifyList(caller_defaults(), list(calib_rho = "chrom"))))) {
+    x = do.call(run, a)
+    expect_length(grep("no allele votes", x$ws), 1)
+    expect_length(x$ws, 1)
+    expect_true(any(grepl("no allele votes", x$r$notes)))
+    al = grep("^(al|ar)_", names(x$r$scores), value = TRUE)
+    expect_gt(length(al), 0)
+    expect_true(all(as.matrix(x$r$scores[, al, with = FALSE]) == 0))     # every allelic term is 0: depth-only
+    expect_gt(nrow(x$r$calls), 0)
+  }
+  # ll_allelic without votes does not need rho
+  expect_identical(ll_allelic(c(0, 0), c(0, NA), 2 / 3, NA_real_), c(0, 0))
+  # votes, but none on the null rows: a clear error
+  f2 = copy(ff)[, null_cell := cell != "cell_0001"]
+  f2[cell == "cell_0001", `:=`(nA = 3, nB = 1, n_hap = 4)]
+  expect_error(caller_normal(f2, regions = rg, null_cells = "features", n_draws = 500), "null rows have no allele votes")
 })

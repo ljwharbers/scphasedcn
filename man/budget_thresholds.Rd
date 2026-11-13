@@ -34,7 +34,8 @@ budget_thresholds(
 \code{null_cell & null_region & eligible})}
 }
 \value{
-thresholds table (check_thresholds schema; \code{stratum} = "all" when not in \code{by})
+thresholds table (check_thresholds schema; \code{stratum} = "all" when not in \code{by}; \code{borrowed_from} when a
+class borrows its sd_class's thresholds)
 }
 \description{
 Type-7 quantile \code{q} of each score on the null rows (\code{\link[=budget_threshold]{budget_threshold()}}
@@ -48,4 +49,11 @@ threshold), flagged \code{pooled_fallback}.
 With a vote stratum (\code{hstratum} column, \code{\link[=assign_hstratum]{assign_hstratum()}}; \code{calib = "votes"}) the groups are class x
 stratum x hstratum, and a group short of \code{min_null} null rows falls back to its class x stratum, then to
 its class (the first with \code{min_null} rows, else the class).
+
+A class without any null row whose rows have an \code{sd_class} with null rows (named \code{event} regions: never null
+rows) takes the thresholds of that \code{sd_class}: its groups are keyed by class x sd_class x the other \code{by}
+columns and use the null rows (and the fallback levels) of the \code{sd_class}, so every fold / stratum gets the
+same threshold as the \code{sd_class} rows of that group. Those threshold rows carry \code{borrowed_from} (the
+sd_class; the column is only added when a class borrows) and \code{\link[=apply_thresholds]{apply_thresholds()}} matches them on the rows'
+\code{sd_class}.
 }

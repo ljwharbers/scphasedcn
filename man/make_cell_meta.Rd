@@ -19,8 +19,8 @@ cells of the other inputs}
 \item{cell_types}{NULL, a path or table with columns \code{cell} and \code{cell_type} (else the first two columns), or a
 character vector named by cell}
 
-\item{flat}{NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line or a
-\code{cell} column)}
+\item{flat}{NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line, without a
+header unless the first line is \code{cell}, or with a \code{cell} column)}
 
 \item{groups}{NULL, a path or table with \code{cell} and \code{group} (else the first two columns), or a vector named by cell}
 
@@ -34,11 +34,14 @@ data.table \code{cell}, \code{cell_type}, \code{flat}, \code{group}, plus \code{
 Builds the \code{cell_meta} table of \code{\link[=call_scn]{call_scn()}} (the \code{--cell-meta} TSV of \code{call_scn.R}). Every column but \code{cell} is
 optional for the caller:
 \itemize{
+\item \code{qc_pass}: the cells to call. \code{\link[=call_scn]{call_scn()}} (and \code{call_scn.R --cell-meta}) without \code{cells} calls the cells of the
+table that pass \code{\link[=cell_qc]{cell_qc()}} (with the run's \code{qc} arguments) and, with this column, also have \code{qc_pass} TRUE.
 \item \code{cell_type}: the depth reference of normal-tissue mode is matched by cell type (types with fewer than 20 cells,
 and cells with \code{NA}, use the reference of all cells). Without cell types the reference is the all-cell one.
 \item \code{flat}: cells known to be copy-number neutral (e.g. normal cells from an orthogonal assay). Normal mode uses them
-as the null cells with \code{null_cells = "features"}; tumour mode uses them as the reference pool. Without \code{flat},
-use \code{null_cells = "select"} (\verb{--null-cells select}): the caller selects its own null cells.
+as the null cells with \code{null_cells = "features"}; without \code{flat}, use \code{null_cells = "select"} (\verb{--null-cells select}): the caller selects its own null cells. Tumour mode fits its input depth / allelic null on them (when the
+features carry no null fit); its reference pool is not taken from them but is the normal clone the caller finds
+and cleans itself.
 \item \code{group}: tumour mode only, pseudobulk groups of the phase-block orientation (\code{groups = "group"}, \verb{--groups group}), e.g. spatial regions or RNA clusters; NA = all-cell pseudobulk.
 }
 }

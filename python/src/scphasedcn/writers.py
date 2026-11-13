@@ -1,6 +1,7 @@
 """Partial (per-chromosome) outputs and bgzipped tables."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,12 @@ import numpy as np
 import pandas as pd
 import pysam
 import scipy.sparse as sp
+
+# files of each layer of a partial (partials/<chrom>/); cells.txt and params.json belong to every partial
+LAYER_FILES = {"depth": ["layers.npz", "obsm.npz", "bins.tsv", "qc.tsv"],
+               "alleles": ["alleles.npz", "snps.tsv", "alleles_qc.tsv"],
+               "fragments": ["fragments.tsv.gz"]}
+DONE_FORMAT = 1
 
 FRAGMENT_COLUMNS = ["chrom", "start", "end", "cell", "strand", "mapq", "flags", "len", "piece", "npieces", "hap", "nsnp", "ps", "read_id"]
 
@@ -79,3 +86,40 @@ def _json_default(o):
     if isinstance(o, Path):
         return str(o)
     return str(o)
+
+
+def file_fingerprint(path) -> dict | None:
+    """Content identity of an input file that does not depend on its path (size + sha256 of the first and last
+    64 kB), recorded per partial so that `merge` can tell partials made from different inputs apart."""
+    if not path:
+        return None
+    p = str(path)
+    n = os.path.getsize(p)
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        h.update(fh.read(1 << 16))
+        if n > (1 << 17):
+            fh.seek(n - (1 << 16))
+            h.update(fh.read(1 << 16))
+    return {"size": n, "sha256_ends": h.hexdigest()}
+
+
+def cells_digest(cells: list[str]) -> str:
+    return hashlib.sha256(("\n".join(cells) + "\n").encode()).hexdigest()
+
+
+def write_done(pdir, meta: dict) -> None:
+    """Mark a partial finished: DONE holds the partial's metadata (JSON), written atomically."""
+    tmp = Path(pdir) / "DONE.tmp"
+    write_json(tmp, meta)
+    os.replace(tmp, Path(pdir) / "DONE")
+
+
+def read_done(pdir) -> dict | None:
+    """The metadata in a partial's DONE, or None when DONE is missing or has none (written by scphasedcn <= 0.1.1)."""
+    f = Path(pdir) / "DONE"
+    try:
+        meta = json.loads(f.read_text())
+    except (OSError, ValueError):
+        return None
+    return meta if isinstance(meta, dict) and "layers" in meta else None

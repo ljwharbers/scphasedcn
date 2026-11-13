@@ -25,6 +25,31 @@ def test_run_equals_extract_plus_merge(genome, bam, vcf, tmp_path):
     assert (a_out / "fragments.tsv.gz").exists() and (a_out / "fragments.tsv.gz.tbi").exists()
     assert (a_out / "cells_qc.tsv").exists()
 
+def _yaml(tmp_path, bam, genome, **extra):
+    import yaml
+    p = tmp_path / "samples.yaml"
+    p.write_text(yaml.safe_dump({"samples": {"s1": {"bam": str(bam), "barcodes": str(genome / "whitelist.tsv"),
+                                                    **extra}}}))
+    return str(p)
+
+
+def test_run_with_yaml_without_chroms_uses_the_chromosomes_of_the_bam(genome, bam, tmp_path):
+    out = tmp_path / "o"
+    y = _yaml(tmp_path, bam, genome)
+    assert main(["run", "--config", y, "--sample", "s1", "--jobs", "1"] + _common(genome, bam, out)) == 0
+    assert sorted(p.name for p in (out / "partials").iterdir()) == ["chr1", "chr2", "chrM", "chrX"]   # no chrY
+    assert (out / "summary.json").exists()
+
+
+def test_run_fails_at_once_on_requested_chromosomes_missing_from_the_bam(genome, bam, tmp_path):
+    out = tmp_path / "o"
+    y = _yaml(tmp_path, bam, genome, chroms=["chr1", "chrY"])
+    with pytest.raises(SystemExit, match="chrY .*not in the BAM"):
+        main(["run", "--config", y, "--sample", "s1", "--jobs", "1"] + _common(genome, bam, out))
+    with pytest.raises(SystemExit, match="chr5, chrY .*not in the BAM"):
+        main(["run", "--chroms", "chr1,chr5,chrY", "--jobs", "1"] + _common(genome, bam, out))
+    assert not (out / "partials").exists()
+
 
 def test_reference_checks_fail_before_the_bam_pass(genome, bam, tmp_path):
     base = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(tmp_path),
@@ -73,3 +98,22 @@ def test_select_hets(tmp_path):
                  "--loci", str(loci) + ".gz"]) == 0
     assert selected(o2) == [1001, 2001]
     assert (tmp_path / "het_loci.vcf.gz.tbi").exists()
+
+
+def test_select_hets_two_records_at_one_position(tmp_path):
+    hdr = ("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n"
+           "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"x\">\n##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"x\">\n"
+           "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"x\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n")
+    raw = tmp_path / "calls.vcf"
+    raw.write_text(hdr + "chr1\t1001\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n"
+                         "chr1\t1001\t.\tA\tT\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n"
+                         "chr1\t2001\t.\tC\tT\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n")
+    loci = tmp_path / "loci.vcf"
+    loci.write_text("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                    "chr1\t1001\t.\tA\tG,T\t.\t.\t.\nchr1\t2001\t.\tC\tT\t.\t.\t.\n")
+    for p in (raw, loci):
+        pysam.tabix_compress(str(p), str(p) + ".gz", force=True); pysam.tabix_index(str(p) + ".gz", preset="vcf", force=True)
+    out = tmp_path / "het.vcf.gz"
+    assert main(["select-hets", "--vcf", str(raw) + ".gz", "--out", str(out), "--contigs", "chr1", "--dp-quantile", "1",
+                 "--loci", str(loci) + ".gz"]) == 0
+    assert [(r.pos, r.alts[0]) for r in pysam.VariantFile(str(out))] == [(1001, "G"), (1001, "T"), (2001, "T")]

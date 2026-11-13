@@ -395,6 +395,50 @@ test_that("tumour mode on chromosome-scale phasing warns once and notes it", {
   expect_null(phasing_run_note(c(detected = "chromosome", orientation = "chromosome"), "tumour", phasing_chrom = data.table(chrom = character(), regime = character())))
 })
 
+# a simulation written without phase sets (ps = 0: an unphased extraction), so the run has no allele votes at all
+unphased_dir = function(name) {
+  key = paste0(name, "_unphased_dir")
+  if (is.null(call_cache[[key]])) {
+    s = get(name)
+    s$fragments = copy(s$fragments)[, ps := 0L]
+    d = file.path(tempdir(), paste0("callscn_", name, "_unphased"))
+    unlink(d, recursive = TRUE)
+    invisible(capture.output(suppressMessages(write_sim_dataset(s, d))))
+    call_cache[[key]] = d
+  }
+  call_cache[[key]]
+}
+
+test_that("a run without allele votes: the phasing checks stay quiet (normal: depth-only calls; tumour: the caller's stop)", {
+  s = sim_norm_f
+  # phasing = "chromosome" requested: the check of block-phased chromosomes sees an empty per-chromosome table
+  x = call_w(unphased_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(s$scn$bins),
+             phasing = "chromosome", verbose = FALSE)
+  expect_s3_class(x$r, "scphasedcn")
+  expect_equal(nrow(x$r$feature_info$phasing_chrom), 0L)
+  expect_equal(unname(x$r$feature_info$phasing[["orientation"]]), "chromosome")
+  expect_length(grep("no allele votes", x$w), 1L)
+  expect_false(any(grepl("block phasing|chromosome-scale phasing|phased in blocks|chromosome-wide", x$w)))
+  expect_false(any(grepl("block phasing|chromosome-scale phasing|phased in blocks|chromosome-wide", x$r$notes)))
+  out = file.path(tempdir(), "callscn_norm_unphased")
+  unlink(out, recursive = TRUE)
+  expect_no_error(write_scphasedcn(x$r, out))
+  # the other requested regimes on the same (empty) phasing record give no phasing note either
+  pc = x$r$feature_info$phasing_chrom
+  for (ori in c("loo", "chromosome")) {
+    ph = c(detected = "chromosome", orientation = ori)
+    expect_null(phasing_run_note(ph, "normal", pc))
+    expect_length(phasing_orientation_notes(ph, pc, "normal", if (ori == "loo") "block" else "chromosome"), 0L)
+    expect_null(phasing_mixed_note(pc, "chromosome", ori))
+  }
+  # tumour mode stops in the caller with its own message, not in the phasing code
+  t2 = sim_tum2
+  cm = data.table(cell = t2$scn$cells$cell, group = t2$scn$cells$cell_type)
+  expect_error(suppressWarnings(call_scn(unphased_dir("sim_tum2"), "tumour", cell_meta = cm, cells = cm$cell, sex = "male",
+                                         groups = "group", verbose = FALSE, centromeres = cs_centromeres(t2$scn$bins))),
+               "caller_tumour: no allele votes")
+})
+
 test_that("inst/scripts/call_scn.R --help exits 0 without data", {
   script = system.file("scripts", "call_scn.R", package = "scphasedcn")
   expect_true(file.exists(script))

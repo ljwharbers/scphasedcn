@@ -26,8 +26,22 @@ def _npz_shapes(path: Path) -> dict[str, tuple]:
         return {k[:-len("__shape")]: tuple(int(x) for x in z[k]) for k in z.files if k.endswith("__shape")}
 
 
-# DONE inputs that describe the SNPs a layer was made from (fragments: haplotype votes; alleles: allele counts)
-SNP_INPUTS = ("snps", "phased", "vcf_sample", "min_bq")
+# DONE inputs that describe the SNPs a layer was made from (fragments: haplotype votes; alleles: allele counts), and
+# the rule of the per-fragment haplotype vote (extract --vote-ps)
+SNP_INPUTS = ("snps", "phased", "vcf_sample", "min_bq", "vote_ps")
+# SNP inputs added after DONE was introduced: their value in partials written before (no key) when SNPs were used
+SNP_INPUT_DEFAULTS = {"vote_ps": "first"}
+
+
+def _fill_snp_defaults(meta: dict | None) -> None:
+    """Give the SNP inputs of `meta`'s layers that predate a key the value those partials were made with."""
+    for lm in ((meta or {}).get("layers") or {}).values():
+        inp = (lm or {}).get("inputs")
+        if not inp or "snps" not in inp:
+            continue
+        for k, v in SNP_INPUT_DEFAULTS.items():
+            if k not in inp:
+                inp[k] = v if inp["snps"] is not None else None
 
 
 def _fmt(v) -> str:
@@ -39,12 +53,15 @@ def check_partials(dirs: list[Path], log) -> None:
     """Fail (SystemExit) on partials that cannot be merged into one sample: a --region partial, different cell
     lists, a layer present on some chromosomes only, layer files the DONE metadata does not list (stale), matrices whose
     shape does not fit the cells or the depth bins, or layers made from different inputs (bin size, assignment, MAPQ,
-    BAM, SNP file, masks; recorded in DONE by extract), or, within a partial, a fragments table whose haplotype votes
-    come from other SNP inputs than its alleles layer. Partials of scphasedcn <= 0.1.1 (no DONE metadata) are
-    merged with a warning: only their cells, layer presence and shapes are checked."""
+    BAM, SNP file, --vote-ps, masks; recorded in DONE by extract), or, within a partial, a fragments table whose
+    haplotype votes come from other SNP inputs or another --vote-ps than its alleles layer. Partials of scphasedcn
+    <= 0.1.1 (no DONE metadata) are merged with a warning: only their cells, layer presence and shapes are checked.
+    Partials whose DONE predates the vote_ps key were made with the default (`first`)."""
     first = dirs[0]
     cells0 = _read_cells(first)
     metas = {d.name: read_done(d) for d in dirs}
+    for m in metas.values():
+        _fill_snp_defaults(m)
     for d in dirs:
         m = metas[d.name]
         region = m.get("region") if m else None

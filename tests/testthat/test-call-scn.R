@@ -102,6 +102,23 @@ test_that("caller_params reads caller.yaml (= caller_defaults) and applies overr
   expect_equal(caller_params(tf2), caller_defaults())
 })
 
+test_that("the gain gate arguments of caller_normal() round-trip through caller.yaml and params.yaml", {
+  pf = caller_params()
+  expect_identical(pf$normal$gain_gate, "dl")
+  expect_identical(pf$normal$gain_gate_q, 0.95)
+  tf = tempfile(fileext = ".yaml")
+  writeLines(c("normal:", "  gain_gate: \"z\"", "  gain_gate_q: 0.99"), tf)
+  p = caller_params(tf)
+  expect_identical(p$normal$gain_gate, "z")
+  expect_identical(p$normal$gain_gate_q, 0.99)
+  expect_identical(p$normal$gain_min_dl, 0)
+  y = parse_simple_yaml(readLines(tf))                          # the fallback parser reads the block the same way
+  expect_equal(block_params(y$normal, normal_arg_defaults(), "normal"), p$normal)
+  tf2 = tempfile(fileext = ".yaml")                             # params.yaml of a run reads back
+  writeLines(yaml_lines(p), tf2)
+  expect_equal(caller_params(tf2)$normal, p$normal)
+})
+
 test_that("multiplet_table normalises vectors, files and multiplet score tables", {
   expect_equal(multiplet_table(c("a", "b")), data.table(cell = c("a", "b"), prob = 1))
   expect_null(multiplet_table(NULL))

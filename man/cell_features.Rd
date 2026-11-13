@@ -67,7 +67,8 @@ cells}
 \item{groups}{NULL, the name of a \code{cell_meta} column, a vector named by cell, or one label per kept
 cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)}
 
-\item{mol_gap}{molecule gap (bp; default \code{params$mol_gap}, 2000)}
+\item{mol_gap}{molecule gap (bp; default \code{params$mol_gap}, 2000); \code{params$mol_split_ps} and
+\code{params$votes_clean} set the molecule split by phase set and the blacklist filter of the votes (\code{\link[=read_votes]{read_votes()}})}
 
 \item{keep_votes}{keep the votes table in the result}
 

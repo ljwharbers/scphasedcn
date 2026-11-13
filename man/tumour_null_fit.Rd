@@ -10,7 +10,7 @@ tumour_null_fit(
   exclude = NULL,
   select = FALSE,
   n_iter = 5,
-  min_cells = 10,
+  min_cells = 5,
   min_jaccard = 0.7
 )
 }

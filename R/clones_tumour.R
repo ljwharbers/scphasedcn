@@ -207,7 +207,7 @@ confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
 #'   "all", null_cells (the cells fitted), selection (the [select_null_cells()] log; NULL for flagged cells), note
 #'   (one line for the run notes))
 #' @export
-tumour_null_fit = function(long, params = caller_defaults(), exclude = NULL, select = FALSE, n_iter = 5, min_cells = 10,
+tumour_null_fit = function(long, params = caller_defaults(), exclude = NULL, select = FALSE, n_iter = 5, min_cells = 5,
                            min_jaccard = 0.7) {
   long = as.data.table(long)
   nr = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible

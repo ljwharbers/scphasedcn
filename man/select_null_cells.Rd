@@ -55,7 +55,8 @@ barcodes). Each iteration fits the depth t null per class x stratum and the
 allelic rho on the null rows of the current set, scores every candidate
 cell on the \code{classes} regions (chromosomes and arms) with \code{s_comb},
 thresholds at the selection quantile \code{q} and keeps the cells with at most
-\code{max_calls} calls. Every iteration re-evaluates all candidates (a cell
+\code{max_calls} calls (it stops early, with no null cell, when every candidate
+has more). Every iteration re-evaluates all candidates (a cell
 dropped earlier can come back), so the set does not ratchet.
 }
 \details{

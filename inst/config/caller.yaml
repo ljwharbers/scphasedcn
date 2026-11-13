@@ -43,12 +43,16 @@ normal:                     # normal mode: caller_normal() arguments (CLI --n-dr
   n_draws: 20000            # null pool-regions per class for the pooled thresholds
   depth_model: "t"          # depth null: "t" (Student-t per class x stratum) or "gauss"
   resolve_gains: true       # per-cell chromosome gains need depth support and lose to a stronger nested loss / CN-LOH
+  gain_gate: "dl"           # depth support of a gain: "dl" (gain depth LLR > 0) or "z" (opt-in: z above the midpoint and the gain_gate_q null quantile)
+  gain_gate_q: 0.95         # null quantile of the "z" gain gate
   pool_loo: true            # pools are called on the leave-one-out robust score s_rob
   pool_standardize: true    # pooled best LLR standardised per region by the null pools of the same construction
 tumour:                     # tumour mode: clone_defaults() options (CLI --confirm-null / --split-pass override)
   confirm_null: "matched"   # per-cell confirmation null: "matched" (per clone hypothesis) or "generic"
+  confirm_sided: "two"      # allele term of the per-cell confirmation (cells and null rows): "two" (two-sided) or "one" (only the clone's major haplotype)
   ref_null: "none"          # confirmation rho refitted on the clean reference pool: "none" or "rho"
   split_pass: false         # final clone split pass: false or "disagree" (members disagree with the clone state)
+  perm_decision: "quantile" # merge / split tests: "quantile" (observed above the 0.999 quantile of 200 permutations, ~6 false splits / 1,000 tests) or "pvalue" (permutation p <= 1 - q, >= 999 permutations, early stop)
   em_rounds: 2              # hard-EM assignment rounds
   checkpoint: ""            # resume cache (.rds) of the global discovery and first round; "" = off
   min_excess: 0.5           # clone segments: an imbalanced run needs its pooled oriented fraction above 0.5 by this share of the expected excess (0 = off)

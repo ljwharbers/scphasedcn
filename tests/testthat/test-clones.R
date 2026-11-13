@@ -837,3 +837,30 @@ test_that("caller_tumour(split_pass = \"disagree\") separates the chr21 subclone
   check_calls(r1$calls)
   check_thresholds(r1$thresholds)
 })
+
+# ---- coverage-free allele scale, same-state posteriors, drift-aware split test -------------------------------------
+
+test_that("assign_cells(same_groups): two clones with the same states no longer split each cell's posterior", {
+  inp0 = tum2_input(); inp = clone_input(inp0)
+  r0 = tum2_result()
+  sg = copy(r0$segments); cl_ = copy(r0$clones); par0 = copy(r0$null_fit$clones$par)
+  k = cl_[normal == FALSE & doublet == FALSE][order(-n_members), clone][1]
+  sg2 = rbind(sg, copy(sg[clone == k])[, clone := "Kdup"])
+  m = copy(r0$assignments)[confident == TRUE, .(cell, clone)]
+  set.seed(1)
+  half = m[clone == k, sample(cell, floor(.N / 2))]
+  m[cell %in% half, clone := "Kdup"]
+  par = rbind(par0, copy(par0[clone == k])[, clone := "Kdup"])
+  tr = stats::setNames(rep("T1", length(unique(sg2$clone))), unique(sg2$clone))
+  grp = stats::setNames(names(tr), names(tr)); grp["Kdup"] = k      # the twins form one group
+  pieces = segment_pieces(sg2, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  a0 = assign_cells(fp, m, sg2, inp$tpar, inp$rho, par = par, params = caller_defaults(), trunks = tr)
+  a1 = assign_cells(fp, m, sg2, inp$tpar, inp$rho, par = par, params = caller_defaults(), trunks = tr, same_groups = grp)
+  kc = a0[clone %in% c(k, "Kdup"), cell]
+  expect_lt(mean(a0[cell %in% kc, posterior] >= 0.9), 0.2)        # the posterior is split between the twins
+  expect_gt(mean(a1[cell %in% kc, posterior] >= 0.9), 0.8)        # summed over the same-state group
+  expect_equal(a1$post_clone, a0$posterior)
+  expect_identical(a1$clone, a0$clone)
+  expect_false("post_clone" %in% names(a0))
+})

@@ -286,13 +286,17 @@ clone_allelic_distance = function(oc, members, arms, floor = 0.03, min_mol = 200
 #' @param trunks optional named clone -> trunk vector ([clone_trunks()]): adds `trunk` and `p_trunk` (posterior summed
 #'   over the clones of the best clone's trunk)
 #' @param max_mix_prior cap of the per-cell mixture prior
+#' @param same_groups optional named clone -> group vector (e.g. the caller's same-state groups): `posterior` (and so
+#'   `assigned` / `confident`) is then summed over the clones of the best clone's group, and the single best clone's
+#'   posterior is kept as `post_clone`. Two clones with the same states otherwise share each cell's posterior and
+#'   neither reaches `min_post`
 #' @return data.table cell, clone (the likelihood-best single clone, for every cell), posterior, ll_margin,
 #'   doublet_like, pair, ref_pool, p_mix, ll_mix_gain, ll_best, mix_prior, assigned / confident (posterior >= `min_post`
 #'   and not doublet-like) (plus trunk, p_trunk when `trunks` is given; attribute `ll`: cells x hypotheses log-likelihood matrix)
 #' @export
 assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, prior = NULL, mixtures = TRUE, min_post = 0.9,
                         mix_prior = 0.05, ref_cells = NULL, mix_w = 0.5, mix_margin = 10, mix_rel = 0.1, params = caller_defaults(),
-                        mix_pairs = NULL, mult_prior = NULL, trunks = NULL, max_mix_prior = 0.5) {
+                        mix_pairs = NULL, mult_prior = NULL, trunks = NULL, max_mix_prior = 0.5, same_groups = NULL) {
   fp = feat_pieces
   pieces = as.data.table(fp$pieces)
   cells = fp$cells
@@ -438,6 +442,13 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
                    ll_margin = srt[, 1] - srt[, 2], doublet_like = p_mix > 0.5 & dll > pmax(mix_margin, mix_rel * pmax(llb, 0)),
                    pair = bp, ref_pool = FALSE,
                    p_mix = p_mix, ll_mix_gain = dll, ll_best = LL[cbind(seq_len(nrow(LL)), best)], mix_prior = pm)
+  if (!is.null(same_groups)) {
+    # posterior summed over the clones of the best clone's group (clones without a group are their own group)
+    gk = as.character(same_groups[K]); gk[is.na(gk)] = K[is.na(gk)]
+    GP = PS %*% (outer(gk, unique(gk), "==") * 1)
+    out[, post_clone := posterior]
+    out[, posterior := GP[cbind(seq_len(nrow(GP)), match(gk[best], unique(gk)))]]
+  }
   out[, assigned := posterior >= min_post & !doublet_like]
   out[, confident := assigned]
   if (!is.null(trunks)) {
@@ -452,7 +463,7 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
   setattr(out, "ll", ALL)
   out[]
 }
-utils::globalVariables(c("rmean", "i.rmean", "a", "c", "ll_mix_gain"))
+utils::globalVariables(c("rmean", "i.rmean", "a", "c", "ll_mix_gain", "post_clone"))
 
 #' Flag clones that are 50:50 mixtures of two other clones
 #'

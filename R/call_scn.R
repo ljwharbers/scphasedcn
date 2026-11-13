@@ -524,7 +524,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
                                        paste(sprintf("%.2f", nca$insample_per_1000), collapse = ", "),
                                        as.numeric(difftime(Sys.time(), t_c, units = "mins"))))
     }
-    fdr = event_fdr(res, resolve_gains = na_run$resolve_gains, gain_min_dl = na_run$gain_min_dl)
+    fdr = event_fdr(res, resolve_gains = na_run$resolve_gains, gain_min_dl = na_run$gain_min_dl, gain_gate = na_run$gain_gate,
+                    gain_gate_q = na_run$gain_gate_q)
     res$calls = fdr$calls
     res$events = fdr$events
     res$expected_false = fdr$expected_false

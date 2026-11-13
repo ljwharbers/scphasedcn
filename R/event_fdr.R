@@ -85,18 +85,35 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
   p
 }
 
+# Whether gain rows `idx` of the scores `sc` fail the depth gate of the run's gain resolution ([resolve_nested()]):
+# `gate$type` "dl": dl_gain <= gate$min_dl (NA dl_gain passes); "z": not z above the gate_z threshold of the row
+# (gain_gate_z(); NA z fails), with the run's depth null `gate$tpar` and `gate$q`. FALSE everywhere without
+# `gate$resolve`.
+gain_gate_fails = function(sc, idx, gate) {
+  if (!length(idx) || !isTRUE(gate$resolve)) return(rep(FALSE, length(idx)))
+  if (identical(gate$type, "z")) {
+    zg = gain_gate_z(sc[idx, .(cell, region)], sc, gate$q, gate$tpar, gate$params)
+    return(!(zg$z > zg$thr) %in% TRUE)
+  }
+  if (!"dl_gain" %in% names(sc)) return(rep(FALSE, length(idx)))
+  dl = sc$dl_gain[idx]
+  !is.na(dl) & dl <= gate$min_dl
+}
+
 # The reportable score of scored rows `idx` of `sc` (null rows of an sd_class) as if they were rows of class `cls`
 # (a class that borrows the sd_class's thresholds): s_comb when the row is eligible and its best state is reportable
-# for `cls` under the cell policy `pol` (and, for a chromosome / event gain with `resolve_gains`, passes the depth gate
-# dl_gain > gain_min_dl), else -Inf. The statistic of the borrowing rows' p-values and expected false calls.
-borrowed_stat = function(sc, idx, cls, pol, resolve_gains, gain_min_dl) {
+# for `cls` under the cell policy `pol` (and a chromosome / event gain passes the run's depth gate, `gate`:
+# gain_gate_fails()), else -Inf. The statistic of the borrowing rows' p-values and expected false calls.
+borrowed_stat = function(sc, idx, cls, pol, gate) {
   if (!length(idx)) return(numeric())
   if (!"state_comb" %in% names(sc)) stop("event_fdr: scores lack state_comb")
   y = data.table(class = cls, state = as.character(sc$state_comb[idx]), chrom = sc$chrom[idx])
   r = policy_reportable(y, pol[level == "cell"]) %in% TRUE
   if ("eligible" %in% names(sc)) r = r & sc$eligible[idx] %in% TRUE
-  if (isTRUE(resolve_gains) && cls %in% c("chrom", "event") && "dl_gain" %in% names(sc))
-    r = r & !(y$state == "gain" & !is.na(sc$dl_gain[idx]) & sc$dl_gain[idx] <= gain_min_dl)
+  if (cls %in% c("chrom", "event")) {
+    gi = which(y$state == "gain")
+    r[gi] = r[gi] & !gain_gate_fails(sc, idx[gi], gate)
+  }
   s = sc$s_comb[idx]
   fifelse(r & !is.na(s), s, -Inf)
 }
@@ -112,9 +129,12 @@ borrowed_stat = function(sc, idx, cls, pol, resolve_gains, gain_min_dl) {
 #' 50 Mb tiles, named events) with a threshold, plus the 20 Mb rows that [resolve_nested()] promoted to reportable.
 #' Each row is a hypothesis "this cell-region is null". Its test statistic is the score of a *reportable* call,
 #' `s' = s_comb` when the row would be reportable if called (its best state is reportable for its class, and a
-#' chromosome / event gain passes the depth gate `dl_gain > gain_min_dl` of [resolve_nested()]; a called row uses its
-#' final `reportable` flag, so a gain that lost to a nested loss counts as not reportable and a promoted row as
-#' reportable), else `-Inf`.
+#' chromosome / event gain passes the depth gate of the run's [resolve_nested()]: `dl_gain > gain_min_dl` with
+#' `gain_gate = "dl"`, z above its null-quantile threshold with the opt-in `gain_gate = "z"`; a called row uses its
+#' final `reportable` flag, so a gain that lost to a nested loss or failed the gate counts as not reportable and a
+#' promoted row as reportable), else `-Inf`. A gain the gate removes thus stays in the tested family with `p = 1`, and
+#' the null rows are scored by the same rule, so the gate is applied to the calls, their p-values and the
+#' expected-false accounting alike.
 #'
 #' **p-value.** Against the null rows (`is_null`) of the row's threshold group (class x depth stratum, x vote stratum
 #' with `calib = "votes"`, with the same pooled fallback as [budget_thresholds()]) in the cross-validation folds the
@@ -176,6 +196,9 @@ borrowed_stat = function(sc, idx, cls, pol, resolve_gains, gain_min_dl) {
 #' @param tail_n null scores above the tail anchor (per calibration group)
 #' @param resolve_gains,gain_min_dl the gain gate of the run ([caller_normal()] arguments; default the run's
 #'   recorded `params$normal`, else the [caller_normal()] defaults)
+#' @param gain_gate,gain_gate_q the gain depth gate of the run (`"dl"` or `"z"`, [caller_normal()]; default the run's
+#'   recorded `params$normal`, else `"z"` when the calls carry the gate columns of [resolve_nested()] (`gate_thr`),
+#'   else `"dl"`; `gain_gate_q` default 0.95). The `"z"` gate uses the run's depth null (`null_fit$tpar`)
 #' @param alpha q-value level of the descriptive summary count (`n_q_below` in `info`; not a false discovery rate)
 #' @return list: `calls` (the result's calls with `p`, `q` (descriptive, not a false discovery rate), `null_borrowed`
 #'   on the tested per-cell rows, NA
@@ -185,7 +208,8 @@ borrowed_stat = function(sc, idx, cls, pol, resolve_gains, gain_min_dl) {
 #'   expected_false_events (+ `_lo`, `_hi`), false_frac_calls, false_frac_events), `groups` (per calibration group:
 #'   class, stratum, n_null, p_floor = 1 / (n + 1), borrowed) and `info` (m, tail, tail_n, alpha, the gain gate)
 #' @export
-event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_gains = NULL, gain_min_dl = NULL, alpha = 0.05) {
+event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_gains = NULL, gain_min_dl = NULL,
+                     gain_gate = NULL, gain_gate_q = NULL, alpha = 0.05) {
   tail = match.arg(tail)
   if (!inherits(obj, "scphasedcn") || !identical(obj$mode, "normal")) stop("event_fdr: needs a normal-mode scphasedcn result")
   if (is.null(obj$scores)) stop("event_fdr: the result has no scores (call_scn(keep_scores = TRUE) or caller_normal())")
@@ -193,7 +217,13 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
   na = obj$params$normal %||% list()
   resolve_gains = resolve_gains %||% na$resolve_gains %||% TRUE
   gain_min_dl = gain_min_dl %||% na$gain_min_dl %||% 0
+  # the gate type: given, else recorded (call_scn), else "z" when resolve_nested() left its gate columns in the calls
+  gain_gate = gain_gate %||% na$gain_gate %||% (if ("gate_thr" %in% names(obj$calls)) "z" else "dl")
+  if (!identical(length(gain_gate), 1L) || !gain_gate %in% c("dl", "z")) stop("event_fdr: gain_gate must be 'dl' or 'z'")
+  gain_gate_q = gain_gate_q %||% na$gain_gate_q %||% 0.95
   params = obj$params %||% caller_defaults()
+  gate = list(resolve = resolve_gains, type = gain_gate, min_dl = gain_min_dl, q = gain_gate_q, tpar = obj$null_fit$tpar,
+              params = utils::modifyList(caller_defaults(), params[intersect(names(params), c("shifts", "sd_floor"))]))
   min_null = params$min_null_rows %||% caller_defaults()$min_null_rows
   sc = as.data.table(obj$scores)
   for (cn in c("cell", "region", "class", "stratum", "s_comb", "is_null"))
@@ -210,9 +240,10 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
            chrom = sc$chrom[k], dl_gain = if ("dl_gain" %in% names(sc)) sc$dl_gain[k] else NA_real_,
            sd_class = if ("sd_class" %in% names(sc)) as.character(sc$sd_class[k]) else class)]
   # reportable if called: the final flag of called rows; policy flag + gain depth gate of uncalled rows
+  # (the gate of the run: "dl" or, opt-in, "z"; a called gain the gate removed already has reportable = FALSE)
   x[, rep_ := reportable %in% TRUE]
-  if (isTRUE(resolve_gains))
-    x[!(called %in% TRUE) & class %in% c("chrom", "event") & state == "gain" & !is.na(dl_gain) & dl_gain <= gain_min_dl, rep_ := FALSE]
+  gi = which(!(x$called %in% TRUE) & x$class %in% c("chrom", "event") & x$state == "gain")
+  if (length(gi)) set(x, i = gi[gain_gate_fails(sc, k[gi], gate)], j = "rep_", value = FALSE)
   x[, s_ := fifelse(rep_ & !is.na(score), score, -Inf)]
   x[, promoted_ := !is.na(resolved) & startsWith(resolved, "replaces")]
   sex = obj$null_fit$sex
@@ -240,7 +271,7 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
     tg = which(x$gkey == g & tested)
     if (x$borrowed_[tg[1]]) {
       nul = ck$rows[[x$key_[tg[1]]]]                           # rows of sc
-      cs = borrowed_stat(sc, nul, x$class[tg[1]], pol, resolve_gains, gain_min_dl)
+      cs = borrowed_stat(sc, nul, x$class[tg[1]], pol, gate)
       cp = sc$s_comb[nul]; cf = as.integer(sc$fold[nul])
     } else {
       nul = xi[ck$rows[[x$key_[tg[1]]]]]                        # rows of x
@@ -284,7 +315,7 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
   bc = unique(x[borrowed_ & tested, .(class, sd_class)])
   if (nrow(bc) && "thr_s_comb" %in% names(sc)) bnull = rbindlist(lapply(seq_len(nrow(bc)), function(i) {
     idx = which(sc$is_null %in% TRUE & sc$class == bc$sd_class[i])
-    s = borrowed_stat(sc, idx, bc$class[i], pol, resolve_gains, gain_min_dl)
+    s = borrowed_stat(sc, idx, bc$class[i], pol, gate)
     data.table(class = bc$class[i], sd_class = bc$sd_class[i], stratum = as.character(sc$stratum[idx]),
                state = as.character(sc$state_comb[idx]), called = is.finite(s) & !is.na(sc$thr_s_comb[idx]) & s > sc$thr_s_comb[idx])
   }))
@@ -307,6 +338,7 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
   }
   ce = ev[level == "cell"]
   info = list(m = m, tail = tail, tail_n = tail_n, alpha = alpha, resolve_gains = resolve_gains, gain_min_dl = gain_min_dl,
+              gain_gate = gain_gate, gain_gate_q = if (gain_gate == "z") gain_gate_q else NA_real_,
               n_q_below = sum(ce$q < alpha, na.rm = TRUE), n_cell_events = nrow(ce), n_cell_events_null_cells = sum(ce$null_cell %in% TRUE),
               n_null_cells = length(nullc), p_floor_max = if (nrow(groups)) max(groups$p_floor) else NA_real_)
   list(calls = out_calls[], events = ev[], expected_false = ef, groups = groups, info = info)

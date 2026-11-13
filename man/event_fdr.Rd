@@ -10,6 +10,8 @@ event_fdr(
   tail_n = 50,
   resolve_gains = NULL,
   gain_min_dl = NULL,
+  gain_gate = NULL,
+  gain_gate_q = NULL,
   alpha = 0.05
 )
 }
@@ -22,6 +24,10 @@ event_fdr(
 
 \item{resolve_gains, gain_min_dl}{the gain gate of the run (\code{\link[=caller_normal]{caller_normal()}} arguments; default the run's
 recorded \code{params$normal}, else the \code{\link[=caller_normal]{caller_normal()}} defaults)}
+
+\item{gain_gate, gain_gate_q}{the gain depth gate of the run (\code{"dl"} or \code{"z"}, \code{\link[=caller_normal]{caller_normal()}}; default the run's
+recorded \code{params$normal}, else \code{"z"} when the calls carry the gate columns of \code{\link[=resolve_nested]{resolve_nested()}} (\code{gate_thr}),
+else \code{"dl"}; \code{gain_gate_q} default 0.95). The \code{"z"} gate uses the run's depth null (\code{null_fit$tpar})}
 
 \item{alpha}{q-value level of the descriptive summary count (\code{n_q_below} in \code{info}; not a false discovery rate)}
 }
@@ -43,9 +49,12 @@ false discovery rate and must not be used as a filter (see \strong{q-value}).
 50 Mb tiles, named events) with a threshold, plus the 20 Mb rows that \code{\link[=resolve_nested]{resolve_nested()}} promoted to reportable.
 Each row is a hypothesis "this cell-region is null". Its test statistic is the score of a \emph{reportable} call,
 \verb{s' = s_comb} when the row would be reportable if called (its best state is reportable for its class, and a
-chromosome / event gain passes the depth gate \code{dl_gain > gain_min_dl} of \code{\link[=resolve_nested]{resolve_nested()}}; a called row uses its
-final \code{reportable} flag, so a gain that lost to a nested loss counts as not reportable and a promoted row as
-reportable), else \code{-Inf}.
+chromosome / event gain passes the depth gate of the run's \code{\link[=resolve_nested]{resolve_nested()}}: \code{dl_gain > gain_min_dl} with
+\code{gain_gate = "dl"}, z above its null-quantile threshold with the opt-in \code{gain_gate = "z"}; a called row uses its
+final \code{reportable} flag, so a gain that lost to a nested loss or failed the gate counts as not reportable and a
+promoted row as reportable), else \code{-Inf}. A gain the gate removes thus stays in the tested family with \code{p = 1}, and
+the null rows are scored by the same rule, so the gate is applied to the calls, their p-values and the
+expected-false accounting alike.
 
 \strong{p-value.} Against the null rows (\code{is_null}) of the row's threshold group (class x depth stratum, x vote stratum
 with \code{calib = "votes"}, with the same pooled fallback as \code{\link[=budget_thresholds]{budget_thresholds()}}) in the cross-validation folds the

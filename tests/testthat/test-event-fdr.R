@@ -263,3 +263,58 @@ test_that("event_fdr: named events (thresholds borrowed from sd_class) get p-val
   expect_true(all(ef$null_borrowed))
   expect_true(all(ef$n_null == r$scores[is_null == TRUE & class %in% c("arm", "10Mb"), .N]))
 })
+
+test_that("event_fdr, default gain gate (dl): an uncalled row is reportable unless it is a chrom / event gain with dl_gain <= 0", {
+  x = fdr_run(TRUE)
+  r = x$r; f = x$f
+  expect_identical(f$info$gain_gate, "dl")
+  sc = r$scores
+  ce = f$calls[level == "cell" & !is.na(p)]
+  ce[, dl := sc$dl_gain[match(paste(cell, region), paste(sc$cell, sc$region))]]
+  ce[, rep_old := fifelse(called %in% TRUE, reportable %in% TRUE,
+                          reportable %in% TRUE & !(class %in% c("chrom", "event") & state == "gain" & !is.na(dl) & dl <= 0))]
+  expect_true(all(ce[rep_old == FALSE, p] == 1))
+  expect_identical(event_fdr(r, gain_gate = "dl"), f)
+  # n_tested of the expected-false table: the reportable rows by that rule
+  nt = ce[rep_old == TRUE & class == "chrom" & state == "gain" & chrom != "chrX", .N]
+  expect_equal(f$expected_false[class == "chrom" & state == "gain" & chrom_group == "A", n_tested], nt)
+})
+
+test_that("event_fdr with gain_gate = 'z': a gain the z gate removes is not reportable for its p-value or the null accounting", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ev = data.table(cell = 1:60, region = "chr8", state = "gain")
+  ff = fake_features(1500, rg, events = ev, seed = 61, hap_frac = 0.1)
+  # noisy cells (4 x sd_null): the gain shift in z is small, so the null quantile of the z gate is above the dl
+  # midpoint and the two gates differ
+  ff[, sd_null := 4 * sd_null]
+  p = modifyList(caller_defaults(), list(min_null_rows = 1000))
+  r = caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character(), params = p, gain_gate = "z")
+  f = event_fdr(r)                                            # gate inferred from the calls' gate columns
+  expect_identical(f$info$gain_gate, "z")
+  expect_identical(event_fdr(r, gain_gate = "z", gain_gate_q = 0.95), f)
+  fd = event_fdr(r, gain_gate = "dl")                         # the old behaviour: the dl rule on uncalled rows
+  sc = r$scores
+  ce = f$calls[level == "cell" & class == "chrom" & state == "gain" & !is.na(p)]
+  ks = match(paste(ce$cell, ce$region), paste(sc$cell, sc$region))
+  zg = gain_gate_z(sc[ks, .(cell, region)], sc, 0.95, r$null_fit$tpar, p)
+  ce[, `:=`(z_pass = (zg$z > zg$thr) %in% TRUE, dl = sc$dl_gain[ks])]
+  # rows that pass the dl gate but fail the z gate: counted before, not now
+  gated = ce[!(called %in% TRUE) & !z_pass & !(dl <= 0)]
+  expect_gt(nrow(gated), 20)
+  expect_true(all(gated$p == 1))
+  pd = fd$calls[level == "cell" & class == "chrom" & state == "gain" & !is.na(p)]
+  expect_true(all(pd$p[match(paste(gated$cell, gated$region), paste(pd$cell, pd$region))] < 1))
+  # a called gain the gate dropped is not reportable and has p = 1
+  expect_true(all(ce[called %in% TRUE & !(reportable %in% TRUE), p] == 1))
+  # the null accounting and n_tested follow the z rule
+  efz = f$expected_false[class == "chrom" & state == "gain" & chrom_group == "A"]
+  efd = fd$expected_false[class == "chrom" & state == "gain" & chrom_group == "A"]
+  expect_equal(efz$n_tested, ce[chrom != "chrX" & ((called %in% TRUE & reportable %in% TRUE) | (!(called %in% TRUE) & z_pass)), .N])
+  expect_lt(efz$n_tested, efd$n_tested)
+  expect_equal(efz$n_null_called, sum(r$calls[level == "cell" & class == "chrom" & state == "gain" & chrom != "chrX" &
+                                               paste(cell, region) %in% paste(sc$cell, sc$region)[sc$is_null %in% TRUE],
+                                             called %in% TRUE & reportable %in% TRUE]))
+  # the strongest null calibration statistic of a gain uses the z rule too: no gated null gain is reportable
+  nz = ce[cell %in% r$cells[null_cell == TRUE, cell] & !(called %in% TRUE) & !z_pass]
+  expect_true(all(nz$p == 1))
+})

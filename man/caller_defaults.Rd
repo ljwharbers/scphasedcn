@@ -14,6 +14,10 @@ calls need score \code{>} threshold (strict, not \code{>=});
 \item \code{eps} allele error floor of the beta-binomial (0.02);
 \item \code{mol_gap} fragments of one cell closer than this (bp) are one molecule (2000; the default of
 \code{\link[=cell_features]{cell_features()}} \code{mol_gap});
+\item \code{gc_method} estimator of the per-cell GC trend of the \code{model} depth normalisation (tumour mode;
+\code{\link[=normalise_depth]{normalise_depth()}}): \code{"lowess"} (per-bin log ratios; biased in a depth-dependent way at low depth) or
+\code{"ratio"} (opt-in: ratio of sums over GC quantile groups). Read by \code{\link[=cell_features]{cell_features()}}, so precomputed
+features keep the estimator they were built with;
 \item \code{sd_floor} floor of the per-cell null SD of the window log2 ratio (0.05);
 \item \code{strata_breaks} / \code{strata_labels} depth strata on clean fragments per cell
 (\verb{<20k}, \verb{20-50k}, \verb{>=50k});

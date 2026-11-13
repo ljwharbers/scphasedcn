@@ -26,6 +26,10 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `eps` allele error floor of the beta-binomial (0.02);
 #'   * `mol_gap` fragments of one cell closer than this (bp) are one molecule (2000; the default of
 #'     [cell_features()] `mol_gap`);
+#'   * `gc_method` estimator of the per-cell GC trend of the `model` depth normalisation (tumour mode;
+#'     [normalise_depth()]): `"lowess"` (per-bin log ratios; biased in a depth-dependent way at low depth) or
+#'     `"ratio"` (opt-in: ratio of sums over GC quantile groups). Read by [cell_features()], so precomputed
+#'     features keep the estimator they were built with;
 #'   * `sd_floor` floor of the per-cell null SD of the window log2 ratio (0.05);
 #'   * `strata_breaks` / `strata_labels` depth strata on clean fragments per cell
 #'     (`<20k`, `20-50k`, `>=50k`);
@@ -65,6 +69,7 @@ caller_defaults = function() {
     null_q = 0.999,
     eps = 0.02,
     mol_gap = 2000,
+    gc_method = "lowess",
     sd_floor = 0.05,
     strata_breaks = c(2e4, 5e4),
     strata_labels = c("<20k", "20-50k", ">=50k"),

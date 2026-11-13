@@ -213,7 +213,8 @@ scn_embedding = function(dir, cells = NULL, use = NULL, n_pc = 20, hp_window = 2
 #'
 #' Rebuilds the `win` component of an `scn_features` object saved without it (e.g. to save disk space):
 #' the same cells and bin filter (`features$use`), [normalise_depth()] with `method` (`model` for tumours, `celltype` with the
-#' features' cell types), then [window_matrices()]. Needed by the tumour mode (clone pseudobulks).
+#' features' cell types and the per-cell GC estimator of the features' parameters, `features$params$gc_method`), then
+#' [window_matrices()]. Needed by the tumour mode (clone pseudobulks).
 #' @param dir extraction directory
 #' @param features `scn_features` (cells, use)
 #' @param method depth normalisation ("model" tumour, "celltype" normal)
@@ -228,7 +229,8 @@ feature_windows = function(dir, features, method = "model", size = 1e6, min_cell
   if (length(miss)) stop(sprintf("feature_windows: %d cells not in %s", length(miss), dir))
   scn = subset_scn(scn, cells = cells)
   use = features$use %||% (bin_filter(scn$bins, scn$counts) & scn$bins$chrom %in% c(AUTOSOMES_CALLER, "chrX"))
-  norm = normalise_depth(scn, method = method, use = use, cell_type = features$cells$cell_type, min_cells_type = min_cells_type)
+  norm = normalise_depth(scn, method = method, use = use, cell_type = features$cells$cell_type, min_cells_type = min_cells_type,
+                         gc_method = features$params$gc_method)
   window_matrices(scn, norm, size)
 }
 
@@ -389,6 +391,11 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   } else {
     if (!is.list(features) || is.null(features$long)) stop("call_scn: `features` must be an scn_features object (cell_features()) or its .rds")
     t_feat = 0
+    # the depth normalisation (and its per-cell GC estimator) is fixed when the features are built
+    gm_f = gc_trend_method(features$params$gc_method); gm_p = gc_trend_method(params$gc_method)
+    if (mode == "tumour" && gm_f != gm_p)
+      warning(sprintf("call_scn: the features were built with gc_method \"%s\"; gc_method \"%s\" needs features recomputed by cell_features()",
+                      gm_f, gm_p), call. = FALSE)
     if (!is.null(cells) && mode == "normal") {
       features$long = features$long[cell %in% cells]
       features$cells = features$cells[cell %in% cells]

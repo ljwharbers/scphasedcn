@@ -29,5 +29,6 @@ list \code{x}, \code{e}, \code{windows} (\code{\link[=window_matrices]{window_ma
 \description{
 Rebuilds the \code{win} component of an \code{scn_features} object saved without it (e.g. to save disk space):
 the same cells and bin filter (\code{features$use}), \code{\link[=normalise_depth]{normalise_depth()}} with \code{method} (\code{model} for tumours, \code{celltype} with the
-features' cell types), then \code{\link[=window_matrices]{window_matrices()}}. Needed by the tumour mode (clone pseudobulks).
+features' cell types and the per-cell GC estimator of the features' parameters, \code{features$params$gc_method}), then
+\code{\link[=window_matrices]{window_matrices()}}. Needed by the tumour mode (clone pseudobulks).
 }

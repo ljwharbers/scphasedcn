@@ -7,6 +7,7 @@
 null_q: 0.999               # threshold quantile of the null score (type 7; calls need score > threshold): 1 false call per 1,000 null cell-regions
 eps: 0.02                   # allele error floor of the beta-binomial (1:0 state at f = 1 - eps)
 mol_gap: 2000               # fragments of one cell closer than this (bp) are one molecule (one vote)
+gc_method: "lowess"         # per-cell GC trend of the tumour (model) depth normalisation: "lowess" or "ratio" (opt-in: ratio of sums over GC groups, unbiased at low depth); used when features are built
 sd_floor: 0.05              # floor of the per-cell null SD of the window log2 ratio
 strata_breaks: [20000, 50000]                 # depth strata on clean fragments per cell
 strata_labels: ["<20k", "20-50k", ">=50k"]    # stratum labels (length(strata_breaks) + 1)

@@ -252,8 +252,10 @@ def cmd_extract(a):
     common = {"cells": cdig, "bam": file_fingerprint(d["bam"]), "min_mapq": a.min_mapq}
     masks = {k: file_fingerprint(ref.get(k)) for k in ("blacklist", "trf", "centromeres")}
     masks["peaks"] = file_fingerprint(d["peaks"])
+    # vote_ps sets each fragment's hap / ps: the fragments table and the alleles layer's hapA / hapB / hap_ambig
     snp_in = {"snps": file_fingerprint(d["snps"]) if acc is not None else None, "phased": bool(d["phased"]) and acc is not None,
-              "vcf_sample": vcf_sample, "min_bq": a.min_bq if acc is not None else None}
+              "vcf_sample": vcf_sample, "min_bq": a.min_bq if acc is not None else None,
+              "vote_ps": a.vote_ps if acc is not None else None}
     inputs = {"depth": {**common, "binsize": a.binsize, "assign": a.assign, "fasta": file_fingerprint(ref.get("fasta")),
                         **masks},
               "alleles": {**common, "binsize": a.binsize, "assign": hap_assign, **snp_in},

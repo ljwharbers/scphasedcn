@@ -39,12 +39,13 @@ Options worth knowing:
   all phased SNPs the fragment covers, filed under the phase set of the first one. Phase sets are not oriented
   relative to each other, so a fragment across a phase-block junction mixes unrelated haplotype labels; `majority`
   lets only the SNPs of the phase set holding most of the fragment's phased SNP observations vote and files the
-  fragment under that phase set (a tie between phase sets: ambiguous, hap 3). Recorded in `params.json`.
+  fragment under that phase set (a tie between phase sets: ambiguous, hap 3). Recorded in `params.json` and in
+  `DONE` with the inputs of the alleles and fragments layers: `merge` refuses partials with different `--vote-ps`.
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).
 - `merge` fails when a chromosome has no finished partial (`--allow-missing` merges without it) and when the partials
-  were extracted from different inputs (cells, bin size, BAM, SNP file, masks: recorded in each partial's `DONE`).
-  `--region` writes `partials/region_<chrom>_<start>-<end>`, which `merge` does not merge.
+  were extracted from different inputs (cells, bin size, BAM, SNP file, `--vote-ps`, masks: recorded in each
+  partial's `DONE`). `--region` writes `partials/region_<chrom>_<start>-<end>`, which `merge` does not merge.
 
 Fragments whose start lies in the blacklist are flagged (`flags` bit 8) and left out of the depth layers (the
 "clean" fragments, `n_clean`), but their SNP observations stay in the allele counts and their `hap` / `ps` in the

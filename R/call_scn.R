@@ -753,8 +753,9 @@ write_scphasedcn = function(obj, out, write_scores = FALSE, write_features = FAL
 # every file write_scphasedcn() can write
 scphasedcn_output_files = function() {
   c("cells.tsv", "calls.tsv", "pooled_calls.tsv", "events.tsv", "thresholds.tsv", "null_fit.tsv", "regions.tsv",
-    "false_calls.tsv", "false_events.tsv", "clones.tsv", "assignments.tsv", "clone_segments.tsv", "clone_profiles.tsv.gz",
-    "reference_pool.txt", "scores.tsv.gz", "features.tsv.gz", "summary.tsv", "params.yaml", "result.rds", "NOTES.md")
+    "false_calls.tsv", "false_events.tsv", "expected_false.tsv", "null_selection_check.tsv", "clones.tsv", "assignments.tsv",
+    "clone_segments.tsv", "clone_profiles.tsv.gz", "reference_pool.txt", "scores.tsv.gz", "features.tsv.gz", "summary.tsv",
+    "params.yaml", "result.rds", "NOTES.md")
 }
 
 # results written before the rename (working name scncall, 0.1.0-pre builds) carry the class "scncall":

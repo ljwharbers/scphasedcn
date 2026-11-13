@@ -466,11 +466,14 @@ test_that("write_scphasedcn clears the files of a previous result and nothing el
   res = call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500))
   out = file.path(tempdir(), "write_clear")
   unlink(out, recursive = TRUE); dir.create(out)
-  stale = c("clones.tsv", "assignments.tsv", "scores.tsv.gz", "reference_pool.txt")
+  # null_selection_check.tsv: of an earlier run with null_check = TRUE; this result has no null check
+  stale = c("clones.tsv", "assignments.tsv", "scores.tsv.gz", "reference_pool.txt", "null_selection_check.tsv")
   for (f in c(stale, "my_notes.txt")) writeLines("old", file.path(out, f))
   dir.create(file.path(out, "plots"))
+  expect_null(res$null_check)
   files = write_scphasedcn(res, out)
   expect_false(any(file.exists(file.path(out, stale))))
+  expect_true("expected_false.tsv" %in% basename(files))
   expect_true(file.exists(file.path(out, "my_notes.txt")))                 # not ours: kept
   expect_true(dir.exists(file.path(out, "plots")))
   expect_setequal(list.files(out), c(basename(files), "my_notes.txt", "plots"))

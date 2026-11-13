@@ -115,8 +115,14 @@ Limits:
   simulated genomes. Copy-neutral LOH, which has no depth signal, fell further (0.53 and 0.00 at 20 and 10 Mb):
   losses with a clear depth shift (whole chromosomes, large losses) are less affected than copy-neutral events, but
   not immune. Per-cell recall of losses and copy-neutral LOH on hybrid phasing therefore depends on the switch-error
-  rate of the population phase and has not been validated on real data. An attenuation-aware state set for normal
-  mode is planned. The `--chrom-tsv` report gives, per chromosome, how often the population phase disagrees with the
+  rate of the population phase and has not been validated on real data. An attenuation-aware state set exists as an
+  opt-in (caller parameter `normal_states: "normal_att"`, or `"auto"` to use it whenever the phasing regime is
+  chromosome-scale; the grid `f_att_normal`, by default 0.70, 0.80, 0.90 and 0.98): it scores losses and copy-neutral
+  LOH also at attenuated fractions, so that attenuated events keep their label. It trades recall of attenuated
+  losses and copy-neutral LOH against more false loss / copy-neutral LOH labels on cells without events and some
+  recall of gains (its lower fractions overlap the 2:1 and 3:1 gain fractions, so weak gains can be labelled
+  copy-neutral LOH); the total number of calls stays at the null budget. It is not the default: the right grid
+  depends on the switch-error rate of the population phase and has not been benchmarked on real data. The `--chrom-tsv` report gives, per chromosome, how often the population phase disagrees with the
   reads inside blocks (`switch_rate`, `minority_frac`).
 - With blocks alone, only events shared by several percent of the cells are visible in the allele channel. The depth
   channel does not depend on phasing.

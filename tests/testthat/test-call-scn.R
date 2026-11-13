@@ -293,19 +293,20 @@ test_that("call_scn does not apply the bias rule (mask_f0) under mirrored orient
   expect_identical(features_orientation(f), "mirrored")
   # thresholds at zero: under mirrored orientation about half the tiles would be bias outliers if the rule ran
   prm = modifyList(caller_defaults(), list(mask_f0 = TRUE, mask_f0_mad = 0, mask_f0_min = 0))
-  run = function(p) call_scn(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE)
-  expect_warning(r1 <- run(prm), "mask_f0.*mirrored")
-  r0 = run(caller_defaults())
+  # every normal-mode run on mirrored features also warns that this orientation is a diagnostic; collect the warnings
+  run = function(p) call_w(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE)
+  x1 = run(prm); r1 = x1$r
+  expect_length(grep("mask_f0.*mirrored", x1$w), 1L)
+  x0 = run(caller_defaults()); r0 = x0$r
+  expect_false(any(grepl("mask_f0", x0$w)))
   expect_null(r1$null_fit$allelic_mask)                                   # no tile masked, no mask pass
   expect_equal(sum(grepl("bias rule \\(mask_f0\\) not applied: under mirrored orientation", r1$notes)), 1)
   expect_false(any(grepl("mask_f0", r0$notes)))
   for (k in c("features", "scores", "thresholds", "calls", "events", "pools", "null_fit", "false_calls", "false_events"))
     expect_identical(r1[[k]], r0[[k]], info = k)
   # the overdispersion rule still runs under mirrored orientation; the bias rule is not part of it
-  w = character()
-  r2 = withCallingHandlers(run(modifyList(prm, list(mask_allelic = TRUE))),
-                           warning = function(e) { w <<- c(w, conditionMessage(e)); invokeRestart("muffleWarning") })
-  expect_equal(sum(grepl("mask_f0", w)), 1)                                # warned once
+  x2 = run(modifyList(prm, list(mask_allelic = TRUE))); r2 = x2$r
+  expect_equal(sum(grepl("mask_f0", x2$w)), 1)                             # warned once
   expect_identical(r2$null_fit$allelic_mask$masked, r2$null_fit$allelic_mask$masked_rho)
   # the orientation of a features object without `phasing`: from its long table
   expect_identical(features_orientation(list(long = f$long)), "mirrored")

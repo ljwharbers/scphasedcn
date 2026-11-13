@@ -282,6 +282,12 @@ test_that("chromosomes left in blocks under chromosome-scale phasing reach the r
   expect_setequal(pc[regime == "chromosome", chrom], setdiff(unique(s$scn$bins$chrom), "chr22"))
   msg = "chr22 phased in blocks while the run's regime is chromosome"
   expect_equal(sum(grepl(msg, r$notes, fixed = TRUE)), 1L)
+  # the note says what chromosome orientation does to the blocks (summed unoriented); not under loo
+  expect_match(r$notes[grepl(msg, r$notes, fixed = TRUE)], "attenuates or cancels their allele signal", fixed = TRUE)
+  pcb = data.table(chrom = c("chr1", "chr2"), n_votes = c(100, 80), n_ps = c(1L, 40L), k = c(1L, 30L),
+                   regime = c("chromosome", "block"))
+  expect_false(grepl("attenuates", phasing_mixed_note(pcb, "block", "loo"), fixed = TRUE))
+  expect_match(phasing_mixed_note(pcb, "block", "loo"), "chr1 phased chromosome-wide", fixed = TRUE)
   out = file.path(tempdir(), "callscn_mixed")
   unlink(out, recursive = TRUE)
   write_scphasedcn(r, out)

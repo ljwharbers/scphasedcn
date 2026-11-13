@@ -22,5 +22,5 @@ Per chromosome of the votes, the number of phase sets needed to hold \code{frac}
 first) and the regime by the rule of \code{\link[=detect_phasing]{detect_phasing()}}: \code{"chromosome"} when at most 2 phase sets hold \code{frac} of
 the votes, else \code{"block"}. \code{\link[=detect_phasing]{detect_phasing()}} is the same rule on the median of \code{k} over chromosomes; this table
 shows chromosomes whose phasing differs from the global regime (e.g. a hybrid phase whose chrX is still in
-read-backed blocks, so that plain sums over its unoriented blocks attenuate the chrX allele signal).
+read-backed blocks, so that plain sums over its unoriented blocks attenuate or cancel the chrX allele signal).
 }

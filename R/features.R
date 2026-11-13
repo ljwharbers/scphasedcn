@@ -537,7 +537,7 @@ detect_phasing = function(votes, atoms, frac = 0.9) {
 #' first) and the regime by the rule of [detect_phasing()]: `"chromosome"` when at most 2 phase sets hold `frac` of
 #' the votes, else `"block"`. [detect_phasing()] is the same rule on the median of `k` over chromosomes; this table
 #' shows chromosomes whose phasing differs from the global regime (e.g. a hybrid phase whose chrX is still in
-#' read-backed blocks, so that plain sums over its unoriented blocks attenuate the chrX allele signal).
+#' read-backed blocks, so that plain sums over its unoriented blocks attenuate or cancel the chrX allele signal).
 #' @param votes votes table ([read_votes()])
 #' @param atoms atoms table
 #' @param frac vote fraction the counted phase sets must hold
@@ -557,14 +557,17 @@ phasing_by_chrom = function(votes, atoms, frac = 0.9) {
 utils::globalVariables(c("n_votes", "n_ps", "regime"))
 
 # the note on the chromosomes whose phasing regime ([phasing_by_chrom()]) differs from the run's regime `detected`;
-# NULL when there are none (or no table)
+# NULL when there are none (or no table). Under `chromosome` orientation the blocks of such chromosomes are summed
+# unoriented, which the note says (the orientation itself is global; per-chromosome orientation is not implemented)
 phasing_mixed_note = function(pbc, detected, orientation) {
   if (is.null(pbc) || !nrow(pbc) || is.null(detected)) return(NULL)
   off = as.data.table(pbc)[regime != detected]
   if (!nrow(off)) return(NULL)
-  sprintf("phasing: %s phased %s while the run's regime is %s (orientation %s applies to all chromosomes)",
+  sprintf("phasing: %s phased %s while the run's regime is %s (orientation %s applies to all chromosomes%s)",
           paste(off$chrom, collapse = ", "), if (detected == "chromosome") "in blocks" else "chromosome-wide",
-          detected, orientation)
+          detected, orientation,
+          if (detected == "chromosome" && identical(unname(orientation), "chromosome"))
+            "; their unoriented blocks are summed as they are, which attenuates or cancels their allele signal" else "")
 }
 
 # ---- region votes ----------------------------------------------------------------------------------------

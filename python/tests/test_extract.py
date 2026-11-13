@@ -158,6 +158,31 @@ def test_index_check(bam, tmp_path):
         assert len(list(f.fetch("chr2"))) == 5
 
 
+def test_index_check_exit_status(bam, tmp_path, capsys):
+    """index-check exits 0 on a fresh index, 1 on a stale or missing one (unless --reindex rebuilds it)."""
+    import os
+    import shutil
+    from scphasedcn.cli import main
+    b = tmp_path / "s.bam"
+    shutil.copy(bam, b)
+    bai = tmp_path / "s.bam.bai"
+    shutil.copy(str(bam) + ".bai", bai)
+    t = os.path.getmtime(b)
+    os.utime(bai, (t + 10, t + 10))
+    assert main(["index-check", "--bam", str(b)]) == 0
+    os.utime(bai, (t - 10, t - 10))                                  # index older than its BAM
+    capsys.readouterr()
+    assert main(["index-check", "--bam", str(b)]) == 1
+    assert "older than the BAM" in capsys.readouterr().err
+    assert main(["index-check", "--bam", str(b), "--index", str(bai)]) == 1
+    out = tmp_path / "idx" / "fresh.bai"
+    assert main(["index-check", "--bam", str(b), "--index", str(bai), "--reindex", str(out), "--threads", "1"]) == 0
+    assert out.exists()
+    assert main(["index-check", "--bam", str(b), "--index", str(out)]) == 0
+    os.remove(bai)
+    assert main(["index-check", "--bam", str(b)]) == 1                # no index
+
+
 def test_outputs_and_layers(extracted, adata):
     files = sorted(p.name for p in extracted.iterdir() if p.is_file())
     assert files == ["alleles_dna.h5ad", "bins_100kb.h5ad", "cells_qc.tsv", "fragments.tsv.gz", "fragments.tsv.gz.tbi",

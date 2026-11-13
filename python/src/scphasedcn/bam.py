@@ -3,8 +3,13 @@
 Filter (see vignette("scphasedcn-inputs", package = "scphasedcn")): primary, not duplicate, MAPQ >= min_mapq, CB in the whitelist
 (a CB that is not listed but whose form without a trailing "-1" is listed counts for that cell); "-" (unassigned)
 is counted and dropped; secondaries are counted and skipped; supplementaries are counted and skipped but the primary's
-SA tag sets `has_SA`. Blacklist / TRF / centromere / peak membership is flagged after the loop (bins.py); blacklist-start
-fragments are excluded from the depth and allele layers but kept in the fragments table with the flag bit set.
+SA tag sets `has_SA`. Blacklist / TRF / centromere / peak membership is flagged after the loop (bins.py). Fragments
+whose start is in the blacklist are not "clean" (cli.py: `clean = (flags & F_BLACKLIST) == 0`): they are left out of the
+depth layers, the fragment-length histogram and the per-bin hapA / hapB / hap_ambig layers, and kept in the fragments
+table with the flag bit set. The allele pass runs inside the loop, before the flags are set, so their SNP observations
+are in the allele counts (AD / DP) and their `hap` / `nsnp` / `ps` are in the fragments table (and in the per-cell
+n_hapA / n_hapB / n_snp_obs QC) like those of any other fragment; the R caller's `votes_clean` option drops them from
+the molecule votes.
 """
 from __future__ import annotations
 
@@ -21,7 +26,7 @@ from .names import parse_name
 F_HAS_SA = 1
 F_MAPQ60 = 2
 F_PIECE_MULTI = 4
-F_BLACKLIST = 8
+F_BLACKLIST = 8                  # start in the blacklist; "clean" = this bit unset (depth layers; R votes_clean)
 F_TRF = 16
 F_CENTROMERE = 32
 F_PEAK = 64

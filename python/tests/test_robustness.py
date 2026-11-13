@@ -142,6 +142,36 @@ def test_merge_refuses_fragments_and_alleles_from_different_snp_inputs(genome, b
     assert any("fragments layer of chr2 was kept" in m for m in msgs)
 
 
+def test_merge_checks_the_vote_ps_of_the_partials(genome, bam, vcf, tmp_path):
+    c = lambda out, *x: _common(genome, bam, out, "--snps", str(vcf), "--phased", *x)
+    # chromosomes extracted with and without --vote-ps majority
+    o = tmp_path / "mix"
+    assert main(["extract", "--chrom", "chr1"] + c(o)) == 0
+    assert main(["extract", "--chrom", "chr2", "--vote-ps", "majority"] + c(o)) == 0
+    with pytest.raises(SystemExit, match='inputs of the alleles layer: vote_ps is "first" on chr1 but "majority" on chr2'):
+        main(["merge", "--out", str(o), "--chroms", "chr1,chr2"])
+    assert not (o / "summary.json").exists()
+    # within a partial: an allele-only rerun with --vote-ps majority next to the kept default fragments
+    o = tmp_path / "rerun"
+    assert main(["extract", "--chrom", "chr2"] + c(o)) == 0
+    assert main(["extract", "--chrom", "chr2", "--layers", "alleles", "--vote-ps", "majority"] + c(o)) == 0
+    with pytest.raises(SystemExit, match="chr2: .*different SNP inputs \\(vote_ps\\)"):
+        main(["merge", "--out", str(o), "--chroms", "chr2"])
+    # partials written before vote_ps was recorded (no key) are the default: they merge with new default partials
+    # and are refused next to --vote-ps majority
+    o = tmp_path / "old"
+    for ch in ("chr1", "chr2"):
+        assert main(["extract", "--chrom", ch] + c(o)) == 0
+    done = json.load(open(o / "partials" / "chr1" / "DONE"))
+    for L in ("alleles", "fragments"):
+        assert done["layers"][L]["inputs"].pop("vote_ps") == "first"
+    (o / "partials" / "chr1" / "DONE").write_text(json.dumps(done))
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0
+    assert main(["extract", "--chrom", "chr2", "--vote-ps", "majority"] + c(o)) == 0
+    with pytest.raises(SystemExit, match='vote_ps is "first" on chr1 but "majority" on chr2'):
+        main(["merge", "--out", str(o), "--chroms", "chr1,chr2"])
+
+
 def test_merge_after_moving_the_output_and_extracting_out_of_order(genome, bam, vcf, tmp_path):
     o = tmp_path / "o"
     for ch in ("chr2", "chr1"):

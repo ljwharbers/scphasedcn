@@ -26,6 +26,10 @@ def _npz_shapes(path: Path) -> dict[str, tuple]:
         return {k[:-len("__shape")]: tuple(int(x) for x in z[k]) for k in z.files if k.endswith("__shape")}
 
 
+# DONE inputs that describe the SNPs a layer was made from (fragments: haplotype votes; alleles: allele counts)
+SNP_INPUTS = ("snps", "phased", "vcf_sample", "min_bq")
+
+
 def _fmt(v) -> str:
     s = json.dumps(v, sort_keys=True, default=str)
     return s if len(s) <= 120 else s[:117] + "..."
@@ -35,7 +39,8 @@ def check_partials(dirs: list[Path], log) -> None:
     """Fail (SystemExit) on partials that cannot be merged into one sample: a --region partial, different cell
     lists, a layer present on some chromosomes only, layer files the DONE metadata does not list (stale), matrices whose
     shape does not fit the cells or the depth bins, or layers made from different inputs (bin size, assignment, MAPQ,
-    BAM, SNP file, masks; recorded in DONE by extract). Partials of scphasedcn <= 0.1.1 (no DONE metadata) are
+    BAM, SNP file, masks; recorded in DONE by extract), or, within a partial, a fragments table whose haplotype votes
+    come from other SNP inputs than its alleles layer. Partials of scphasedcn <= 0.1.1 (no DONE metadata) are
     merged with a warning: only their cells, layer presence and shapes are checked."""
     first = dirs[0]
     cells0 = _read_cells(first)
@@ -123,6 +128,18 @@ def check_partials(dirs: list[Path], log) -> None:
         if b["depth"] and b["alleles"] and b["depth"].get("binsize") != b["alleles"].get("binsize"):
             raise SystemExit(f"partial {d.name}: depth and alleles layers have different bin sizes "
                              f"({b['depth'].get('binsize')} vs {b['alleles'].get('binsize')}); re-extract {d.name}")
+        # the caller takes haplotype votes from the fragments table and allele counts from the alleles layer: both
+        # must come from the same SNPs (a layer kept from an extraction without metadata was warned about above)
+        f, al = (m["layers"].get(L, {}).get("inputs") for L in ("fragments", "alleles"))
+        if f and al:
+            if f.get("snps") is None and al.get("snps") is not None:
+                raise SystemExit(f"partial {d.name}: its fragments layer was made without SNPs (no haplotype votes) "
+                                 f"but its alleles layer with SNPs; re-extract {d.name} with --layers alleles,fragments")
+            diff = [k for k in SNP_INPUTS if f.get(k) != al.get(k)]
+            if diff:
+                raise SystemExit(f"partial {d.name}: its fragments layer (haplotype votes) and its alleles layer were "
+                                 f"made from different SNP inputs ({', '.join(diff)}); re-extract {d.name} with "
+                                 f"--layers alleles,fragments")
 
 
 def _stack_layers(dirs: list[Path], fname: str) -> dict[str, sp.csr_matrix]:
@@ -192,11 +209,23 @@ def _uns_safe(d):
     return out
 
 
+def _write_via_tmp(dest: Path, write) -> None:
+    """Write `dest` through a temporary file in the same directory (`write(path)`), then move it into place: an
+    interrupted merge never leaves a cut-off output under its final name. The temporary file is removed on failure."""
+    tmp = dest.with_name(f".tmp.{dest.name}")
+    try:
+        write(tmp)
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials: bool = True,
                  allow_missing: bool = False, log=None) -> dict:
     """Merge the finished partials of `chroms`. A chromosome without a finished partial (partials/<chrom>/DONE) is an
     error unless `allow_missing` (then it is listed as `missing` in summary.json). Partials are checked with
-    check_partials() first."""
+    check_partials() first. Every output is written to a temporary file and moved into place; summary.json is removed
+    at the start and written last, so it is present only after a complete merge."""
     t0 = time.time()
     log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
     out = Path(out); P = out / "partials"
@@ -210,6 +239,7 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
     if missing:
         log(f"warning: merging without {', '.join(missing)} (--allow-missing)")
     check_partials(dirs, log)
+    (out / "summary.json").unlink(missing_ok=True)
     first = dirs[0]
     cells = _read_cells(first)
     params = json.load(open(first / "params.json"))
@@ -236,8 +266,8 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
         a = ad.AnnData(X=X, obs=qc, var=bins, layers=layers, obsm={k: v.astype(np.int32) for k, v in obsm.items()})
         a.uns["params"] = _uns_safe(params)
         a.uns["obsm_layout"] = _uns_safe(obsm_layout())
-        a.write_h5ad(out / f"bins_{tag}.h5ad", compression="gzip")
-        qc.to_csv(out / "cells_qc.tsv", sep="\t")
+        _write_via_tmp(out / f"bins_{tag}.h5ad", lambda p: a.write_h5ad(p, compression="gzip"))
+        _write_via_tmp(out / "cells_qc.tsv", lambda p: qc.to_csv(p, sep="\t"))
         summary["bins"] = {"n_bins": int(a.n_vars), "total_counts": int(X.sum()), "layers": list(layers.keys())}
         for k in ("n_pass", "n_clean"):
             if k in qc:
@@ -249,20 +279,27 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
         snps = _snps(adirs)
         a = ad.AnnData(X=al["DP"], obs=pd.DataFrame(index=cells), var=snps, layers={"AD": al["AD"]})
         a.uns["params"] = _uns_safe(params)
-        a.write_h5ad(out / "alleles_dna.h5ad", compression="gzip")
+        _write_via_tmp(out / "alleles_dna.h5ad", lambda p: a.write_h5ad(p, compression="gzip"))
         summary["alleles_dna"] = {"n_snps": int(a.n_vars), "n_phased": int((snps["hap_of_alt"] > 0).sum()),
                                   "total_dp": int(al["DP"].sum()), "total_ad": int(al["AD"].sum())}
     # --- fragments table ---
     parts = [str(d / "fragments.tsv.gz") for d in dirs if (d / "fragments.tsv.gz").exists()]
     if parts:
         fn = out / "fragments.tsv.gz"
-        concat_bgzf(parts, str(fn), header=FRAGMENT_COLUMNS)
-        if os.path.exists(str(fn) + ".tbi"):
-            os.remove(str(fn) + ".tbi")
-        pysam.tabix_index(str(fn), seq_col=0, start_col=1, end_col=2, zerobased=True, force=True, meta_char="#")
+        tmp = fn.with_name(f".tmp.{fn.name}")
+        tmp_idx = Path(f"{tmp}.tbi")
+        try:   # table and index are built under a temporary name, then moved: data first, then its own index
+            concat_bgzf(parts, str(tmp), header=FRAGMENT_COLUMNS)
+            pysam.tabix_index(str(tmp), seq_col=0, start_col=1, end_col=2, zerobased=True, force=True, meta_char="#")
+            Path(f"{fn}.tbi").unlink(missing_ok=True)   # never the new table next to the old index
+            os.replace(tmp, fn)
+            os.replace(tmp_idx, f"{fn}.tbi")
+        finally:
+            for f in (tmp, tmp_idx, Path(f"{tmp}.hdr")):
+                f.unlink(missing_ok=True)
         summary["fragments"] = str(fn)
     summary["merge_seconds"] = round(time.time() - t0, 1)
-    write_json(out / "summary.json", summary)
+    _write_via_tmp(out / "summary.json", lambda p: write_json(p, summary))
     return summary
 
 

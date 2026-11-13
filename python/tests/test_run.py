@@ -25,6 +25,31 @@ def test_run_equals_extract_plus_merge(genome, bam, vcf, tmp_path):
     assert (a_out / "fragments.tsv.gz").exists() and (a_out / "fragments.tsv.gz.tbi").exists()
     assert (a_out / "cells_qc.tsv").exists()
 
+def _yaml(tmp_path, bam, genome, **extra):
+    import yaml
+    p = tmp_path / "samples.yaml"
+    p.write_text(yaml.safe_dump({"samples": {"s1": {"bam": str(bam), "barcodes": str(genome / "whitelist.tsv"),
+                                                    **extra}}}))
+    return str(p)
+
+
+def test_run_with_yaml_without_chroms_uses_the_chromosomes_of_the_bam(genome, bam, tmp_path):
+    out = tmp_path / "o"
+    y = _yaml(tmp_path, bam, genome)
+    assert main(["run", "--config", y, "--sample", "s1", "--jobs", "1"] + _common(genome, bam, out)) == 0
+    assert sorted(p.name for p in (out / "partials").iterdir()) == ["chr1", "chr2", "chrM", "chrX"]   # no chrY
+    assert (out / "summary.json").exists()
+
+
+def test_run_fails_at_once_on_requested_chromosomes_missing_from_the_bam(genome, bam, tmp_path):
+    out = tmp_path / "o"
+    y = _yaml(tmp_path, bam, genome, chroms=["chr1", "chrY"])
+    with pytest.raises(SystemExit, match="chrY .*not in the BAM"):
+        main(["run", "--config", y, "--sample", "s1", "--jobs", "1"] + _common(genome, bam, out))
+    with pytest.raises(SystemExit, match="chr5, chrY .*not in the BAM"):
+        main(["run", "--chroms", "chr1,chr5,chrY", "--jobs", "1"] + _common(genome, bam, out))
+    assert not (out / "partials").exists()
+
 
 def test_reference_checks_fail_before_the_bam_pass(genome, bam, tmp_path):
     base = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(tmp_path),

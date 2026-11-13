@@ -75,7 +75,8 @@ def resolve_inputs(a):
     cfg = load_yaml(a.config) if a.config else {}
     ref = reference_paths(cfg)
     d = {"sample": a.sample, "bam": a.bam, "barcodes": a.barcodes, "snps": a.snps, "phased": a.phased,
-         "peaks": a.peaks, "out": a.out, "chroms": None, "barcode_map": getattr(a, "barcode_map", None),
+         "peaks": a.peaks, "out": a.out, "chroms": None, "chroms_set": False,
+         "barcode_map": getattr(a, "barcode_map", None),
          "vcf_sample": getattr(a, "vcf_sample", None)}
     if a.config and a.sample:
         sc = sample_from_config(cfg, a.sample)
@@ -86,7 +87,7 @@ def resolve_inputs(a):
             d["phased"] = sc.phased
         if d["vcf_sample"] is None and sc.snps and d["snps"] == sc.snps:
             d["vcf_sample"] = sc.vcf_sample
-        d["chroms"] = sc.chroms
+        d["chroms"] = sc.chroms; d["chroms_set"] = sc.chroms_set
     if getattr(a, "no_snps", False):
         d["snps"] = None; d["phased"] = False; d["vcf_sample"] = None
     for k in ("fasta", "blacklist", "trf", "centromeres", "chrom_sizes"):
@@ -138,7 +139,7 @@ def cmd_extract(a):
     chrom = reg[0] if reg else a.chrom
     if chrom is None:
         raise SystemExit("need --chrom or --region")
-    cells, space = translate_barcodes(read_barcodes(d["barcodes"]), d["barcode_map"])
+    cells, space = translate_barcodes(read_barcodes(d["barcodes"]), d["barcode_map"], log=_log)
     if space != "atac":
         _log(f"whitelist translated {space} via {d['barcode_map']}: {len(cells)} cells")
     sizes = read_chrom_sizes(d["ref"]["chrom_sizes"])
@@ -175,8 +176,11 @@ def cmd_extract(a):
             _log(f"warning: {snps.n_phased_gt} SNPs on {chrom} have a phased genotype but --phased was not given: "
                  f"their phase is ignored (no haplotype votes)")
         if snps.n_contig_ps:
-            _log(f"note: {snps.n_contig_ps} phased SNPs on {chrom} have no PS: one phase set for the contig "
-                 f"(PS {CONTIG_PS}, VCF specification)")
+            _log(f"warning: {snps.n_contig_ps} phased SNPs on {chrom} have no PS: one phase set per contig is "
+                 f"assumed (PS {CONTIG_PS}, VCF specification), i.e. the whole chromosome is taken as correctly "
+                 f"phased. Population-only (statistical) phasing of one sample carries switch errors every few "
+                 f"megabases, which attenuate the allele signal over large regions; read-based phase sets (PS from "
+                 f"e.g. longphase or WhatsHap) are preferable where available")
 
     # BAM pass
     fr, ctr = scan_chrom(d["bam"], chrom, cells, min_mapq=a.min_mapq, index_filename=a.index,
@@ -303,10 +307,12 @@ def cmd_run(a):
     layers_on = _layers(a.layers)
     d = resolve_inputs(a)
     present = _bam_references(d["bam"], a.index)
-    if a.chroms:
-        chroms = a.chroms.split(",")
-    elif d["chroms"]:
-        chroms = d["chroms"]
+    if a.chroms or d["chroms_set"]:   # requested explicitly: every one must be a reference of the BAM, checked up front
+        chroms = a.chroms.split(",") if a.chroms else list(d["chroms"])
+        absent = [c for c in chroms if c not in present]
+        if absent:
+            raise SystemExit(f"run: {', '.join(absent)} not in the BAM header (requested with "
+                             f"{'--chroms' if a.chroms else 'the yaml chroms'}); leave them out")
     else:
         chroms = [c for c in MAIN_CHROMS if c in present]
     if not chroms:

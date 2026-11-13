@@ -18,7 +18,7 @@ samples:
     #                                              # atac_barcode, rna_barcode (translated to the BAM's ATAC space)
     phased_vcf: /path/to/het_phased.vcf.gz         # phased heterozygous SNPs (GT with |, PS tag), e.g. from
     #                                              # Clair3 + longphase + `scphasedcn select-hets`
-    # chroms: [chr1, chr2, ..., chr22, chrX]       # default: chr1-22, chrX, chrY, chrM
+    # chroms: [chr1, chr2, ..., chr22, chrX]       # default: chr1-22, chrX, chrY, chrM (`run`: those in the BAM)
     # peaks: /path/to/peaks.bed                    # optional: ATAC peaks (FRiP in the QC table only)
     events:                                        # optional: known events, reported as their own regions
       # chr5_gain: "chr5"

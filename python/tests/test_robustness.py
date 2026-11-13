@@ -5,6 +5,7 @@ import shutil
 
 import anndata as ad
 import pandas as pd
+import pysam
 import pytest
 
 from conftest import CELL_A, CELL_B, name, rewrite_bam, write_vcf
@@ -109,6 +110,82 @@ def test_merge_checks_the_inputs_of_the_partials(genome, bam, vcf, tmp_path):
     assert any("no DONE metadata): chr1" in m for m in msgs) and (o / "bins_100kb.h5ad").exists()
 
 
+
+# --------------------------------------------------------------------------------------------- SNP inputs within a partial
+def test_merge_refuses_fragments_and_alleles_from_different_snp_inputs(genome, bam, vcf, tmp_path):
+    c = lambda out, *x: _common(genome, bam, out, *x)
+    flip = write_vcf(tmp_path / "flip.vcf", [("chr2", 1001, "A", "G", "PASS", ["1|0:1000"]),
+                                             ("chr2", 1501, "C", "T", "PASS", ["0|1:1000"])])
+    # an allele-only rerun with another VCF: the fragments keep the phase of the first one
+    o = tmp_path / "newvcf"
+    assert main(["extract", "--chrom", "chr2", "--snps", str(vcf), "--phased"] + c(o)) == 0
+    assert main(["extract", "--chrom", "chr2", "--layers", "alleles", "--snps", str(flip), "--phased"] + c(o)) == 0
+    with pytest.raises(SystemExit, match="chr2: .*snps.*re-extract chr2 with --layers alleles,fragments"):
+        main(["merge", "--out", str(o), "--chroms", "chr2"])
+    assert not (o / "summary.json").exists()
+    # the documented rerun of both layers merges
+    assert main(["extract", "--chrom", "chr2", "--layers", "alleles,fragments", "--snps", str(flip), "--phased"] + c(o)) == 0
+    assert main(["merge", "--out", str(o), "--chroms", "chr2"]) == 0
+    # fragments made without SNPs, alleles added later: every fragment would have hap 0
+    o = tmp_path / "later"
+    assert main(["extract", "--chrom", "chr2", "--layers", "depth,fragments"] + c(o)) == 0
+    assert main(["extract", "--chrom", "chr2", "--layers", "alleles", "--snps", str(vcf), "--phased"] + c(o)) == 0
+    with pytest.raises(SystemExit, match="fragments layer was made without SNPs.*--layers alleles,fragments"):
+        main(["merge", "--out", str(o), "--chroms", "chr2"])
+    # a fragments layer kept from an extraction without metadata cannot be checked: warned, not refused
+    done = json.load(open(o / "partials" / "chr2" / "DONE"))
+    done["layers"]["fragments"]["inputs"] = None
+    (o / "partials" / "chr2" / "DONE").write_text(json.dumps(done))
+    from scphasedcn.merge import merge_sample
+    msgs = []
+    merge_sample(str(o), ["chr2"], log=msgs.append)
+    assert any("fragments layer of chr2 was kept" in m for m in msgs)
+
+
+def test_merge_after_moving_the_output_and_extracting_out_of_order(genome, bam, vcf, tmp_path):
+    o = tmp_path / "o"
+    for ch in ("chr2", "chr1"):
+        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, bam, o)) == 0
+    shutil.move(str(o), str(tmp_path / "moved"))
+    assert main(["merge", "--out", str(tmp_path / "moved"), "--chroms", "chr1,chr2"]) == 0
+
+
+
+# --------------------------------------------------------------------------------------------- interrupted merge
+def test_interrupted_merge_leaves_no_summary_and_no_mixed_fragments(genome, bam, vcf, tmp_path, monkeypatch):
+    import scphasedcn.merge as M
+    for ch in ("chr1", "chr2"):
+        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, bam, tmp_path)) == 0
+    assert main(["merge", "--out", str(tmp_path), "--chroms", "chr1,chr2"]) == 0
+    frag, tbi = (tmp_path / "fragments.tsv.gz").read_bytes(), (tmp_path / "fragments.tsv.gz.tbi").read_bytes()
+    files = sorted(p.name for p in tmp_path.iterdir())
+
+    def cut_concat(parts, out, header=None):        # killed while writing the fragments table
+        with open(out, "wb") as fh:
+            fh.write(open(parts[0], "rb").read()[:100])
+        raise KeyboardInterrupt("killed")
+
+    def failed_index(*a, **k):                       # killed while indexing it
+        raise MemoryError("killed")
+
+    for target, attr, fake, err in ((M, "concat_bgzf", cut_concat, KeyboardInterrupt),
+                                    (M.pysam, "tabix_index", failed_index, MemoryError)):
+        with monkeypatch.context() as mp:
+            mp.setattr(target, attr, fake)
+            with pytest.raises(err):
+                M.merge_sample(str(tmp_path), ["chr1", "chr2"], log=lambda *a: None)
+        assert not (tmp_path / "summary.json").exists()
+        # the previous table and its index are intact; no temporary file is left
+        assert (tmp_path / "fragments.tsv.gz").read_bytes() == frag
+        assert (tmp_path / "fragments.tsv.gz.tbi").read_bytes() == tbi
+        assert sorted(p.name for p in tmp_path.iterdir()) == [f for f in files if f != "summary.json"]
+    assert main(["merge", "--out", str(tmp_path), "--chroms", "chr1,chr2"]) == 0
+    assert sorted(p.name for p in tmp_path.iterdir()) == files
+    assert (tmp_path / "fragments.tsv.gz").read_bytes() == frag
+    with pysam.TabixFile(str(tmp_path / "fragments.tsv.gz")) as t:
+        assert len(list(t.fetch("chr2"))) > 0
+
+
 # --------------------------------------------------------------------------------------------- C5 phased without PS
 def test_phased_genotypes_without_ps_get_one_phase_set_per_contig(genome, bam, tmp_path, capsys):
     from scphasedcn.alleles import CONTIG_PS, load_snps
@@ -119,6 +196,8 @@ def test_phased_genotypes_without_ps_get_one_phase_set_per_contig(genome, bam, t
     assert s.ps.tolist() == [CONTIG_PS, CONTIG_PS, -1] and s.hap_of_alt.tolist() == [2, 1, 0] and CONTIG_PS > 0
     out = tmp_path / "o"
     assert main(["extract", "--chrom", "chr2", "--snps", str(v), "--phased"] + _common(genome, bam, out)) == 0
+    err = capsys.readouterr().err   # one phase set per contig: warned (long-range switch errors of population phasing)
+    assert "warning: 2 phased SNPs on chr2 have no PS" in err and "switch errors" in err
     f = pd.read_csv(out / "partials" / "chr2" / "fragments.tsv.gz", sep="\t", header=None)
     hap, ps = f[10], f[12]
     assert ((hap == 1) | (hap == 2)).sum() == 2 and (ps[(hap == 1) | (hap == 2)] == CONTIG_PS).all()

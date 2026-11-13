@@ -116,7 +116,7 @@ Limits:
   losses with a clear depth shift (whole chromosomes, large losses) are less affected than copy-neutral events, but
   not immune. Per-cell recall of losses and copy-neutral LOH on hybrid phasing therefore depends on the switch-error
   rate of the population phase and has not been validated on real data. An attenuation-aware state set exists as an
-  opt-in (caller parameter `normal_states: "normal_att"`, or `"auto"` to use it whenever the phasing regime is
+  opt-in (caller parameter `states_normal: "normal_att"`, or `"auto"` to use it whenever the phasing regime is
   chromosome-scale; the grid `f_att_normal`, by default 0.70, 0.80, 0.90 and 0.98): it scores losses and copy-neutral
   LOH also at attenuated fractions, so that attenuated events keep their label. It trades recall of attenuated
   losses and copy-neutral LOH against more false loss / copy-neutral LOH labels on cells without events and some

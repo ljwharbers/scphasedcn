@@ -64,7 +64,7 @@ same construction) before the per-class pooled thresholds}
 \code{\link[=select_null_cells]{select_null_cells()}} checks); NULL = every \code{null_region}}
 
 \item{phasing}{the features' phasing record (\code{features$phasing} of \code{\link[=cell_features]{cell_features()}}, named \code{detected},
-\code{orientation}; \code{\link[=call_scn]{call_scn()}} passes it) or NULL; used by \code{params$normal_states = "auto"} only}
+\code{orientation}; \code{\link[=call_scn]{call_scn()}} passes it) or NULL; used by \code{params$states_normal = "auto"} only}
 }
 \value{
 \code{scphasedcn} (mode normal) with \code{scores}, \code{thresholds} (column \code{level}:
@@ -78,7 +78,7 @@ cell, pool_type, pool_knn), \code{calls} (cell and pool level; \code{resolved} f
 (\code{null_cells = "auto"} selects when the column is missing, all NA or all
 TRUE), never \code{multiplets}; 2. Student-t depth null per class x stratum
 and allelic rho on the null arm rows; 3. \code{\link[=score_cells]{score_cells()}} with the normal-mode
-state set (\code{params$normal_states}, \code{\link[=normal_state_set]{normal_state_set()}}); 4. fold-CV budget thresholds (\code{\link[=budget_thresholds]{budget_thresholds()}}); 5.
+state set (\code{params$states_normal}, \code{\link[=normal_state_set]{normal_state_set()}}); 4. fold-CV budget thresholds (\code{\link[=budget_thresholds]{budget_thresholds()}}); 5.
 per-cell calls by \code{\link[=call_policy]{call_policy()}}; 6. pools within cell type
 (\code{\link[=make_pools]{make_pools()}}) and, with an \code{embedding}, kNN pools (\code{\link[=knn_pools]{knn_pools()}}),
 pooled null thresholds (\code{\link[=pooled_thresholds]{pooled_thresholds()}}) and pooled calls; 7.
@@ -105,7 +105,7 @@ thresholds of their \code{sd_class} (\code{\link[=budget_thresholds]{budget_thre
 (experimental, off by default: \code{\link[=caller_defaults]{caller_defaults()}}). Removed options stop with
 an error: \code{calib} "region" / "region_votes" / "votes_cont", \code{calib_rho} "cell" / "chrom_cell".
 
-State set (\code{params$normal_states}, \code{\link[=caller_defaults]{caller_defaults()}}): \code{"normal"} (default), \code{"normal_att"} (opt-in: loss and
+State set (\code{params$states_normal}, \code{\link[=caller_defaults]{caller_defaults()}}): \code{"normal"} (default), \code{"normal_att"} (opt-in: loss and
 CN-LOH rows over \code{params$f_att_normal}, for merged chromosome-scale phase sets whose switch errors attenuate the
 allelic imbalance of real events) or \code{"auto"} (\code{normal_att} when \code{phasing} says the regime is \code{chromosome}). The
 one set is used everywhere the run scores states: the null-cell selection (unless \code{select_args} has \code{states}),

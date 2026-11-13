@@ -32,7 +32,7 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `shifts` log2 depth shifts of loss (-0.98) and gain (+0.57) (calibrated on depth-only spike-ins in normal tissue);
 #'   * `k_amp` uncalibrated depth shift factor for cn >= 4: shift = `k_amp * log2(cn / 2)`;
 #'   * `f_att` attenuated major-haplotype fractions of a 1:0 / 2:0 state (tumour mode, [caller_states()] `tumour`);
-#'   * `normal_states` state set of normal mode ([caller_normal()]): `"normal"` (default; loss 1:0 and CN-LOH 2:0 at
+#'   * `states_normal` state set of normal mode ([caller_normal()]): `"normal"` (default; loss 1:0 and CN-LOH 2:0 at
 #'     a major-haplotype fraction of `1 - eps`), `"normal_att"` (opt-in: loss and CN-LOH over the grid `f_att_normal`)
 #'     or `"auto"` (`normal_att` when the features' phasing regime is `chromosome`, i.e. merged chromosome-scale
 #'     phase sets, else `normal`; [normal_state_set()]). On merged phase sets switch errors pull the oriented
@@ -87,7 +87,7 @@ caller_defaults = function() {
     shifts = c(loss = -0.98, gain = 0.57),
     k_amp = 0.975,
     f_att = c(0.85, 0.90, 0.95, 0.98),
-    normal_states = "normal",
+    states_normal = "normal",
     f_att_normal = c(0.70, 0.80, 0.90, 0.98),
     tile_sizes = c("5Mb" = 5e6, "10Mb" = 1e7, "20Mb" = 2e7, "50Mb" = 5e7),
     n_folds = 4,

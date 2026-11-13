@@ -20,7 +20,7 @@ calls need score \code{>} threshold (strict, not \code{>=});
 \item \code{shifts} log2 depth shifts of loss (-0.98) and gain (+0.57) (calibrated on depth-only spike-ins in normal tissue);
 \item \code{k_amp} uncalibrated depth shift factor for cn >= 4: shift = \code{k_amp * log2(cn / 2)};
 \item \code{f_att} attenuated major-haplotype fractions of a 1:0 / 2:0 state (tumour mode, \code{\link[=caller_states]{caller_states()}} \code{tumour});
-\item \code{normal_states} state set of normal mode (\code{\link[=caller_normal]{caller_normal()}}): \code{"normal"} (default; loss 1:0 and CN-LOH 2:0 at
+\item \code{states_normal} state set of normal mode (\code{\link[=caller_normal]{caller_normal()}}): \code{"normal"} (default; loss 1:0 and CN-LOH 2:0 at
 a major-haplotype fraction of \code{1 - eps}), \code{"normal_att"} (opt-in: loss and CN-LOH over the grid \code{f_att_normal})
 or \code{"auto"} (\code{normal_att} when the features' phasing regime is \code{chromosome}, i.e. merged chromosome-scale
 phase sets, else \code{normal}; \code{\link[=normal_state_set]{normal_state_set()}}). On merged phase sets switch errors pull the oriented

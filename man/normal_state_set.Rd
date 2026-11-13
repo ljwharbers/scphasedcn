@@ -7,7 +7,7 @@
 normal_state_set(params = caller_defaults(), phasing = NULL, votes = TRUE)
 }
 \arguments{
-\item{params}{\code{\link[=caller_defaults]{caller_defaults()}} (\code{normal_states}, \code{f_att_normal})}
+\item{params}{\code{\link[=caller_defaults]{caller_defaults()}} (\code{states_normal}, \code{f_att_normal})}
 
 \item{phasing}{the features' phasing record (\code{features$phasing}: named \code{detected}, \code{orientation}) or NULL}
 
@@ -17,7 +17,7 @@ normal_state_set(params = caller_defaults(), phasing = NULL, votes = TRUE)
 list(set = "normal" or "normal_att", requested, reason): \code{reason} is the text of the run note
 }
 \description{
-Resolves \code{params$normal_states} (\code{\link[=caller_defaults]{caller_defaults()}}) to a \code{\link[=caller_states]{caller_states()}} set: \code{"normal"}, \code{"normal_att"}
+Resolves \code{params$states_normal} (\code{\link[=caller_defaults]{caller_defaults()}}) to a \code{\link[=caller_states]{caller_states()}} set: \code{"normal"}, \code{"normal_att"}
 (opt-in: loss and CN-LOH over \code{f_att_normal}) or \code{"auto"}: \code{normal_att} when the features' phasing regime
 (\code{phasing["detected"]}, the run-level rule of \code{\link[=detect_phasing]{detect_phasing()}} that \code{\link[=cell_features]{cell_features()}} records in
 \code{features$phasing}) is \code{chromosome}, i.e. merged chromosome-scale phase sets, whose switch errors attenuate the

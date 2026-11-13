@@ -144,6 +144,13 @@ cell metadata: they set the input depth and allelic null; the reference pool is 
 finds), groups for the block orientation (`groups`, e.g. spatial regions), known events (`events`, reported as their
 own regions) and multiplet probabilities (`multiplets`).
 
+The depth reference of tumour mode is the `model` normalisation (`normalise_depth()`): a robust Poisson GLM of the bin
+counts on GC and mappability proxies shared by all cells, then a per-cell GC trend. By default that trend is a lowess
+of the per-bin log ratios, which at low depth (most 100 kb bins holding 0 or 1 fragments) adds a GC bias that depends
+on the cell's depth; `gc_method: "ratio"` in the caller parameters estimates it instead from summed counts in GC
+quantile groups, which is unbiased at every depth. The trend is fixed when the features are built, so features
+computed before the change must be recomputed.
+
 ```{r tumour, eval = FALSE}
 res_t = call_scn("results/tumour/extract", mode = "tumour", sex = "male",
                  events = c(`20q_gain` = "chr20:28000000-"))

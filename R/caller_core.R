@@ -31,6 +31,10 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'     first fragment ([collapse_molecules()] `split_ps`);
 #'   * `votes_clean` votes from clean fragments only (FALSE): fragments with the blacklist bit in `flags` (the
 #'     fragments the extractor leaves out of the depth layers) do not vote ([read_votes()] `clean`);
+#'   * `gc_method` estimator of the per-cell GC trend of the `model` depth normalisation (tumour mode;
+#'     [normalise_depth()]): `"lowess"` (per-bin log ratios; biased in a depth-dependent way at low depth) or
+#'     `"ratio"` (opt-in: ratio of sums over GC quantile groups). Read by [cell_features()], so precomputed
+#'     features keep the estimator they were built with;
 #'   * `sd_floor` floor of the per-cell null SD of the window log2 ratio (0.05);
 #'   * `strata_breaks` / `strata_labels` depth strata on clean fragments per cell
 #'     (`<20k`, `20-50k`, `>=50k`);
@@ -77,6 +81,7 @@ caller_defaults = function() {
     mol_gap = 2000,
     mol_split_ps = FALSE,
     votes_clean = FALSE,
+    gc_method = "lowess",
     sd_floor = 0.05,
     strata_breaks = c(2e4, 5e4),
     strata_labels = c("<20k", "20-50k", ">=50k"),

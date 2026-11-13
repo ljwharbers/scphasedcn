@@ -9,6 +9,7 @@ eps: 0.02                   # allele error floor of the beta-binomial (1:0 state
 mol_gap: 2000               # fragments of one cell closer than this (bp) are one molecule (one vote)
 mol_split_ps: false         # one vote per molecule x phase set (a molecule across a phase-block junction votes in each of its phase sets)
 votes_clean: false          # only clean fragments vote (no blacklist bit in `flags`, as in the depth layers)
+gc_method: "lowess"         # per-cell GC trend of the tumour (model) depth normalisation: "lowess" or "ratio" (opt-in: ratio of sums over GC groups, unbiased at low depth); used when features are built
 sd_floor: 0.05              # floor of the per-cell null SD of the window log2 ratio
 strata_breaks: [20000, 50000]                 # depth strata on clean fragments per cell
 strata_labels: ["<20k", "20-50k", ">=50k"]    # stratum labels (length(strata_breaks) + 1)

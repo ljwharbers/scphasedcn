@@ -19,6 +19,10 @@ calls need score \code{>} threshold (strict, not \code{>=});
 first fragment (\code{\link[=collapse_molecules]{collapse_molecules()}} \code{split_ps});
 \item \code{votes_clean} votes from clean fragments only (FALSE): fragments with the blacklist bit in \code{flags} (the
 fragments the extractor leaves out of the depth layers) do not vote (\code{\link[=read_votes]{read_votes()}} \code{clean});
+\item \code{gc_method} estimator of the per-cell GC trend of the \code{model} depth normalisation (tumour mode;
+\code{\link[=normalise_depth]{normalise_depth()}}): \code{"lowess"} (per-bin log ratios; biased in a depth-dependent way at low depth) or
+\code{"ratio"} (opt-in: ratio of sums over GC quantile groups). Read by \code{\link[=cell_features]{cell_features()}}, so precomputed
+features keep the estimator they were built with;
 \item \code{sd_floor} floor of the per-cell null SD of the window log2 ratio (0.05);
 \item \code{strata_breaks} / \code{strata_labels} depth strata on clean fragments per cell
 (\verb{<20k}, \verb{20-50k}, \verb{>=50k});

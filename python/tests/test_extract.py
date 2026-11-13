@@ -113,12 +113,13 @@ def test_summary_and_params(extracted):
 
 def test_region_and_assign(genome, bam, tmp_path):
     from scphasedcn.cli import main
+    from scphasedcn.writers import load_csr_dict
     common = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(tmp_path),
               "--chrom-sizes", str(genome / "chrom.sizes"), "--no-gc", "--no-masks"]
     assert main(["extract", "--region", "chr1:150000-250000", "--assign", "midpoint"] + common) == 0
-    assert main(["merge", "--out", str(tmp_path), "--chroms", "chr1"]) == 0
-    a = ad.read_h5ad(tmp_path / "bins_100kb.h5ad"); ia = list(a.obs_names).index(CELL_A)
-    X = a.X.toarray()
+    rdir = tmp_path / "partials" / "region_chr1_150000-250000"   # a region has its own partial (merge refuses it)
+    ia = sorted([CELL_A, CELL_B]).index(CELL_A)
+    X = load_csr_dict(rdir / "layers.npz")["counts"].toarray()
     assert X[ia].sum() == 1 and X[ia, 2] == 1           # only m, midpoint 200050 -> bin 2
     assert main(["extract", "--chrom", "chr1", "--assign", "end5"] + common) == 0
     assert main(["merge", "--out", str(tmp_path), "--chroms", "chr1"]) == 0

@@ -61,11 +61,12 @@ cell_qc = function(scn, min_frag = 5000, min_mapq60 = 0.5, max_chrM = 0.2, param
 #' (`params$acrocentric_p`) are dropped; chrY arms are kept only for males.
 #' @param centromeres path or table of the Battenberg coordinates
 #' @param chrom_sizes named chromosome sizes (arms are made for these chromosomes only)
-#' @param sex "female" or "male"
+#' @param sex "female" or "male" (case-insensitive, or "F" / "M"; any other value stops)
 #' @param params [caller_defaults()]
 #' @return data.table `region, chrom, arm, start, end`
 #' @export
 arm_table = function(centromeres, chrom_sizes, sex = "female", params = caller_defaults()) {
+  sex = check_sex(sex, "arm_table")
   ce = if (is.character(centromeres)) fread(centromeres) else copy(as.data.table(centromeres))
   setnames(ce, 1:5, c("chrom", "cstart", "cen_left", "cen_right", "cend"))
   ce[, chrom := as.character(chrom)]
@@ -86,12 +87,22 @@ arm_table = function(centromeres, chrom_sizes, sex = "female", params = caller_d
 }
 
 # events: data.table (region, chrom, start, end), cli_events() output (event = name), or a named
-# character vector of region strings (the sample config `events` map)
+# character vector of region strings (the sample config `events` map; 0-based half-open, an open end = chromosome
+# end). An event without a name is named after its region string ("chr20:28000000-"), a bare chromosome "chr7"
+# "event|chr7" (the chromosome region is already called "chr7").
 event_table = function(events, chrom_sizes) {
   if (is.null(events)) return(NULL)
   if (is.character(events) || is.list(events) && !is.data.frame(events)) {
     ev = parse_region(unlist(events), chrom_sizes)
-    if (!is.null(names(events))) ev[, region := names(events)]
+    nm = names(events)
+    if (!is.null(nm)) {
+      miss = is.na(nm) | !nzchar(trimws(nm))
+      ev[!miss, region := nm[!miss]]
+    }
+    if (is.null(nm) || any(miss)) {
+      un = if (is.null(nm)) rep(TRUE, nrow(ev)) else miss
+      ev[un & !grepl(":", region, fixed = TRUE), region := paste0("event|", region)]
+    }
   } else {
     ev = copy(as.data.table(events))
     if ("event" %in% names(ev)) ev[, region := event]
@@ -177,9 +188,12 @@ region_bin_matrix = function(bins, regions, use = NULL) {
 #' @param bins bins table (chrom, start, end)
 #' @param centromeres Battenberg centromere table or path ([arm_table()])
 #' @param classes region classes to build (`arm`, `chrom`, tile labels); `event` is added when `events` is given
-#' @param events NULL, a data.table `region, chrom, start, end` (NA end = chromosome end), [cli_events()]
-#'   output or a named vector of region strings
-#' @param sex "female" or "male"
+#' @param events NULL, a data.table `region, chrom, start, end` (0-based half-open; NA end = chromosome end),
+#'   [cli_events()] output or a named vector of region strings (`"chr20:28000000-"`, `"chr7"`; [parse_region()]). An
+#'   event without a name is named after its region string (a bare chromosome `"chr7"`: `"event|chr7"`). An event
+#'   that yields no region (a chromosome without usable bins, or no whole usable bin inside) is dropped with a
+#'   warning.
+#' @param sex "female" or "male" (case-insensitive, or "F" / "M"; any other value stops)
 #' @param null_exclude chromosomes (or region names) whose regions never contribute null rows
 #' @param use logical bin filter (NULL = all bins)
 #' @param params [caller_defaults()]
@@ -187,6 +201,7 @@ region_bin_matrix = function(bins, regions, use = NULL) {
 #' @export
 region_set = function(bins, centromeres, classes = c("arm", "chrom", "5Mb", "10Mb", "20Mb", "50Mb"), events = NULL,
                       sex = "female", null_exclude = character(), use = NULL, params = caller_defaults()) {
+  sex = check_sex(sex, "region_set")
   bins = as.data.table(bins)
   use = if (is.null(use)) rep(TRUE, nrow(bins)) else as.logical(use)
   bad = setdiff(classes, c("arm", "chrom", names(params$tile_sizes), "event"))
@@ -213,6 +228,16 @@ region_set = function(bins, centromeres, classes = c("arm", "chrom", "5Mb", "10M
   M = region_bin_matrix(bins, r)
   r[, n_bins := as.integer(round(Matrix::rowSums(M)))]
   r[, n_use := as.integer(round(as.vector(M %*% as.numeric(use))))]
+  if (!is.null(ev) && nrow(ev)) {
+    # events that yield no region: a chromosome without usable bins (unknown, chrY of a female, not in `use`), or no
+    # whole usable bin inside the event (containment rule)
+    no_chr = ev[!chrom %in% chroms, region]
+    no_bin = r[class == "event" & n_use == 0, region]
+    if (length(no_chr) || length(no_bin))
+      warning("region_set: event(s) dropped without a region: ",
+              paste(c(if (length(no_chr)) sprintf("%s (chromosome %s not in the usable bins)", no_chr, ev[!chrom %in% chroms, chrom]),
+                      if (length(no_bin)) sprintf("%s (no whole usable bin inside)", no_bin)), collapse = ", "), call. = FALSE)
+  }
   r = r[n_use > 0]
   bw = stats::median(bins$end - bins$start)
   tsz = params$tile_sizes[r$class]
@@ -387,12 +412,21 @@ utils::globalVariables(c("wi", "ri", "rs", "re", "x.wi", "i.ri", "i.class", "i.s
 #' fragments of the same cell and chromosome; one vote per molecule for the majority haplotype
 #' (ties dropped); `ps` is the first fragment's phase set. The running maximum is computed per group
 #' with an integer offset (exact for coordinates below 2^53 / number of groups).
+#'
+#' Phase sets are not oriented relative to each other, so a molecule whose fragments lie in different phase sets
+#' (a molecule across a block junction) mixes unrelated haplotype labels. With `split_ps = TRUE` the molecules are
+#' formed as above and then split by phase set: the fragments of each phase set of a molecule give their own vote
+#' (majority haplotype of those fragments, ties dropped) in that phase set, with `start` / `end` / `n_frag` of
+#' those fragments. Molecules within one phase set are the same under both settings.
 #' @param fr fragments with `cell, chrom, start, end, hap, ps`; `hap` "A"/"B" (other labels dropped) or
 #'   integer codes 1 / 2 (= A / B)
 #' @param gap maximal gap (bp) between fragments of one molecule
-#' @return data.table `cell, chrom, start, end, ps, n_frag, hap` (hap "A"/"B"), one row per molecule
+#' @param split_ps one vote per molecule x phase set instead of one per molecule (default FALSE; the caller
+#'   parameter `mol_split_ps`)
+#' @return data.table `cell, chrom, start, end, ps, n_frag, hap` (hap "A"/"B"), one row per molecule (per molecule x
+#'   phase set with `split_ps`)
 #' @export
-collapse_molecules = function(fr, gap = 2000) {
+collapse_molecules = function(fr, gap = 2000, split_ps = FALSE) {
   h = fr$hap
   isa = if (is.character(h)) h == "A" else h == 1L
   isb = if (is.character(h)) h == "B" else h == 2L
@@ -410,8 +444,14 @@ collapse_molecules = function(fr, gap = 2000) {
   cm = cummax(as.numeric(d$end) + off) - off
   d[, mol := cumsum(first | c(TRUE, d$start[-1] > cm[-n] + gap))]
   d[, isB := !isA]
-  m = d[, .(cell = cell[1], chrom = chrom[1], start = min(start), end = max(end), ps = ps[1],
-            nA = sum(isA), nB = sum(isB), n_frag = .N), by = mol]
+  if (isTRUE(split_ps)) {
+    m = d[, .(cell = cell[1], chrom = chrom[1], start = min(start), end = max(end),
+              nA = sum(isA), nB = sum(isB), n_frag = .N), by = .(mol, ps)]
+    setcolorder(m, c("mol", "cell", "chrom", "start", "end", "ps"))
+  } else {
+    m = d[, .(cell = cell[1], chrom = chrom[1], start = min(start), end = max(end), ps = ps[1],
+              nA = sum(isA), nB = sum(isB), n_frag = .N), by = mol]
+  }
   m = m[nA != nB]
   m[, hap := ifelse(nA > nB, "A", "B")]
   m[, c("nA", "nB", "mol") := NULL]
@@ -445,16 +485,34 @@ atoms_from_regions = function(bins, regions) {
   a[]
 }
 
-# hap-assigned fragments with a phase set of one chromosome: start, end, cell, hap (1/2), ps
-read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
+# blacklist bit of the fragments' `flags` column (F_BLACKLIST in the extractor's bam.py). The extractor's depth
+# layers count the "clean" fragments, `(flags & F_BLACKLIST) == 0` (cli.py, cmd_extract), i.e. those whose start is
+# outside the blacklist; `votes_clean` applies the same definition to the votes.
+FRAG_FLAG_BLACKLIST = 8L
+
+# hap-assigned fragments with a phase set of one chromosome: start, end, cell, hap (1/2), ps; `clean = TRUE` keeps only
+# clean fragments (blacklist bit unset). The tabix pipeline runs under `set -o pipefail` with its output in a temporary
+# file: no record on the contig (exit 0, empty output) gives no rows, a failing command (missing / corrupt file or
+# index, tabix error) stops with the command's error
+read_hap_fragments = function(frag_file, chrom, tabix = NULL, clean = FALSE) {
   empty = data.table(start = numeric(), end = numeric(), cell = character(), hap = integer(), ps = numeric())
   if (!is.null(tabix) && nzchar(tabix) && file.exists(tabix) && file.exists(paste0(frag_file, ".tbi"))) {
-    cmd = sprintf("%s %s %s | awk -F'\\t' '($11==1||$11==2) && $13>0' | cut -f2,3,4,7,11,13",
-                  shQuote(tabix), shQuote(frag_file), shQuote(chrom))
-    fr = tryCatch(suppressWarnings(fread(cmd = cmd, header = FALSE, sep = "\t", col.names = c("start", "end", "cell", "flags", "hap", "ps"),
-                                         colClasses = list(character = 3))),
-                  error = function(e) NULL)
-    if (is.null(fr) || ncol(fr) != 6 || !nrow(fr)) return(empty)
+    flt = if (isTRUE(clean)) sprintf(" && int($7/%d)%%2==0", FRAG_FLAG_BLACKLIST) else ""
+    pipe = sprintf("set -o pipefail; %s %s %s | awk -F'\\t' '($11==1||$11==2) && $13>0%s' | cut -f2,3,4,7,11,13",
+                   shQuote(tabix), shQuote(frag_file), shQuote(chrom), flt)
+    out = tempfile(fileext = ".tsv"); err = tempfile(fileext = ".err")
+    on.exit(unlink(c(out, err)), add = TRUE)
+    status = suppressWarnings(system2("bash", c("-c", shQuote(pipe)), stdout = out, stderr = err))
+    if (!identical(as.integer(status), 0L)) {
+      msg = if (file.exists(err)) paste(utils::head(readLines(err, warn = FALSE), 5), collapse = "; ") else ""
+      stop(sprintf("read_hap_fragments: reading %s (%s) with tabix failed (exit status %s)%s", frag_file, chrom, status,
+                   if (nzchar(msg)) paste0(": ", msg) else ""), call. = FALSE)
+    }
+    if (!file.exists(out) || file.size(out) == 0) return(empty)
+    fr = fread(out, header = FALSE, sep = "\t", col.names = c("start", "end", "cell", "flags", "hap", "ps"),
+               colClasses = list(character = 3))
+    if (ncol(fr) != 6) stop(sprintf("read_hap_fragments: %s (%s) does not have the fragment table's columns", frag_file, chrom),
+                            call. = FALSE)
     fr[, flags := NULL]
     return(fr)
   }
@@ -463,6 +521,7 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
   chr0 = chrom
   fr = fr[fr$chrom == chr0]
   fr[, hap := hap_code(hap)]
+  if (isTRUE(clean)) fr = fr[bitwAnd(as.integer(flags), FRAG_FLAG_BLACKLIST) == 0L]
   fr[hap %in% 1:2 & ps > 0, .(start, end, cell = as.character(cell), hap, ps)]
 }
 
@@ -472,7 +531,12 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
 #' [read_fragments()] when the tabix binary or index is missing; fragments of `cells` with haplotype
 #' A / B and a phase set are collapsed into molecules ([collapse_molecules()]), each molecule is assigned
 #' to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
-#' stays per chromosome (integer cell indices, `gc()` between chromosomes).
+#' stays per chromosome (integer cell indices, `gc()` between chromosomes). A failing tabix command stops with its
+#' error; a chromosome with atoms but no haplotype-assigned fragment of `cells` gives a warning.
+#'
+#' `clean = TRUE` keeps only the fragments the extractor counts in the depth layers (no blacklist bit in `flags`,
+#' the extractor's `clean = (flags & F_BLACKLIST) == 0`), in the tabix path (awk) and in the fallback;
+#' `split_ps = TRUE` gives one vote per molecule x phase set ([collapse_molecules()]).
 #' @param frag_file fragments.tsv.gz (+ .tbi)
 #' @param cells cell barcodes; the votes' `cell` is the index into this vector
 #' @param atoms [atoms_from_regions()] output
@@ -480,24 +544,28 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL) {
 #' @param gap molecule gap (bp)
 #' @param tabix path of the tabix binary ("" = the `tabix` on the PATH; NULL / not found = the R fallback through
 #'   Rsamtools)
+#' @param split_ps split molecules by phase set (caller parameter `mol_split_ps`; default FALSE)
+#' @param clean votes from clean (not blacklisted) fragments only (caller parameter `votes_clean`; default FALSE)
 #' @return votes data.table `cell, atom, ps, nA, nB` (passes [check_votes()])
 #' @export
-read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix = caller_defaults()$tabix) {
+read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix = caller_defaults()$tabix,
+                      split_ps = FALSE, clean = FALSE) {
   atoms = as.data.table(atoms)
   chroms = chroms %||% unique(atoms$chrom)
   if (identical(tabix, "")) tabix = unname(Sys.which("tabix"))
   out = vector("list", length(chroms))
+  none = character()                                 # chromosomes with atoms but no haplotype fragment of the cells
   for (k in seq_along(chroms)) {
     ch = chroms[k]
     a = atoms[chrom == ch][order(start)]
     if (!nrow(a)) next
-    fr = read_hap_fragments(frag_file, ch, tabix)
-    if (!nrow(fr)) next
+    fr = read_hap_fragments(frag_file, ch, tabix, clean = clean)
+    if (!nrow(fr)) { none = c(none, ch); next }
     ci = match(fr$cell, cells)
     fr = data.table(cell = ci, chrom = ch, start = as.numeric(fr$start), end = as.numeric(fr$end), hap = as.integer(fr$hap), ps = fr$ps)[!is.na(cell)]
-    if (!nrow(fr)) next
+    if (!nrow(fr)) { none = c(none, ch); next }
     big = nrow(fr) > 5e6
-    m = collapse_molecules(fr, gap = gap)
+    m = collapse_molecules(fr, gap = gap, split_ps = split_ps)
     rm(fr)
     k_at = findInterval(m$start, a$start)
     ok = k_at > 0 & m$start < a$end[pmax(k_at, 1)]
@@ -507,6 +575,9 @@ read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix 
     rm(m)
     if (big) gc(verbose = FALSE)
   }
+  if (length(none))
+    warning(sprintf("read_votes: no haplotype-assigned fragment with a phase set of the given cells on %d chromosome(s) (%s): their allele features are empty (unphased extraction, or barcodes that do not match?)",
+                    length(none), paste(utils::head(none, 10), collapse = ", ")), call. = FALSE)
   v = rbindlist(out)
   if (!nrow(v)) v = data.table(cell = integer(), atom = integer(), ps = numeric(), nA = integer(), nB = integer())
   v[, cell := as.integer(cell)][, atom := as.integer(atom)][, ps := as.numeric(ps)]
@@ -527,11 +598,47 @@ read_votes = function(frag_file, cells, atoms, chroms = NULL, gap = 2000, tabix 
 #' @export
 detect_phasing = function(votes, atoms, frac = 0.9) {
   if (!nrow(votes)) return("chromosome")
+  k = phasing_by_chrom(votes, atoms, frac)$k
+  if (stats::median(k) <= 2) "chromosome" else "block"
+}
+
+#' Phasing regime per chromosome
+#'
+#' Per chromosome of the votes, the number of phase sets needed to hold `frac` of the chromosome's votes (largest
+#' first) and the regime by the rule of [detect_phasing()]: `"chromosome"` when at most 2 phase sets hold `frac` of
+#' the votes, else `"block"`. [detect_phasing()] is the same rule on the median of `k` over chromosomes; this table
+#' shows chromosomes whose phasing differs from the global regime (e.g. a hybrid phase whose chrX is still in
+#' read-backed blocks, so that plain sums over its unoriented blocks attenuate or cancel the chrX allele signal).
+#' @param votes votes table ([read_votes()])
+#' @param atoms atoms table
+#' @param frac vote fraction the counted phase sets must hold
+#' @return data.table `chrom, n_votes, n_ps` (distinct phase sets), `k` (phase sets holding `frac` of the votes),
+#'   `regime` ("chromosome" / "block"), in the chromosome order of `atoms`
+#' @export
+phasing_by_chrom = function(votes, atoms, frac = 0.9) {
+  if (!nrow(votes)) return(data.table(chrom = character(), n_votes = numeric(), n_ps = integer(), k = integer(), regime = character()))
   ch = atoms$chrom[match(votes$atom, atoms$atom)]
   t = data.table(chrom = ch, ps = votes$ps, n = votes$nA + votes$nB)[, .(n = sum(n)), by = .(chrom, ps)]
   setorderv(t, c("chrom", "n"), c(1L, -1L))
-  k = t[, .(k = which(cumsum(n) >= frac * sum(n))[1]), by = chrom]$k
-  if (stats::median(k) <= 2) "chromosome" else "block"
+  out = t[, .(n_votes = as.numeric(sum(n)), n_ps = .N, k = which(cumsum(n) >= frac * sum(n))[1]), by = chrom]
+  out[, regime := ifelse(k <= 2, "chromosome", "block")]
+  out = out[order(match(chrom, unique(atoms$chrom)))]
+  out[]
+}
+utils::globalVariables(c("n_votes", "n_ps", "regime"))
+
+# the note on the chromosomes whose phasing regime ([phasing_by_chrom()]) differs from the run's regime `detected`;
+# NULL when there are none (or no table). Under `chromosome` orientation the blocks of such chromosomes are summed
+# unoriented, which the note says (the orientation itself is global; per-chromosome orientation is not implemented)
+phasing_mixed_note = function(pbc, detected, orientation) {
+  if (is.null(pbc) || !nrow(pbc) || is.null(detected)) return(NULL)
+  off = as.data.table(pbc)[regime != detected]
+  if (!nrow(off)) return(NULL)
+  sprintf("phasing: %s phased %s while the run's regime is %s (orientation %s applies to all chromosomes%s)",
+          paste(off$chrom, collapse = ", "), if (detected == "chromosome") "in blocks" else "chromosome-wide",
+          detected, orientation,
+          if (detected == "chromosome" && identical(unname(orientation), "chromosome"))
+            "; their unoriented blocks are summed as they are, which attenuates or cancels their allele signal" else "")
 }
 
 # ---- region votes ----------------------------------------------------------------------------------------
@@ -732,32 +839,85 @@ read_sample_depth = function(dir, layers = character()) {
   scn
 }
 
+# cells of a feature run, in the order of `all` (the sample's cells): `cells` as given (no QC); else the cells that pass
+# cell_qc() (`qct`, with the run's `qc` arguments), restricted to the cells of `cell_meta` and, when it has a `qc_pass`
+# column, to those with `qc_pass` TRUE (both must pass: the table's QC never overrides the run's `qc`).
+# The R API and the CLI (which passes --cell-meta as `cell_meta`) select the same cells from the same table.
+feature_cells = function(all, qct, cells = NULL, cell_meta = NULL) {
+  if (!is.null(cells)) return(list(keep = intersect(all, cells), how = "given"))
+  meta_qc = !is.null(cell_meta) && "qc_pass" %in% names(cell_meta)
+  k = qct[qc_pass == TRUE]$cell
+  if (meta_qc) k = intersect(k, as.character(cell_meta$cell)[as.logical(cell_meta$qc_pass) %in% TRUE])
+  if (!is.null(cell_meta)) k = intersect(k, cell_meta$cell)
+  list(keep = intersect(all, k), how = if (meta_qc) "QC pass and cell_meta qc_pass" else "QC pass")
+}
+
+# sex of a sample from its cells' `sex` column: the one value of the non-missing entries ([check_sex()] spellings);
+# NA when there is none (missing or empty everywhere); stops when the cells disagree
+cells_sex = function(x, where = "cell_features") {
+  v = as.character(x)
+  v = unique(v[!is.na(v) & nzchar(trimws(v))])
+  if (!length(v)) return(NA_character_)
+  s = unique(vapply(v, check_sex, character(1), where = where, USE.NAMES = FALSE))
+  if (length(s) > 1)
+    stop(sprintf("%s: the cells' `sex` column mixes both sexes (%s); pass `sex` for the sample", where,
+                 paste(sprintf("\"%s\"", v), collapse = ", ")), call. = FALSE)
+  s
+}
+
+# cell metadata of a feature run: `meta` (one row per kept cell: the QC n_frag / stratum and default labels) with the
+# columns of `cell_meta` used as-is, except that a cell without a value for the QC-derived stratum / n_frag (not in
+# cell_meta, e.g. with `cells` given, or NA there) keeps its QC value
+apply_cell_meta = function(meta, cell_meta) {
+  if (!is.null(cell_meta)) {
+    cm = as.data.table(cell_meta)[match(meta$cell, cell)]
+    for (cn in intersect(c("cell_type", "group", "flat", "fold", "stratum", "n_frag"), names(cm))) {
+      v = cm[[cn]]
+      if (cn == "stratum") v = fifelse(is.na(v), as.character(meta$stratum), as.character(v))
+      if (cn == "n_frag") v = fifelse(is.na(v), as.numeric(meta$n_frag), as.numeric(v))
+      meta[, (cn) := v]
+    }
+  }
+  meta[, `:=`(cell_type = as.character(cell_type), group = as.character(group), flat = as.logical(flat),
+              fold = as.integer(fold), stratum = as.character(stratum), n_frag = as.numeric(n_frag))]
+  meta[]
+}
+
 #' Per-cell per-region features of a sample
 #'
-#' Reads an extraction directory, applies the cell QC ([cell_qc()]; `cells` restricts the run to a set
-#' of cells instead), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
+#' Reads an extraction directory, applies the cell QC ([cell_qc()]; with a `qc_pass` column of `cell_meta` a cell must
+#' also have `qc_pass` TRUE; `cells` restricts the run to a set of cells instead, without QC), annotates arms, filters bins (default: [bin_filter()] on the kept cells, chr1-22
 #' and chrX), normalises depth ([normalise_depth()]: `celltype` for normal tissue, `model` for tumours), builds the
 #' regions ([region_set()]), the depth features ([depth_features()]), the molecule votes
 #' ([read_votes()]) and the oriented allele features ([allelic_features()]), and joins them into the
 #' long features table (`vignette("scphasedcn-outputs", package = "scphasedcn")`).
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
-#' @param cells NULL (QC-pass cells) or the cells to use
-#' @param cell_meta NULL or a data.table with `cell` and optional `cell_type, flat, fold, group, stratum,
-#'   n_frag` (used as-is; NA cell_type = no type-matched reference)
+#' @param cells NULL (QC-pass cells) or the cells to use (no QC)
+#' @param cell_meta NULL or a data.table with `cell` and optional `qc_pass, cell_type, flat, fold, group, stratum,
+#'   n_frag` (used as-is; NA cell_type = no type-matched reference; NA or missing `stratum` / `n_frag` keep the QC
+#'   values). With `cells` NULL only cells of `cell_meta` are
+#'   used, and with a `qc_pass` column (e.g. [make_cell_meta()]) only those with `qc_pass` TRUE that also pass
+#'   [cell_qc()] with the `qc` arguments
 #' @param method depth normalisation, "celltype" or "model" (any [normalise_depth()] method is accepted)
 #' @param ref_cells reference cells of the normalisation (selector; NULL = all)
 #' @param min_cells_type celltype: minimal reference cells of a type
 #' @param use NULL or a logical bin filter
-#' @param sex "female" / "male" (NULL: the cells' `sex` column)
+#' @param sex "female" / "male" (case-insensitive, or "F" / "M"; any other value stops; NULL: the cells' `sex` column, whose
+#'   non-missing values must all give the same sex)
 #' @param centromeres centromere table or path (Battenberg layout, see [arm_table()]; NULL: the hg38 table shipped with
 #'   the package, [hg38_centromeres()])
 #' @param classes region classes
 #' @param events named events (see [region_set()])
 #' @param null_exclude chromosomes / regions without null rows (known events)
-#' @param phasing "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored"
+#' @param phasing "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored". `auto` = `chromosome` when
+#'   [detect_phasing()] finds chromosome-wide phase sets, else `loo`. Chromosome-wide phasing is recommended for
+#'   normal tissue (`scphasedcn hybrid-phase`; `vignette("scphasedcn-inputs")` for its limits): `loo` orients each
+#'   block by the other cells, cannot show allelic events carried by few cells and aligns allelic bias shared by all
+#'   cells
 #' @param groups NULL, the name of a `cell_meta` column, a vector named by cell, or one label per kept
 #'   cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)
-#' @param mol_gap molecule gap (bp; default `params$mol_gap`, 2000)
+#' @param mol_gap molecule gap (bp; default `params$mol_gap`, 2000); `params$mol_split_ps` and
+#'   `params$votes_clean` set the molecule split by phase set and the blacklist filter of the votes ([read_votes()])
 #' @param keep_votes keep the votes table in the result
 #' @param layers bin layers to read (none are needed by the depth normalisation)
 #' @param qc named list of [cell_qc()] arguments
@@ -766,6 +926,8 @@ read_sample_depth = function(dir, layers = character()) {
 #' @param exclude_atoms NULL or atom ids whose votes are left out of the allele features (see [allelic_features()])
 #' @return `scn_features` list: `long` (features, keyed by cell and region), `regions`, `cells` (row order =
 #'   the votes' cell index), `votes`, `atoms`, `win` ([window_matrices()]), `params`, `notes`, `use`, `phasing`
+#'   (`detected`, `orientation`), `phasing_chrom` (the per-chromosome regimes, [phasing_by_chrom()]; the notes name
+#'   chromosomes whose regime differs from `detected`)
 #' @export
 cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("celltype", "model"), ref_cells = NULL, min_cells_type = 20,
                          use = NULL, sex = NULL, centromeres = NULL, classes = c("arm", "chrom", "5Mb", "10Mb", "20Mb", "50Mb"),
@@ -775,6 +937,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   method = norm_method(method)
   phasing = match.arg(phasing, c("auto", "chromosome", "block", "loo", "mirrored"))
+  sex = check_sex(sex, "cell_features")
   t0 = Sys.time()
   notes = character()
   note = function(...) {
@@ -786,27 +949,20 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
 
   scn = read_sample_depth(dir, layers = layers)
   qct = do.call(cell_qc, c(list(scn), qc, list(params = params)))
-  keep = if (!is.null(cells)) intersect(scn$cells$cell, cells) else {
-    k = qct[qc_pass == TRUE]$cell
-    if (!is.null(cell_meta)) k = intersect(k, cell_meta$cell)
-    intersect(scn$cells$cell, k)
-  }
+  sel = feature_cells(scn$cells$cell, qct, cells, cell_meta)
+  keep = sel$keep
   if (!length(keep)) stop("cell_features: no cells")
-  note(sprintf("cells: %d of %d (%s)", length(keep), nrow(scn$cells), if (is.null(cells)) "QC pass" else "given"))
-  sex = sex %||% (if ("sex" %in% names(scn$cells)) as.character(scn$cells$sex[1]) else NULL)
+  note(sprintf("cells: %d of %d (%s)", length(keep), nrow(scn$cells), sel$how))
+  sex = sex %||% (if ("sex" %in% names(scn$cells)) cells_sex(scn$cells$sex[match(keep, scn$cells$cell)]) else NULL)
   if (is.null(sex) || is.na(sex)) stop("cell_features: `sex` is needed")
+  sex = check_sex(sex, "cell_features")
   scn = subset_scn(scn, cells = keep)
 
   # cell metadata: QC defaults, cell_meta used as-is
   meta = qct[match(keep, cell), .(cell, n_frag, stratum)]
   meta[, `:=`(cell_type = NA_character_, group = NA_character_, flat = NA, fold = NA_integer_)]
   if ("cell_type" %in% names(scn$cells)) meta[, cell_type := as.character(scn$cells$cell_type)]
-  if (!is.null(cell_meta)) {
-    cm = as.data.table(cell_meta)[match(keep, cell)]
-    for (cn in intersect(c("cell_type", "group", "flat", "fold", "stratum", "n_frag"), names(cm))) meta[, (cn) := cm[[cn]]]
-  }
-  meta[, `:=`(cell_type = as.character(cell_type), group = as.character(group), flat = as.logical(flat),
-              fold = as.integer(fold), stratum = as.character(stratum), n_frag = as.numeric(n_frag))]
+  meta = apply_cell_meta(meta, cell_meta)
 
   # bins, usable bins, normalisation
   scn$bins = annotate_arms(scn$bins, centromeres)
@@ -829,11 +985,19 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   # alleles
   ra = regions[allelic_ok == TRUE]
   atoms = atoms_from_regions(scn$bins, ra)
-  votes = read_votes(scn$fragments, keep, atoms, chroms = unique(ra$chrom), gap = mol_gap, tabix = params$tabix)
+  votes = read_votes(scn$fragments, keep, atoms, chroms = unique(ra$chrom), gap = mol_gap, tabix = params$tabix,
+                     split_ps = isTRUE(params$mol_split_ps), clean = isTRUE(params$votes_clean))
   detected = detect_phasing(votes, atoms)
   orientation = switch(phasing, auto = if (detected == "chromosome") "chromosome" else "loo", block = "loo", phasing)
   note(sprintf("votes: %d rows (%d molecules); phasing detected %s, orientation %s", nrow(votes), sum(votes$nA) + sum(votes$nB),
                detected, orientation))
+  pbc = phasing_by_chrom(votes, atoms)
+  if (nrow(pbc)) {
+    note(sprintf("phasing per chromosome (phase sets holding 90%% of the votes): %s",
+                 paste0(pbc$chrom, " ", pbc$regime, " (", pbc$k, ")", collapse = ", ")))
+    mixed = phasing_mixed_note(pbc, detected, orientation)
+    if (!is.null(mixed)) note(mixed)
+  }
   g = groups
   if (!is.null(g)) {
     if (is.character(g) && length(g) == 1 && g %in% names(meta)) g = meta[[g]]
@@ -873,7 +1037,8 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   cells_out = merge(meta, qct[, .(cell, qc_pass)], by = "cell", sort = FALSE)[match(keep, cell)]
   check_regions(regions); check_atoms(atoms); check_votes(votes); check_features(long)
   structure(list(long = long, regions = regions, cells = cells_out, votes = if (keep_votes) votes else NULL, atoms = atoms,
-                 win = win, params = params, notes = notes, use = use, phasing = c(detected = detected, orientation = orientation)),
+                 win = win, params = params, notes = notes, use = use, phasing = c(detected = detected, orientation = orientation),
+                 phasing_chrom = pbc),
             class = "scn_features")
 }
 
@@ -908,6 +1073,36 @@ update_allelic_features = function(features, exclude_atoms, groups = NULL, param
   setkeyv(long, c("cell", "region"))
   features$long = long
   features$notes = c(features$notes, sprintf("allele features re-aggregated without %d masked atoms", length(exclude_atoms)))
+  features
+}
+
+#' Subset a features object to a set of cells
+#'
+#' Keeps the rows of `long` and `cells` of the given cells and re-indexes the votes (whose `cell` is the row of
+#' `cells`) to the kept rows, so that [update_allelic_features()] and the tumour mode still give each cell its own
+#' votes; the 1 Mb window depth `win` keeps the kept cells' columns. Every other component is kept as it is.
+#' @param features `scn_features` ([cell_features()])
+#' @param cells cells to keep (others are ignored)
+#' @return the subset `scn_features` (the object itself when every cell is kept)
+#' @export
+subset_features = function(features, cells) {
+  ids = as.character(features$cells$cell)
+  keep = ids %in% as.character(cells)
+  if (all(keep)) return(features)
+  idx = which(keep)
+  features$cells = features$cells[keep]
+  features$long = features$long[cell %in% ids[idx]]
+  if (!is.null(features$votes)) {
+    v = features$votes[cell %in% idx]
+    v[, cell := as.integer(match(cell, idx))]
+    features$votes = v
+  }
+  w = features$win
+  if (is.list(w) && is.matrix(w$x) && !is.null(colnames(w$x))) {
+    k = colnames(w$x) %in% ids[idx]
+    w$x = w$x[, k, drop = FALSE]; w$e = w$e[, k, drop = FALSE]
+    features$win = w
+  }
   features
 }
 

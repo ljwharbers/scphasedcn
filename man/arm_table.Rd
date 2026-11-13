@@ -11,7 +11,7 @@ arm_table(centromeres, chrom_sizes, sex = "female", params = caller_defaults())
 
 \item{chrom_sizes}{named chromosome sizes (arms are made for these chromosomes only)}
 
-\item{sex}{"female" or "male"}
+\item{sex}{"female" or "male" (case-insensitive, or "F" / "M"; any other value stops)}
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
 }

@@ -204,6 +204,50 @@ def vcf(genome):
     return Path(str(p) + ".gz")
 
 
+def write_vcf(path, rows, samples=("SAMPLE",), contigs=(("chr1", 1_000_000), ("chr2", 500_000)), fmt="GT:PS",
+              index=True):
+    """Write a small VCF (bgzipped + tabix-indexed when `index`; plain text otherwise). `rows` are
+    (chrom, pos, ref, alt, filter, [sample fields...]) with the sample fields formatted for `fmt`. Returns the path."""
+    path = Path(path)
+    head = ("##fileformat=VCFv4.2\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set">\n'
+            '##FILTER=<ID=LowQual,Description="low quality">\n'
+            + "".join(f"##contig=<ID={c},length={n}>\n" for c, n in contigs)
+            + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO" + ("\tFORMAT\t" + "\t".join(samples) if samples else "")
+            + "\n")
+    body = "".join(f"{c}\t{p}\t.\t{r}\t{a}\t50\t{f}\t." + (f"\t{fmt}\t" + "\t".join(sf) if samples else "") + "\n"
+                   for c, p, r, a, f, sf in rows)
+    path.write_text(head + body)
+    if not index:
+        return path
+    pysam.tabix_compress(str(path), str(path) + ".gz", force=True)
+    pysam.tabix_index(str(path) + ".gz", preset="vcf", force=True)
+    return Path(str(path) + ".gz")
+
+
+def rewrite_bam(src, dst, edit):
+    """Copy a BAM with `edit(record)` applied to every record (returns the record or None to drop it); indexed."""
+    with pysam.AlignmentFile(str(src), "rb") as fi, pysam.AlignmentFile(str(dst), "wb", template=fi) as fo:
+        for r in fi:
+            r = edit(r)
+            if r is not None:
+                fo.write(r)
+    pysam.index(str(dst))
+    return Path(dst)
+
+
+@pytest.fixture(scope="session")
+def bam_dash1(bam, tmp_path_factory):
+    """The synthetic BAM with a 10x-style "-1" suffix on every CB except "-" (the whitelist has it on CELL_B only)."""
+    def edit(r):
+        cb = r.get_tag("CB")
+        if cb != "-":
+            r.set_tag("CB", cb + "-1")
+        return r
+    return rewrite_bam(bam, tmp_path_factory.mktemp("dash1") / "dash1.bam", edit)
+
+
 @pytest.fixture(scope="session")
 def extracted(genome, bam, vcf, tmp_path_factory):
     """Run extract (default layers) on chr1, chr2, chrM, chrX and merge; return the output directory."""

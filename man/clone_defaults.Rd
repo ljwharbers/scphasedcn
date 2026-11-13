@@ -11,7 +11,14 @@ named list (see \code{\link[=caller_tumour]{caller_tumour()}})
 }
 \description{
 Discovery: \code{classes}, \code{depth_delta}, \code{cap}, \code{min_n}, \code{n_pc}, \code{k}, \code{max_leaves}, \code{min_size}, \code{q}, \code{n_perm}, \code{max_cells},
-\code{split_depth} (discovery / test halves of the window depth as well as of the votes). Hierarchy: trunks =
+\code{split_depth} (discovery / test halves of the window depth as well as of the votes). Merge / split tests
+(\code{\link[=merge_clones]{merge_clones()}}, \code{\link[=discover_within]{discover_within()}}, the split pass; \code{perm_decision}): \code{"quantile"} (default) = the observed
+contrast above the type-7 \code{q}-quantile of \code{n_perm} permutations (with 200 permutations at \code{q = 0.999} this is
+"beats about the maximum": ~6 false splits per 1,000 tests of one clone, not 1); \code{"pvalue"} = permutation p-value
+\verb{(1 + #null >= observed) / (1 + permutations) <= 1 - q}, over \code{max(n_perm, ceiling(1 / (1 - q)) - 1)} permutations
+(999 at \code{q = 0.999}) with an exact early stop for "same" (as soon as p can no longer reach \code{1 - q}); a "different"
+verdict runs every permutation. The run notes give the number of tests and the expected false splits
+\verb{n_tests x (1 - q)}. Hierarchy: trunks =
 average-linkage groups of \code{\link[=clone_allelic_distance]{clone_allelic_distance()}} cut at \code{trunk_dist} (bp x haplotype fraction; e.g. 100 Mb
 differing by 0.3); trunk cells = trunk posterior >= \code{trunk_post}; \code{\link[=discover_within]{discover_within()}} with \code{disp_min}, \code{imb_min},
 \code{deep_q}, \code{depth_w}, \code{max_leaves_trunk}, \code{n_nb_trunk}; final split pass after the EM rounds (\code{split_pass}): \code{FALSE}
@@ -46,6 +53,15 @@ tumour state set, one threshold per stratum) or "matched" (each clone hypothesis
 the null rows oriented by that clone's pseudobulk under the same two-state set as the cells; one threshold per
 hypothesis x stratum, hypothesis-wide below \code{min_null_rows}; held-out fold-CV false-confirmation rates per
 hypothesis in \code{null_fit$confirm_null}; the default). The refitted value is \code{null_fit$rho_confirm}.
+\code{confirm_sided} = the allele term of the confirmation scores, cells and null rows alike (\code{\link[=score_cells]{score_cells()}} \code{sided}):
+"two" (default; a cell whose opposite homologue is imbalanced also scores high) or "one" (the votes are oriented
+by the clone's pseudobulk, so only the clone's major haplotype counts). The fallback without null rows (type-7
+quantile of \code{cell_state_scores()}) is always one-sided.
 
-A key that is not one of these defaults stops \code{\link[=caller_tumour]{caller_tumour()}} with an error.
+A key that is not one of these defaults stops \code{\link[=caller_tumour]{caller_tumour()}} with an error, and so does a value outside its range:
+\code{q}, \code{p_switch}, \code{trunk_post}, \code{min_post}, \code{ref_post}, \code{max_mix_prior} and every \code{mix_w} strictly
+between 0 and 1, \code{mix_prior} in [0, 1), \code{multiplet_prob}, \code{deep_q} and \code{member_post} in [0, 1], counts (\code{em_rounds},
+\code{min_size}, \code{n_perm}, \code{min_win}, \code{min_ref}, ...) whole numbers >= 1, the caps \code{max_cells}, \code{max_leaves} and
+\code{max_leaves_trunk} whole numbers >= 1 or \code{Inf} (no cap), \code{small_clone} a whole number >= 0, \code{trunk_dist} and
+\code{control_min_len} >= 0, the other sizes / lengths > 0, the other tolerances >= 0.
 }

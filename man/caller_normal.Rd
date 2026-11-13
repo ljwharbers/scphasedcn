@@ -19,6 +19,8 @@ caller_normal(
   sex = NULL,
   resolve_gains = TRUE,
   gain_min_dl = 0,
+  gain_gate = "dl",
+  gain_gate_q = 0.95,
   pool_loo = TRUE,
   pool_standardize = TRUE,
   null_chroms = paste0("chr", 1:22)
@@ -47,12 +49,20 @@ caller_normal(
 
 \item{select_args}{extra arguments for \code{\link[=select_null_cells]{select_null_cells()}}}
 
-\item{sex}{"female", "male" or NULL (inferred: female when chrX rows carry allele votes); sets the
-chrX rule of \code{\link[=call_policy]{call_policy()}}}
+\item{sex}{"female", "male" (case-insensitive, or "F" / "M"; any other value stops) or NULL (inferred: female when
+chrX rows carry allele votes); sets the chrX rule of \code{\link[=call_policy]{call_policy()}}}
 
 \item{resolve_gains}{apply \code{\link[=resolve_nested]{resolve_nested()}} to the per-cell calls}
 
-\item{gain_min_dl}{\code{min_dl_gain} of \code{\link[=resolve_nested]{resolve_nested()}}}
+\item{gain_min_dl}{\code{min_dl_gain} of \code{\link[=resolve_nested]{resolve_nested()}} (\code{gain_gate = "dl"})}
+
+\item{gain_gate}{depth gate of the per-cell gains, \code{gate} of \code{\link[=resolve_nested]{resolve_nested()}}: \code{"dl"} (default: gain depth
+LLR above \code{gain_min_dl}, i.e. z above the midpoint of neutral and the gain shift) or \code{"z"} (opt-in: z also
+above the \code{gain_gate_q} quantile of the depth null of the row's class x stratum. About \code{1 - gain_gate_q} of
+all null-depth rows pass; among rows already called as gains with weak allelic support, and on female chrX,
+up to about two to three times that in simulation. Not benchmarked on real data as a default)}
+
+\item{gain_gate_q}{null quantile of the \code{"z"} gain gate (0.95)}
 
 \item{pool_loo}{call pools on the leave-one-out robust score \code{s_rob} (\code{\link[=pool_scores]{pool_scores()}})}
 
@@ -65,7 +75,7 @@ same construction) before the per-class pooled thresholds}
 \value{
 \code{scphasedcn} (mode normal) with \code{scores}, \code{thresholds} (column \code{level}:
 cell, pool_type, pool_knn), \code{calls} (cell and pool level; \code{resolved} for gains changed by
-\code{\link[=resolve_nested]{resolve_nested()}}), \code{events}, \code{pools}, \code{null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)} (\code{vote_bins}: the \code{\link[=vote_bins]{vote_bins()}} table with \code{params$calib = "votes"}; \code{rho_chrom}: the
+\code{\link[=resolve_nested]{resolve_nested()}}; with \code{gain_gate = "z"} also its \code{gate_z}, \code{gate_thr}), \code{events}, \code{pools}, \code{null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)} (\code{vote_bins}: the \code{\link[=vote_bins]{vote_bins()}} table with \code{params$calib = "votes"}; \code{rho_chrom}: the
 \code{\link[=rho_by_chrom]{rho_by_chrom()}} table with \code{params$calib_rho = "chrom"})
 }
 \description{
@@ -85,7 +95,8 @@ events (\code{\link[=consolidate_calls]{consolidate_calls()}}). Rows with \code{
 Calibration policy (defaults): null cells are selected on autosomal rows
 and null rows are autosomal (\code{\link[=select_null_cells]{select_null_cells()}} \code{chroms}, \code{null_chroms});
 per-cell chromosome gains need depth support and lose to a stronger nested
-loss / CN-LOH (\code{\link[=resolve_nested]{resolve_nested()}}, \code{resolve_gains}); pooled state scores are
+loss / CN-LOH (\code{\link[=resolve_nested]{resolve_nested()}}, \code{resolve_gains}; opt-in \code{gain_gate = "z"} gates on a null quantile of z
+instead of the sign of the gain depth LLR); pooled state scores are
 standardised per region by the median / MAD of the null pools of the same
 construction (\code{\link[=pool_scale]{pool_scale()}}, \code{pool_standardize}), and a pooled call must
 survive dropping its most influential cell (\code{pool_loo}: pools are called on
@@ -96,6 +107,8 @@ Opt-in calibrations: \code{params$calib = "votes"} keys the per-cell thresholds 
 (\code{hstratum}, bins of n_hap of the null rows, \code{\link[=vote_bins]{vote_bins()}}); \code{params$calib_rho = "chrom"} scores the allele
 channel with a per-chromosome rho shrunk to the global (\code{\link[=rho_by_chrom]{rho_by_chrom()}}). \code{params$pool_tail_q > 0} (the
 default) adds a per-region tail factor to the pooled region scale (\code{\link[=pool_scale]{pool_scale()}}), cross-fitted with
-\code{params$pool_tail_xfit} (\code{\link[=pooled_thresholds]{pooled_thresholds()}}). Removed options stop with
+\code{params$pool_tail_xfit} (\code{\link[=pooled_thresholds]{pooled_thresholds()}}). Named \code{event} regions (no null rows) borrow the per-cell
+thresholds of their \code{sd_class} (\code{\link[=budget_thresholds]{budget_thresholds()}}); their pools are called only with \code{params$pool_events}
+(experimental, off by default: \code{\link[=caller_defaults]{caller_defaults()}}). Removed options stop with
 an error: \code{calib} "region" / "region_votes" / "votes_cont", \code{calib_rho} "cell" / "chrom_cell".
 }

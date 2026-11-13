@@ -2,7 +2,7 @@
 % Please edit documentation in R/cli.R
 \name{cli_events}
 \alias{cli_events}
-\title{Event regions of a sample (config \code{events} map) as a regions table}
+\title{Event regions of a sample (config \code{events} map, region strings with 0-based half-open coordinates) as a regions table}
 \usage{
 cli_events(s, chrom_sizes = NULL)
 }
@@ -15,5 +15,5 @@ cli_events(s, chrom_sizes = NULL)
 data.table region, chrom, start, end, event
 }
 \description{
-Event regions of a sample (config \code{events} map) as a regions table
+Event regions of a sample (config \code{events} map, region strings with 0-based half-open coordinates) as a regions table
 }

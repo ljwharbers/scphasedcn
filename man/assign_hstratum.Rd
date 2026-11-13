@@ -13,7 +13,8 @@ assign_hstratum(d, bins)
 }
 \value{
 character vector: \verb{h<i>} (bin of the row's class x stratum), \code{none} (n_hap 0 or NA) or \code{all}
-(class x stratum without bins)
+(class x stratum without bins). Rows of a class without bins (named \code{event} regions) use the bins of their
+\code{sd_class} when \code{d} has that column (they borrow its thresholds, \code{\link[=budget_thresholds]{budget_thresholds()}}).
 }
 \description{
 Vote stratum of each row

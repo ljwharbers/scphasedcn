@@ -21,6 +21,7 @@ call_scn(
   verbose = TRUE,
   keep_scores = TRUE,
   caller_args = list(),
+  phasing = "auto",
   ...
 )
 }
@@ -29,22 +30,30 @@ call_scn(
 
 \item{mode}{"normal" or "tumour"}
 
-\item{cell_meta}{NULL, a table or a TSV path with \code{cell} and optional \verb{cell_type, flat, fold, group, stratum, n_frag} (passed to \code{\link[=cell_features]{cell_features()}}; \code{flat} becomes the features' \code{null_cell})}
+\item{cell_meta}{NULL, a table or a TSV path with \code{cell} and optional \verb{qc_pass, cell_type, flat, fold, group, stratum, n_frag} (passed to \code{\link[=cell_features]{cell_features()}}: without \code{cells} only its cells that pass \code{\link[=cell_qc]{cell_qc()}} are called,
+and with a \code{qc_pass} column only those that also have \code{qc_pass} TRUE; \code{flat} becomes the features' \code{null_cell})}
 
-\item{cells}{NULL (QC-pass cells) or the cells to call (vector or file)}
+\item{cells}{NULL (QC-pass cells) or the cells to call (vector or file; no cell QC). The barcodes of \code{cells},
+\code{cell_meta}, \code{null_cells}, \code{multiplets} and named \code{groups} lose a trailing \code{-1} (as the extractor writes them);
+the run notes give how many of them match the data's cells, and a warning says when none does}
 
-\item{sex}{"female" / "male" (required for real data; NULL uses a \code{sex} column of \code{cells_qc.tsv} if there is one, as in
-simulated data)}
+\item{sex}{"female" / "male" (case-insensitive, or "F" / "M"; any other value stops; required for real data; NULL
+uses a \code{sex} column of \code{cells_qc.tsv} if there is one, as in simulated data; its non-missing values must agree)}
 
-\item{events}{named events: a table \verb{region, chrom, start, end}, \code{\link[=cli_events]{cli_events()}} output or a named vector of
-region strings (\verb{20q_gain = "chr20:28000000-"}); scored as \code{event} regions; in tumour mode their chromosomes
-are excluded from the null rows}
+\item{events}{named events: a table \verb{region, chrom, start, end} (0-based half-open), \code{\link[=cli_events]{cli_events()}} output or a
+named vector of region strings (\verb{20q_gain = "chr20:28000000-"}; unnamed ones are named after the region, see
+\code{\link[=region_set]{region_set()}}); scored as \code{event} regions; in tumour mode their chromosomes are excluded from the null rows}
 
 \item{null_cells}{NULL / "auto" (the features' \code{null_cell} when informative, else selected), "features",
-"select" (\code{\link[=select_null_cells]{select_null_cells()}}), or the null cells themselves (vector or file)}
+"select" (\code{\link[=select_null_cells]{select_null_cells()}}), or the null cells themselves (vector or file). Tumour mode: given null cells
+(like \code{flat} cells of \code{cell_meta}) are the cells whose null rows fit the input depth t null and allelic rho when the
+features carry no \code{null_fit}; they are not the reference pool (the caller finds and cleans the normal clone
+itself); "select" is ignored with a warning}
 
 \item{multiplets}{NULL or multiplet flags (\code{\link[=multiplet_table]{multiplet_table()}} forms); normal mode: cells with prob > 0.5
-are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}}
+are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}, which sets aside the cells
+above its \code{multiplet_prob} option (default 0.9). The \code{multiplet} column of the cells table flags the cells each
+mode set aside}
 
 \item{control_regions}{tumour mode: control regions for the null (regions table)}
 
@@ -54,22 +63,34 @@ by cell, or one label per cell); ignored with a warning in normal mode}
 \item{params}{\code{\link[=caller_params]{caller_params()}} / \code{\link[=caller_defaults]{caller_defaults()}}; its optional \code{normal} / \code{tumour} blocks
 (\code{\link[=caller_params]{caller_params()}}) are the default arguments of \code{\link[=caller_normal]{caller_normal()}} / \code{caller_tumour()} (\code{opts})}
 
-\item{features}{NULL (computed) or a precomputed \code{scn_features} (object or .rds path) to skip the feature step}
+\item{features}{NULL (computed) or a precomputed \code{scn_features} (object or .rds path) to skip the feature step; the
+arguments of the feature step (\code{sex}, \code{events}, \code{...}; in tumour mode also \code{cells}, \code{groups}, \code{cell_meta}; in normal
+mode \code{cell_meta} columns other than \code{cell_type}) are then not used, with a warning}
 
 \item{embedding}{TRUE (compute \code{\link[=scn_embedding]{scn_embedding()}} from \code{dir}; skipped with a warning when that fails), FALSE,
 or a cells x components matrix with cell row names}
 
-\item{verbose}{log progress}
+\item{verbose}{log progress (also of \code{caller_tumour()})}
 
 \item{keep_scores}{keep the per cell x region scores in the result (normal mode; large)}
 
 \item{caller_args}{extra arguments for \code{\link[=caller_normal]{caller_normal()}} / \code{caller_tumour()} (e.g. \code{n_draws}, \code{opts}); they take
 precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts} merged key by key)}
 
+\item{phasing}{phasing / block orientation of the allele features (\code{\link[=cell_features]{cell_features()}}: "auto", "chromosome",
+"block", "loo" or "mirrored"; both modes; ignored with precomputed \code{features}). Normal mode with \code{loo} on
+block phasing (read-backed blocks without a population phase) gives a warning and a run note: it aligns allelic
+bias shared by all cells (false per-cell events) and cannot show allelic events carried by few cells, so
+chromosome-scale phasing is recommended (\verb{scphasedcn hybrid-phase}; \code{vignette("scphasedcn-inputs")} for its
+limits). \code{chromosome} on block phasing (overall, or on a chromosome with votes) and, in normal
+mode, \code{mirrored} (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
+chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)}
+
 \item{...}{extra arguments for \code{\link[=cell_features]{cell_features()}} (e.g. \code{centromeres}, \code{classes}, \code{qc})}
 }
 \value{
-\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, notes), \code{scores}
+\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, phasing_chrom (the
+per-chromosome phasing regimes, \code{\link[=phasing_by_chrom]{phasing_by_chrom()}}), notes), \code{scores}
 (normal, \code{keep_scores}), \code{thresholds}, \code{calls}, \code{events}, \code{pools}, \code{null_fit}, \code{false_calls} (normal:
 \code{\link[=null_false_calls]{null_false_calls()}}), \code{embedding}, clone components (tumour), \code{params} (the caller parameters plus the
 arguments used: \code{normal} = every \code{\link[=caller_normal]{caller_normal()}} argument of the run, \code{tumour} = the full tumour options) and

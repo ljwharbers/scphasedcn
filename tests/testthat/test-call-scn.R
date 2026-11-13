@@ -19,11 +19,37 @@ sim_dir = function(name) {
   }
   call_cache[[key]]
 }
+# a simulation written with the phase sets of `chroms` replaced: `block` bp read-backed blocks (orientation kept), or
+# one phase set per chromosome (block = NULL), e.g. a hybrid phase with one chromosome left in blocks
+rephased_dir = function(name, chroms, block = NULL) {
+  key = paste0(name, "_", paste(chroms, collapse = "_"), "_", if (is.null(block)) "chrom" else format(block), "_dir")
+  if (is.null(call_cache[[key]])) {
+    s = get(name)
+    s$fragments = copy(s$fragments)
+    if (is.null(block)) s$fragments[chrom %in% chroms & ps > 0, ps := min(ps), by = chrom]
+    else s$fragments[chrom %in% chroms & ps > 0, ps := as.integer(floor(start / block) * block + 1)]
+    d = file.path(tempdir(), paste0("callscn_", sub("_dir$", "", key)))
+    unlink(d, recursive = TRUE)
+    invisible(capture.output(suppressMessages(write_sim_dataset(s, d))))
+    call_cache[[key]] = d
+  }
+  call_cache[[key]]
+}
+# call_scn with its warnings collected: list(r, w)
+call_w = function(...) {
+  w = character()
+  r = withCallingHandlers(call_scn(...), warning = function(cnd) { w <<- c(w, conditionMessage(cnd)); invokeRestart("muffleWarning") })
+  list(r = r, w = w)
+}
 norm_result = function() {
   if (is.null(call_cache$norm)) {
     t0 = Sys.time()
     d = sim_dir("sim_norm_f")
-    call_cache$norm = call_scn(d, "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE)
+    w = character()
+    call_cache$norm = withCallingHandlers(
+      call_scn(d, "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE),
+      warning = function(cnd) { w <<- c(w, conditionMessage(cnd)); invokeRestart("muffleWarning") })
+    call_cache$norm_warnings = w
     call_cache$norm_min = as.numeric(difftime(Sys.time(), t0, units = "mins"))
   }
   call_cache$norm
@@ -74,6 +100,23 @@ test_that("caller_params reads caller.yaml (= caller_defaults) and applies overr
   tf2 = tempfile(fileext = ".yaml")
   writeLines(yaml_lines(caller_defaults()), tf2)
   expect_equal(caller_params(tf2), caller_defaults())
+})
+
+test_that("the gain gate arguments of caller_normal() round-trip through caller.yaml and params.yaml", {
+  pf = caller_params()
+  expect_identical(pf$normal$gain_gate, "dl")
+  expect_identical(pf$normal$gain_gate_q, 0.95)
+  tf = tempfile(fileext = ".yaml")
+  writeLines(c("normal:", "  gain_gate: \"z\"", "  gain_gate_q: 0.99"), tf)
+  p = caller_params(tf)
+  expect_identical(p$normal$gain_gate, "z")
+  expect_identical(p$normal$gain_gate_q, 0.99)
+  expect_identical(p$normal$gain_min_dl, 0)
+  y = parse_simple_yaml(readLines(tf))                          # the fallback parser reads the block the same way
+  expect_equal(block_params(y$normal, normal_arg_defaults(), "normal"), p$normal)
+  tf2 = tempfile(fileext = ".yaml")                             # params.yaml of a run reads back
+  writeLines(yaml_lines(p), tf2)
+  expect_equal(caller_params(tf2)$normal, p$normal)
 })
 
 test_that("multiplet_table normalises vectors, files and multiplet score tables", {
@@ -197,6 +240,123 @@ test_that("call_scn takes precomputed features, explicit null cells and multiple
   expect_null(r3$params$tumour)
 })
 
+test_that("normal mode warns on block-only phasing (loo orientation), not on chromosome-wide phasing", {
+  # sim_norm_f: one phase set per chromosome -> chromosome orientation, no warning, no run note
+  res = norm_result()
+  expect_equal(unname(res$feature_info$phasing), c("chromosome", "chromosome"))
+  expect_false(any(grepl("block phasing", call_cache$norm_warnings)))
+  expect_false(any(grepl("block phasing", res$notes)))
+  pc0 = res$feature_info$phasing_chrom
+  expect_s3_class(pc0, "data.table")
+  expect_setequal(pc0$chrom, unique(sim_norm_f$scn$bins$chrom))
+  expect_equal(unique(pc0$regime), "chromosome")
+  expect_false(any(grepl("while the run's regime", res$notes, fixed = TRUE)))
+  # sim_norm_blk: unoriented 200 kb blocks -> loo orientation -> one warning and a run note that reaches NOTES.md
+  s = sim_norm_blk
+  d = sim_dir("sim_norm_blk")
+  w = character()
+  r = withCallingHandlers(
+    call_scn(d, "normal", sex = "female", centromeres = cs_centromeres(s$scn$bins), embedding = FALSE, verbose = FALSE,
+             keep_scores = FALSE),
+    warning = function(cnd) { w <<- c(w, conditionMessage(cnd)); invokeRestart("muffleWarning") })
+  hit = grepl("normal mode on block phasing", w)
+  expect_equal(sum(hit), 1L)
+  expect_match(w[hit], "scphasedcn-inputs", fixed = TRUE)
+  expect_match(w[hit], "scphasedcn hybrid-phase", fixed = TRUE)
+  expect_equal(unname(r$feature_info$phasing), c("block", "loo"))
+  pc = r$feature_info$phasing_chrom
+  expect_s3_class(pc, "data.table")
+  expect_equal(anyDuplicated(pc$chrom), 0L)
+  expect_setequal(pc$chrom, unique(s$scn$bins$chrom))
+  expect_true(all(pc$n_votes > 0))
+  expect_equal(unique(pc$regime), "block")
+  expect_true(any(grepl("phasing per chromosome", r$feature_info$notes)))
+  expect_equal(sum(grepl("normal mode on block phasing", r$notes)), 1L)
+  out = file.path(tempdir(), "callscn_blk")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(r, out)
+  expect_true(any(grepl("normal mode on block phasing", readLines(file.path(out, "NOTES.md")))))
+  expect_equal(read_scphasedcn(out)$feature_info$phasing_chrom, pc)
+  # the note follows the features' phasing record: precomputed block features warn too, tumour mode never
+  expect_null(phasing_run_note(c(detected = "block", orientation = "loo"), "tumour"))
+  expect_null(phasing_run_note(c(detected = "chromosome", orientation = "chromosome"), "normal"))
+  expect_null(phasing_run_note(c(detected = "block", orientation = "mirrored"), "normal"))
+  expect_null(phasing_run_note(NULL, "normal"))
+  expect_type(phasing_run_note(c(detected = "block", orientation = "block"), "normal"), "character")
+  # `phasing` is checked up front
+  expect_error(call_scn(d, "normal", phasing = "bogus"), "should be one of")
+})
+
+test_that("chromosomes left in blocks under chromosome-scale phasing reach the run notes and NOTES.md", {
+  s = sim_norm_f
+  x = call_w(rephased_dir("sim_norm_f", "chr22", block = 2e5), "normal", sex = "female", centromeres = cs_centromeres(s$scn$bins),
+             embedding = FALSE, verbose = FALSE, keep_scores = FALSE)
+  call_cache$mixed = x
+  r = x$r
+  expect_equal(unname(r$feature_info$phasing), c("chromosome", "chromosome"))
+  pc = r$feature_info$phasing_chrom
+  expect_equal(pc[regime == "block", chrom], "chr22")
+  expect_setequal(pc[regime == "chromosome", chrom], setdiff(unique(s$scn$bins$chrom), "chr22"))
+  msg = "chr22 phased in blocks while the run's regime is chromosome"
+  expect_equal(sum(grepl(msg, r$notes, fixed = TRUE)), 1L)
+  # the note says what chromosome orientation does to the blocks (summed unoriented); not under loo
+  expect_match(r$notes[grepl(msg, r$notes, fixed = TRUE)], "attenuates or cancels their allele signal", fixed = TRUE)
+  pcb = data.table(chrom = c("chr1", "chr2"), n_votes = c(100, 80), n_ps = c(1L, 40L), k = c(1L, 30L),
+                   regime = c("chromosome", "block"))
+  expect_false(grepl("attenuates", phasing_mixed_note(pcb, "block", "loo"), fixed = TRUE))
+  expect_match(phasing_mixed_note(pcb, "block", "loo"), "chr1 phased chromosome-wide", fixed = TRUE)
+  out = file.path(tempdir(), "callscn_mixed")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(r, out)
+  expect_equal(sum(grepl(msg, readLines(file.path(out, "NOTES.md")), fixed = TRUE)), 1L)
+})
+
+test_that("chromosome orientation on block phasing and mirrored orientation in normal mode warn", {
+  s = sim_norm_blk
+  d = sim_dir("sim_norm_blk")
+  run = function(ph) call_w(d, "normal", sex = "female", centromeres = cs_centromeres(s$scn$bins), embedding = FALSE,
+                            verbose = FALSE, keep_scores = FALSE, phasing = ph)
+  forced = 'phasing = "chromosome" on block phasing'
+  mirr = 'normal mode with phasing = "mirrored"'
+  # `chromosome` forced on unoriented blocks: one warning, one run note in NOTES.md
+  x = run("chromosome")
+  expect_equal(unname(x$r$feature_info$phasing), c("block", "chromosome"))
+  hit = grepl(forced, x$w, fixed = TRUE)
+  expect_equal(sum(hit), 1L)
+  expect_match(x$w[hit], "carries no signal", fixed = TRUE)
+  expect_false(any(grepl(mirr, x$w, fixed = TRUE)))
+  out = file.path(tempdir(), "callscn_forced")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(x$r, out)
+  expect_equal(sum(grepl(forced, readLines(file.path(out, "NOTES.md")), fixed = TRUE)), 1L)
+  # `mirrored`: one warning, one run note
+  y = run("mirrored")
+  hit = grepl(mirr, y$w, fixed = TRUE)
+  expect_equal(sum(hit), 1L)
+  expect_match(y$w[hit], "not calibrated for calling", fixed = TRUE)
+  expect_false(any(grepl(forced, y$w, fixed = TRUE)))
+  expect_equal(sum(grepl(mirr, y$r$notes, fixed = TRUE)), 1L)
+  # valid cases are silent: auto on chromosome-wide phasing (sim_norm_f) and on blocks (loo note only), chromosome
+  # requested on chromosome-wide phasing
+  res = norm_result()
+  expect_false(any(grepl(paste0(forced, "|", mirr), call_cache$norm_warnings)))
+  z = run("auto")
+  expect_false(any(grepl(forced, z$w, fixed = TRUE) | grepl(mirr, z$w, fixed = TRUE)))
+  expect_length(phasing_orientation_notes(res$feature_info$phasing, res$feature_info$phasing_chrom, "normal", "chromosome"), 0L)
+  # one chromosome in blocks: `chromosome` requested names it, `auto` does not warn
+  pc = data.table(chrom = c("chr1", "chr2", "chrX"), n_votes = c(100, 80, 40), n_ps = c(1L, 2L, 30L), k = c(1L, 1L, 20L),
+                  regime = c("chromosome", "chromosome", "block"))
+  ph = c(detected = "chromosome", orientation = "chromosome")
+  n1 = phasing_orientation_notes(ph, pc, "normal", "chromosome")
+  expect_length(n1, 1L)
+  expect_match(n1, paste0(forced, " (chrX)"), fixed = TRUE)
+  expect_length(phasing_orientation_notes(ph, pc, "normal", "auto"), 0L)
+  expect_length(phasing_orientation_notes(ph, pc[regime == "chromosome"], "normal", "chromosome"), 0L)
+  # tumour mode: the forced warning applies, mirrored is not flagged
+  expect_length(phasing_orientation_notes(c(detected = "block", orientation = "chromosome"), NULL, "tumour", "chromosome"), 1L)
+  expect_length(phasing_orientation_notes(c(detected = "block", orientation = "mirrored"), NULL, "tumour", "mirrored"), 0L)
+})
+
 test_that("scn_embedding is reproducible (seeded truncated SVD) and named by cell", {
   res = norm_result()
   d = sim_dir("sim_norm_f")
@@ -210,11 +370,19 @@ test_that("tumour mode dispatches to the tumour mode", {
   d = sim_dir("sim_tum2")
   s = sim_tum2
   cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
-  res = call_scn(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
-                 centromeres = cs_centromeres(s$scn$bins))
+  # multiplet scores between 0.5 and the tumour mode's multiplet_prob (0.9) are not flagged: the cells are used as singlets
+  mult = data.table(cell = cm$cell[1:4], prob = c(0.6, 0.85, 0.95, 1))
+  x = call_w(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
+             centromeres = cs_centromeres(s$scn$bins), multiplets = mult)
+  res = x$r
+  expect_false(any(grepl("chromosome-scale phasing", x$w, fixed = TRUE)))
+  expect_false(any(grepl("chromosome-scale phasing", res$notes, fixed = TRUE)))
   expect_s3_class(res, "scphasedcn")
   expect_equal(res$mode, "tumour")
   expect_true(all(c("clone", "posterior") %in% names(res$cells)))
+  expect_identical(res$cells[match(mult$cell, cell), multiplet], c(FALSE, FALSE, TRUE, TRUE))
+  asg = as.data.table(res$assignments)
+  expect_identical(res$cells[match(asg$cell, cell), multiplet], asg$multiplet)
   # the tumour options of the run are kept in params (call_scn no longer replaces the caller's record)
   expect_identical(res$params$tumour, clone_defaults())
   expect_null(res$params$normal)
@@ -225,6 +393,69 @@ test_that("tumour mode dispatches to the tumour mode", {
   expect_equal(caller_params(file.path(out, "params.yaml")), res$params)
 })
 
+test_that("tumour mode on chromosome-scale phasing warns once and notes it", {
+  s = sim_tum2
+  d = rephased_dir("sim_tum2", unique(s$scn$bins$chrom))
+  cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
+  x = call_w(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
+             centromeres = cs_centromeres(s$scn$bins))
+  expect_equal(x$r$feature_info$phasing[["detected"]], "chromosome")
+  msg = "tumour mode on chromosome-scale phasing"
+  hit = grepl(msg, x$w, fixed = TRUE)
+  expect_equal(sum(hit), 1L)
+  expect_match(x$w[hit], "cannot be re-oriented per clone", fixed = TRUE)
+  out = file.path(tempdir(), "callscn_tum_chrom")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(x$r, out)
+  expect_equal(sum(grepl(msg, readLines(file.path(out, "NOTES.md")), fixed = TRUE)), 1L)
+  expect_type(phasing_run_note(c(detected = "chromosome", orientation = "chromosome"), "tumour"), "character")
+  expect_null(phasing_run_note(c(detected = "chromosome", orientation = "chromosome"), "tumour", phasing_chrom = data.table(chrom = character(), regime = character())))
+})
+
+# a simulation written without phase sets (ps = 0: an unphased extraction), so the run has no allele votes at all
+unphased_dir = function(name) {
+  key = paste0(name, "_unphased_dir")
+  if (is.null(call_cache[[key]])) {
+    s = get(name)
+    s$fragments = copy(s$fragments)[, ps := 0L]
+    d = file.path(tempdir(), paste0("callscn_", name, "_unphased"))
+    unlink(d, recursive = TRUE)
+    invisible(capture.output(suppressMessages(write_sim_dataset(s, d))))
+    call_cache[[key]] = d
+  }
+  call_cache[[key]]
+}
+
+test_that("a run without allele votes: the phasing checks stay quiet (normal: depth-only calls; tumour: the caller's stop)", {
+  s = sim_norm_f
+  # phasing = "chromosome" requested: the check of block-phased chromosomes sees an empty per-chromosome table
+  x = call_w(unphased_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(s$scn$bins),
+             phasing = "chromosome", verbose = FALSE)
+  expect_s3_class(x$r, "scphasedcn")
+  expect_equal(nrow(x$r$feature_info$phasing_chrom), 0L)
+  expect_equal(unname(x$r$feature_info$phasing[["orientation"]]), "chromosome")
+  expect_length(grep("no allele votes", x$w), 1L)
+  expect_false(any(grepl("block phasing|chromosome-scale phasing|phased in blocks|chromosome-wide", x$w)))
+  expect_false(any(grepl("block phasing|chromosome-scale phasing|phased in blocks|chromosome-wide", x$r$notes)))
+  out = file.path(tempdir(), "callscn_norm_unphased")
+  unlink(out, recursive = TRUE)
+  expect_no_error(write_scphasedcn(x$r, out))
+  # the other requested regimes on the same (empty) phasing record give no phasing note either
+  pc = x$r$feature_info$phasing_chrom
+  for (ori in c("loo", "chromosome")) {
+    ph = c(detected = "chromosome", orientation = ori)
+    expect_null(phasing_run_note(ph, "normal", pc))
+    expect_length(phasing_orientation_notes(ph, pc, "normal", if (ori == "loo") "block" else "chromosome"), 0L)
+    expect_null(phasing_mixed_note(pc, "chromosome", ori))
+  }
+  # tumour mode stops in the caller with its own message, not in the phasing code
+  t2 = sim_tum2
+  cm = data.table(cell = t2$scn$cells$cell, group = t2$scn$cells$cell_type)
+  expect_error(suppressWarnings(call_scn(unphased_dir("sim_tum2"), "tumour", cell_meta = cm, cells = cm$cell, sex = "male",
+                                         groups = "group", verbose = FALSE, centromeres = cs_centromeres(t2$scn$bins))),
+               "caller_tumour: no allele votes")
+})
+
 test_that("inst/scripts/call_scn.R --help exits 0 without data", {
   script = system.file("scripts", "call_scn.R", package = "scphasedcn")
   expect_true(file.exists(script))
@@ -233,6 +464,7 @@ test_that("inst/scripts/call_scn.R --help exits 0 without data", {
   expect_null(attr(out, "status"))
   expect_true(any(grepl("--sample", out)))
   expect_true(any(grepl("--null-cells", out)))
+  expect_true(any(grepl("--phasing", out)))
 })
 
 test_that("call_scn.R runs on --dir / --out alone, without a sample yaml", {
@@ -281,4 +513,180 @@ test_that("make_cell_meta builds the cell metadata from cells_qc and user labels
   expect_equal(nrow(m2), nrow(fread(file.path(d, "cells_qc.tsv"))))
   expect_true(all(is.na(m2$cell_type)) && all(is.na(m2$flat)))
   expect_error(make_cell_meta(), "no cells")
+})
+
+test_that("cell selection: the cell QC applies, a cell_meta qc_pass column restricts it further; `cells` bypasses QC", {
+  all = paste0("c", 1:6)
+  qct = data.table(cell = all, qc_pass = c(TRUE, TRUE, TRUE, FALSE, FALSE, TRUE))
+  expect_identical(feature_cells(all, qct)$keep, c("c1", "c2", "c3", "c6"))
+  # a cell_meta without qc_pass: its cells that pass the QC (the CLI no longer passes them as `cells`)
+  m = data.table(cell = c("c6", "c4", "c2", "x9"))
+  s = feature_cells(all, qct, cell_meta = m)
+  expect_identical(s$keep, c("c2", "c6"))
+  expect_identical(s$how, "QC pass")
+  # with qc_pass: a cell must pass both the QC and the table's qc_pass (c4 fails the QC, c2 / c1 the table)
+  m2 = data.table(cell = c("c6", "c4", "c2", "c1"), qc_pass = c(TRUE, TRUE, FALSE, NA))
+  s2 = feature_cells(all, qct, cell_meta = m2)
+  expect_identical(s2$keep, "c6")
+  expect_identical(s2$how, "QC pass and cell_meta qc_pass")
+  # explicit cells: no QC, in the sample's order
+  expect_identical(feature_cells(all, qct, cells = c("c5", "c4", "zz"), cell_meta = m2)$keep, c("c4", "c5"))
+})
+
+test_that("cell_features: a cell_meta qc_pass column does not override the `qc` argument", {
+  # make_cell_meta() writes qc_pass with its own QC arguments; a stricter `qc` of the run still applies
+  d = sim_dir("sim_norm_f")
+  m = make_cell_meta(d)
+  expect_true("qc_pass" %in% names(m))
+  qc = list(min_frag = 20000)
+  qct = do.call(cell_qc, c(list(read_sample_depth(d)), qc))
+  want = intersect(qct[qc_pass == TRUE, cell], m[qc_pass %in% TRUE, cell])
+  expect_lt(length(want), sum(m$qc_pass))                            # the stricter QC removes cells
+  f = suppressWarnings(cell_features(d, cell_meta = m, sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins),
+                                     qc = qc, classes = c("arm", "chrom")))
+  expect_setequal(f$cells$cell, want)
+})
+
+test_that("cell_features: the sample's sex from a cells table must be one sex", {
+  s = sim_norm_f
+  s$scn$cells = copy(s$scn$cells)[, sex := rep(c("F", "male"), length.out = .N)]
+  d = file.path(tempdir(), "mixed_sex")
+  unlink(d, recursive = TRUE)
+  invisible(capture.output(suppressMessages(write_sim_dataset(s, d))))
+  expect_error(cell_features(d, centromeres = cs_centromeres(s$scn$bins), classes = c("arm", "chrom")),
+               "cell_features: the cells' `sex` column mixes both sexes")
+  # spellings normalised, missing / empty values ignored
+  expect_identical(cells_sex(c("F", NA, "female", " ")), "female")
+  expect_identical(cells_sex(c(NA, "M")), "male")
+  expect_identical(cells_sex(c(NA, NA)), NA_character_)
+  expect_error(cells_sex(c("m", "Female")), "mixes both sexes")
+  expect_error(cells_sex(c("m", "x")), "`sex` must be")
+})
+
+test_that("call_scn.R --cell-meta without qc_pass applies the cell QC (as the R API does)", {
+  skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
+  script = system.file("scripts", "call_scn.R", package = "scphasedcn")
+  rs = file.path(R.home("bin"), "Rscript")
+  d = sim_dir("sim_norm_f")
+  all_cells = fread(file.path(d, "cells_qc.tsv"))$cell
+  api = norm_result()$cells$cell                                     # QC-pass cells
+  expect_gt(length(setdiff(all_cells, api)), 0)                     # some cells of the simulation fail the QC
+  cm = file.path(tempdir(), "cli_meta_noqc.tsv")
+  fwrite(data.table(cell = all_cells), cm, sep = "\t")
+  cen = file.path(tempdir(), "cli_centromeres.tsv")
+  fwrite(cs_centromeres(sim_norm_f$scn$bins), cen, sep = "\t")
+  out = file.path(tempdir(), "callscn_cli_qc_out")
+  unlink(out, recursive = TRUE)
+  log = suppressWarnings(system2(rs, c(script, "--dir", d, "--out", out, "--sex", "female", "--centromeres", cen,
+                                       "--cell-meta", cm, "--no-embedding", "--cores", "1"), stdout = TRUE, stderr = TRUE))
+  expect_null(attr(log, "status"))
+  expect_setequal(fread(file.path(out, "cells.tsv"))$cell, api)
+})
+
+test_that("params.yaml round-trips empty vectors and strings with backslashes / quotes", {
+  p = caller_defaults()
+  p$tabix = "C:\\tools\\tabix \"v2\""
+  p$tumour = clone_defaults()
+  p$tumour$allelic_exclude = character()
+  p$tumour$checkpoint = "ck\\run\t1.rds"
+  p$normal = normal_arg_defaults()
+  tf = tempfile(fileext = ".yaml")
+  writeLines(c("# scphasedcn caller parameters", yaml_lines(p)), tf)
+  r = caller_params(tf)
+  expect_identical(r$tumour$allelic_exclude, character())             # not the default chrX, chrY
+  expect_identical(r$tabix, p$tabix)
+  expect_identical(r$tumour$checkpoint, p$tumour$checkpoint)
+  expect_equal(r, p)
+  # a null keeps the default, an empty list is empty
+  writeLines(c("tumour:", "  allelic_exclude: null", "  mix_w: []"), tf)
+  r2 = caller_params(tf)
+  expect_identical(r2$tumour$allelic_exclude, c("chrX", "chrY"))
+  expect_identical(r2$tumour$mix_w, numeric())
+})
+
+test_that("headerless one-column barcode files keep their first barcode (make_cell_meta, cli_cells, call_scn)", {
+  f = tempfile(); writeLines(c("AAAC-1", "AAAG", "AAAT"), f)
+  fh = tempfile(); writeLines(c("cell", "AAAC", "AAAT"), fh)
+  expect_identical(cli_cells(f, c("AAAC-1", "AAAG", "AAAT", "CCCC")), c("AAAC-1", "AAAG", "AAAT"))
+  expect_identical(cli_cells(fh, c("AAAC", "AAAG", "AAAT")), c("AAAC", "AAAT"))
+  m = make_cell_meta(data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = 1e4), flat = f)
+  expect_identical(m$flat, c(TRUE, TRUE, TRUE))
+  expect_identical(make_cell_meta(data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = 1e4), flat = fh)$flat, c(TRUE, FALSE, TRUE))
+  expect_identical(as_cell_vector(f), c("AAAC-1", "AAAG", "AAAT"))
+  expect_identical(multiplet_table(f)$cell, c("AAAC-1", "AAAG", "AAAT"))
+})
+
+test_that("barcodes of every input lose a trailing -1; matched counts in the notes; a warning when none match", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(120, rg, seed = 9)
+  ids = unique(ff$cell)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  run = function(...) call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, keep_scores = FALSE,
+                               caller_args = list(n_draws = 500), ...)
+  r = run(null_cells = paste0(ids[1:100], "-1"), multiplets = c("cell_0101-1", "nope"))
+  expect_setequal(r$cells[null_cell == TRUE, cell], ids[1:100])
+  expect_true(r$cells[cell == "cell_0101", multiplet])
+  expect_true(any(grepl("null_cells: 100 given, 100 matched", r$notes)))
+  expect_true(any(grepl("multiplets: 2 given, 1 matched", r$notes)))
+  expect_warning(run(multiplets = "AAAC-1"), "none of the 1 multiplets barcodes")
+  expect_identical(cli_cells({ f = tempfile(); writeLines(c("cell_0002-1", "cell_0003"), f); f }, ids[1:4]), ids[2:3])
+})
+
+test_that("write_scphasedcn clears the files of a previous result and nothing else", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 10)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  res = call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500))
+  out = file.path(tempdir(), "write_clear")
+  unlink(out, recursive = TRUE); dir.create(out)
+  stale = c("clones.tsv", "assignments.tsv", "scores.tsv.gz", "reference_pool.txt")
+  for (f in c(stale, "my_notes.txt")) writeLines("old", file.path(out, f))
+  dir.create(file.path(out, "plots"))
+  files = write_scphasedcn(res, out)
+  expect_false(any(file.exists(file.path(out, stale))))
+  expect_true(file.exists(file.path(out, "my_notes.txt")))                 # not ours: kept
+  expect_true(dir.exists(file.path(out, "plots")))
+  expect_setequal(list.files(out), c(basename(files), "my_notes.txt", "plots"))
+  expect_true(all(basename(files) %in% scphasedcn_output_files()))
+})
+
+test_that("write_scphasedcn: rewriting a read-back result into its own directory keeps its scores and features", {
+  # result.rds is stored without scores / features, so they cannot be written again from a read-back object
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 10)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  res = call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500))
+  out = file.path(tempdir(), "write_roundtrip")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(res, out, write_scores = TRUE, write_features = TRUE)
+  big = file.path(out, c("scores.tsv.gz", "features.tsv.gz"))
+  expect_true(all(file.exists(big)))
+  md5 = unname(tools::md5sum(big))
+  back = read_scphasedcn(out)
+  expect_null(back$scores)
+  expect_null(back$features)
+  write_scphasedcn(back, out, write_scores = TRUE, write_features = TRUE)
+  expect_true(all(file.exists(big)))
+  expect_identical(unname(tools::md5sum(big)), md5)
+  # an object that carries them: written again when asked, cleared as stale when not
+  write_scphasedcn(res, out, write_scores = TRUE)
+  expect_true(file.exists(big[1]))
+  expect_false(file.exists(big[2]))
+  write_scphasedcn(res, out)
+  expect_false(file.exists(big[1]))
+})
+
+test_that("precomputed features: unused feature-step inputs warn; tumour-mode null_cells = 'select' warns", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 12)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))
+  cm = data.table(cell = unique(ff$cell), cell_type = "a", flat = TRUE)
+  expect_warning(call_scn(tempdir(), "normal", features = fe, sex = "female", events = c(x = "chr8"), cell_meta = cm,
+                          centromeres = "cen.tsv", embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500)),
+                 "not used: sex; events; centromeres \\(\\.\\.\\.\\); cell_meta column\\(s\\) flat")
+  expect_silent(call_scn(tempdir(), "normal", features = fe, cell_meta = cm[, .(cell, cell_type)], centromeres = NULL,
+                         embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500)))
+  # tumour mode: "select" is a normal-mode selection (the warning comes before any work; the call then fails on the toy)
+  expect_warning(try(call_scn(tempdir(), "tumour", features = fe, null_cells = "select", verbose = FALSE), silent = TRUE),
+                 "tumour mode fits its input null")
 })

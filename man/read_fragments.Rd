@@ -14,7 +14,8 @@ read_fragments(file, regions = NULL, cells = NULL)
 \item{cells}{optional character vector of cells to keep}
 }
 \value{
-data.table chrom, start, end, cell, strand, mapq, flags (+ extras), hap decoded from flags when absent
+data.table chrom, start, end, cell, strand, mapq, flags (+ extras), \code{hap} (the file's \code{hap} column as U / A / B /
+N labels; "U" for every fragment when the file has none, nothing is decoded from \code{flags}), \code{len} (end - start when absent)
 }
 \description{
 Read fragments (whole file or tabix regions)

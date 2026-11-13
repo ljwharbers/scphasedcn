@@ -4,16 +4,20 @@
 \alias{collapse_molecules}
 \title{Collapse fragments into molecules}
 \usage{
-collapse_molecules(fr, gap = 2000)
+collapse_molecules(fr, gap = 2000, split_ps = FALSE)
 }
 \arguments{
 \item{fr}{fragments with \verb{cell, chrom, start, end, hap, ps}; \code{hap} "A"/"B" (other labels dropped) or
 integer codes 1 / 2 (= A / B)}
 
 \item{gap}{maximal gap (bp) between fragments of one molecule}
+
+\item{split_ps}{one vote per molecule x phase set instead of one per molecule (default FALSE; the caller
+parameter \code{mol_split_ps})}
 }
 \value{
-data.table \verb{cell, chrom, start, end, ps, n_frag, hap} (hap "A"/"B"), one row per molecule
+data.table \verb{cell, chrom, start, end, ps, n_frag, hap} (hap "A"/"B"), one row per molecule (per molecule x
+phase set with \code{split_ps})
 }
 \description{
 Fragments with haplotype A or B, sorted by cell,
@@ -21,4 +25,11 @@ chromosome and start; a new molecule starts when \code{start > cummax(end) + gap
 fragments of the same cell and chromosome; one vote per molecule for the majority haplotype
 (ties dropped); \code{ps} is the first fragment's phase set. The running maximum is computed per group
 with an integer offset (exact for coordinates below 2^53 / number of groups).
+}
+\details{
+Phase sets are not oriented relative to each other, so a molecule whose fragments lie in different phase sets
+(a molecule across a block junction) mixes unrelated haplotype labels. With \code{split_ps = TRUE} the molecules are
+formed as above and then split by phase set: the fragments of each phase set of a molecule give their own vote
+(majority haplotype of those fragments, ties dropped) in that phase set, with \code{start} / \code{end} / \code{n_frag} of
+those fragments. Molecules within one phase set are the same under both settings.
 }

@@ -162,7 +162,7 @@ test_that("two_means separates a bimodal vector and finds little in a unimodal o
   x = c(rnorm(100, -3), rnorm(60, 0))
   tm = two_means(x)
   expect_gt(tm$sep, 2.5)
-  expect_equal(sum(tm$g == tm$g[1]), 100, tolerance = 5)
+  expect_lte(abs(sum(tm$g == tm$g[1]) - 100), 5)                  # the first group: the 100 draws around -3, within 5
   expect_lt(two_means(rnorm(200))$sep, 3)
 })
 
@@ -296,12 +296,26 @@ test_that("caller_tumour finds the clones of sim_tum2 and their states", {
   check_thresholds(res$thresholds)
 })
 
+test_that("caller_tumour: the defaults of confirm_sided and perm_decision are today's code paths", {
+  # all-default results equal the run with the two options spelled out at their pre-option behaviour (the run before
+  # these options existed is bit-identical: assignments, segments, calls; checked against the previous release)
+  d = clone_defaults()
+  expect_identical(d[c("confirm_sided", "perm_decision")], list(confirm_sided = "two", perm_decision = "quantile"))
+  r0 = tum2_result()
+  r1 = caller_tumour(tum2_input(), opts = list(confirm_sided = "two", perm_decision = "quantile"), verbose = FALSE)
+  for (nm in c("assignments", "segments", "calls", "clones", "thresholds", "profiles", "events", "null_fit", "notes")) expect_identical(r1[[nm]], r0[[nm]])
+  expect_false("p" %in% names(r0$null_fit$clones$tests))
+})
+
 test_that("caller_tumour stops on unknown or invalid tumour options before any work", {
   inp = tum2_input()
   expect_error(caller_tumour(inp, opts = list(split_pass = TRUE), verbose = FALSE), "split_pass")
   expect_error(caller_tumour(inp, opts = list(ref_null = "x"), verbose = FALSE), "ref_null")
   expect_error(caller_tumour(inp, opts = list(confirm_null = "x"), verbose = FALSE), "should be one of")
+  expect_error(caller_tumour(inp, opts = list(confirm_sided = "x"), verbose = FALSE), "should be one of")
+  expect_error(caller_tumour(inp, opts = list(perm_decision = "x"), verbose = FALSE), "should be one of")
   expect_error(caller_tumour(inp, opts = list(bogus = 1), verbose = FALSE), "unknown option")
+  expect_error(caller_tumour(inp, opts = list(profile_orient = "window"), verbose = FALSE), "unknown option")
   expect_identical(scphasedcn:::check_clone_opts(list()), clone_defaults())
   expect_identical(scphasedcn:::check_clone_opts(list(split_pass = "disagree"))$split_pass, "disagree")
   # segment_clone() rules: clone_defaults() keys with segment_clone()'s defaults, checked as numbers >= 0
@@ -311,6 +325,87 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
                    list(min_excess = 0, max_contra = Inf, bal_frac = 0.75, min_bal_len = 2e7))
   expect_error(caller_tumour(inp, opts = list(bal_frac = -1), verbose = FALSE), "bal_frac")
   expect_error(caller_tumour(inp, opts = list(min_bal_len = "x"), verbose = FALSE), "min_bal_len")
+})
+
+test_that("check_clone_opts rejects out-of-range tumour options with a clear error; the defaults pass", {
+  chk = scphasedcn:::check_clone_opts
+  expect_identical(chk(list()), clone_defaults())
+  bad = list(em_rounds = 0, em_rounds = 1.5, q = 1, q = 0, p_switch = -0.1, min_post = 1, mix_w = c(0.5, 1), mix_prior = 1,
+             multiplet_prob = 1.2, min_size = 0, n_perm = NA_real_, min_win = "3", size_small = 0, trunk_dist = -1,
+             depth_delta = -0.1, same_dist = -1, split_depth = NA, repass = "yes", classes = "bogus", classes = character())
+  for (i in seq_along(bad)) {
+    k = names(bad)[i]
+    expect_error(chk(stats::setNames(list(bad[[i]]), k)), paste0("opts\\$", k, " must be"), info = k)
+  }
+  ok = chk(list(em_rounds = 1, q = 0.99, mix_w = 0.5, mix_prior = 0, multiplet_prob = 1, n_nb_trunk = Inf, allelic_exclude = character()))
+  expect_equal(ok$em_rounds, 1)
+  expect_identical(ok$allelic_exclude, character())
+})
+
+test_that("caller_tumour without allele votes stops with a clear error", {
+  inp = tum2_input()
+  i1 = inp
+  i1$votes = i1$votes[0]
+  expect_error(caller_tumour(i1, verbose = FALSE), "caller_tumour: no allele votes")
+  i2 = inp
+  i2$rho = NA_real_
+  i2$features = copy(i2$features)[, `:=`(nA = 0, nB = 0, n_hap = 0)]
+  expect_error(caller_tumour(i2, verbose = FALSE), "caller_tumour: no allele votes")
+})
+
+test_that("caller_tumour notes degenerate nulls: no control rows for the reference cleaning, no or few confirmation null rows", {
+  # the notes themselves
+  cn = scphasedcn:::confirm_null_notes
+  expect_identical(cn(ref_thr = 2.5, n_null = c(a = 20000, b = 15000), q = 0.999), character())
+  expect_identical(cn(ref_thr = NA_real_), character())
+  expect_match(cn(ref_thr = Inf), "no control rows to calibrate the allelic threshold \\(Inf\\), so no cell was removed")
+  expect_match(cn(n_null = c(segment = 0)), "no null rows .* every threshold is Inf and no cell call is confirmed")
+  few = cn(n_null = c(h1 = 20000, h2 = 900, h3 = 0), q = 0.999)
+  expect_length(few, 1)
+  expect_match(few, "2 of 3 hypotheses have fewer than 10000 null rows .*: h2 900, h3 0;")
+  # in the run: control regions that are all filtered out leave the reference cleaning without control rows
+  inp = tum2_input()
+  ctl0 = data.table(region = character(), chrom = character(), start = numeric(), end = numeric())
+  res = caller_tumour(inp, control_regions = ctl0, verbose = FALSE)
+  expect_true(any(grepl("reference pool cleaning: no control rows", res$notes)))
+  expect_true(is.infinite(res$null_fit$ref_thr))
+  expect_false(any(grepl("reference pool cleaning", tum2_result()$notes)))
+})
+
+test_that("check_clone_opts accepts the values the options allow: no cap, zero lengths and sizes", {
+  chk = scphasedcn:::check_clone_opts
+  for (o in list(list(max_cells = Inf), list(max_leaves = Inf), list(max_leaves_trunk = Inf), list(trunk_dist = 0),
+                 list(small_clone = 0), list(control_min_len = 0), list(member_post = 0), list(member_post = 1)))
+    expect_no_error(chk(o))
+  for (k in c("max_cells", "trunk_dist", "small_clone", "control_min_len", "member_post"))
+    for (bad in list(-1, NA_real_, c(1, 2), numeric()))
+      expect_error(chk(stats::setNames(list(bad), k)), paste0("opts\\$", k, " must be"), info = k)
+  expect_error(chk(list(max_cells = 2.5)), "opts\\$max_cells must be one whole number >= 1 or Inf")
+  expect_error(chk(list(small_clone = 1.5)), "opts\\$small_clone must be one whole number >= 0")
+  expect_error(chk(list(member_post = 1.5)), "opts\\$member_post must be one number in \\[0, 1\\]")
+  expect_error(chk(list(min_size = 0)), "opts\\$min_size must be one whole number >= 1, not 0")
+  expect_error(chk(list(mix_w = c(0.5, 1))), "opts\\$mix_w must be numbers strictly between 0 and 1")
+})
+
+test_that("assign_cells keeps the normal clone N0 as a hypothesis when no cell is labelled N0", {
+  res = tum2_result()
+  inp = tum2_input()
+  tr = sim_truth(sim_tum2)
+  # N0 replaces the event-free clone(s); no member is labelled N0 (as when no fitted clone was replaced)
+  sg0 = as.data.table(res$segments)[clone != "N0"]
+  K0 = unique(sg0$clone)
+  nn = add_normal_clone(list(segments = sg0, fit = list(par = data.table(clone = K0, c = 0.9, a = 0.9, rho = 0.01, s_sys = 0))), 1e7)
+  expect_true("N0" %in% nn$st$segments$clone)
+  members = as.data.table(res$assignments)[assigned == TRUE & !clone %in% c(nn$replaced, "N0"), .(cell, clone)]
+  expect_false("N0" %in% members$clone)
+  pieces = segment_pieces(nn$st$segments, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  par = as.data.table(nn$st$fit$par)[clone != "N0"]                      # no N0 row: c = median c, a = 1
+  asg = assign_cells(fp, members, nn$st$segments, inp$null_fit$tpar, inp$null_fit$rho, par = par, mixtures = FALSE)
+  expect_true("N0" %in% colnames(attr(asg, "ll")))
+  a = merge(asg, tr, by = "cell")
+  expect_gte(a[type == "normal" & mult == FALSE, mean(clone == "N0")], 0.9)
+  expect_lte(a[type != "normal" & mult == FALSE, mean(clone == "N0")], 0.05)
 })
 
 test_that("control_regions and segment_pieces partition the clone breakpoints", {
@@ -407,6 +502,115 @@ test_that("the split test keeps its budget on random splits of normal cells (5-r
   expect_true(all(res$n_perm == 200))
 })
 
+# ---- perm_decision: the merge / split test's decision rule ---------------------------------------------------------
+
+test_that("perm_decide: false-different rate on exchangeable groups ~6 / 1,000 (quantile of 200) vs <= 1 / 1,000 (p-value)", {
+  # exchangeable groups: |difference of means| of two random halves of 40 iid values, the null by permuting the labels
+  n_rep = 20000
+  run = function(dec, seed) {
+    set.seed(seed)
+    rbindlist(lapply(seq_len(n_rep), function(r) {
+      x = stats::rnorm(40)
+      st = function(g) abs(sum(x[g]) - sum(x[-g]))
+      d = scphasedcn:::perm_decide(st(1:20), function() st(sample.int(40, 20)), q = 0.999, n_perm = 200, perm_decision = dec)
+      list(differ = d$differ, n_perm = d$n_perm, p = d$p)
+    }))
+  }
+  rq = run("quantile", 21); rp = run("pvalue", 22)
+  ci = function(k) signif(1000 * stats::binom.test(k, n_rep)$conf.int, 3)
+  message(sprintf("exchangeable groups, %d tests: quantile (n_perm 200, q 0.999) %d false differ = %.2f / 1,000 (95%% CI %s); ",
+                  n_rep, sum(rq$differ), 1000 * mean(rq$differ), paste(ci(sum(rq$differ)), collapse = "-")),
+          sprintf("pvalue %d = %.2f / 1,000 (95%% CI %s); mean permutations %.1f / %.1f",
+                  sum(rp$differ), 1000 * mean(rp$differ), paste(ci(sum(rp$differ)), collapse = "-"), mean(rq$n_perm), mean(rp$n_perm)))
+  # the quantile of 200 permutations: (n + 1 - h) / (n + 1) = 1.199 / 201 ~ 6 / 1,000, outside a binomial CI around 1 / 1,000
+  expect_gt(mean(rq$differ), 0.0035); expect_lt(mean(rq$differ), 0.0085)
+  expect_lt(stats::binom.test(sum(rq$differ), n_rep, 0.001, alternative = "greater")$p.value, 1e-6)
+  # the p-value decision keeps 1 / 1,000 (exact under exchangeability)
+  expect_gt(stats::binom.test(sum(rp$differ), n_rep, 0.001, alternative = "greater")$p.value, 0.001)
+  expect_lte(mean(rp$differ), 0.002)
+  # every "different" ran all 999 permutations at p = 1 / 1,000; "same" stops early (mean ~ log(999) permutations)
+  expect_true(all(rp[differ == TRUE, n_perm] == 999))
+  expect_true(all(abs(rp[differ == TRUE, p] - 0.001) < 1e-12))
+  expect_true(all(rp[differ == FALSE, p] > 0.001))
+  expect_lt(mean(rp$n_perm), 30)
+  expect_identical(scphasedcn:::perm_min(0.999), 999L)
+  expect_identical(scphasedcn:::perm_min(0.99), 99L)
+  expect_identical(scphasedcn:::perm_min(0.95), 19L)
+})
+
+test_that("perm_decide: the p-value early stop is exact (same verdict as the full run) and the quantile path is unchanged", {
+  for (r in 1:200) {
+    set.seed(r)
+    obs = stats::rnorm(1, 2.5)
+    nul = stats::rnorm(1200)
+    i = 0; draw = function() { i <<- i + 1; nul[i] }
+    e = scphasedcn:::perm_decide(obs, draw, 0.999, 200, TRUE, "pvalue")
+    i = 0
+    f = scphasedcn:::perm_decide(obs, draw, 0.999, 200, FALSE, "pvalue")
+    expect_identical(e$differ, f$differ)
+    expect_equal(f$n_perm, 999)
+    expect_equal(f$p, (1 + sum(nul[1:999] >= obs)) / 1000)
+    expect_identical(f$differ, f$p <= 0.001)
+    # n_perm above the minimum: up to max(n_perm, 999) permutations, p <= 1 - q
+    i = 0
+    g = scphasedcn:::perm_decide(obs, draw, 0.999, 1200, FALSE, "pvalue")
+    expect_equal(g$n_perm, 1200)
+    expect_identical(g$differ, (1 + sum(nul >= obs)) / 1201 <= 0.001)
+  }
+  # quantile: the loop of split_test before perm_decision (type-7 quantile of the draws, early stops)
+  set.seed(5); nul = stats::rexp(200); obs = 4
+  i = 0; draw = function() { i <<- i + 1; nul[i] }
+  d = scphasedcn:::perm_decide(obs, draw, 0.999, 200, FALSE, "quantile")
+  expect_equal(d$thr, unname(stats::quantile(nul, 0.999, type = 7)))
+  expect_identical(d$differ, obs > d$thr)
+})
+
+test_that("split_test(perm_decision = \"pvalue\") separates sim_tum2's clones and keeps one clone together", {
+  inp = tum2_input()
+  cells = inp$cells$cell
+  tr = sim_truth(sim_tum2)[mult == FALSE]
+  cd = contrast_data(inp$features, inp$votes, inp$atoms, inp$regions, cells)
+  ia = match(tr[type == "cloneA", cell], cells); ib = match(tr[type == "cloneB", cell], cells)
+  t0 = Sys.time()
+  dd = split_test(cd, ia, ib, inp$null_fit$rho, perm_decision = "pvalue")
+  tm = as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  expect_true(dd$differ)
+  expect_equal(dd$n_perm, 999)
+  expect_equal(dd$p, 1 / 1000)
+  set.seed(3); sa = sample(ia, 30); sb = sample(setdiff(ia, sa), 30)
+  ss = split_test(cd, sa, sb, inp$null_fit$rho, perm_decision = "pvalue")
+  expect_false(ss$differ)
+  expect_lt(ss$n_perm, 999)
+  expect_gt(ss$p, 0.001)
+  message(sprintf("split_test pvalue: cloneA vs cloneB %d permutations in %.1f s; a random split of cloneA stops after %d", dd$n_perm, tm, ss$n_perm))
+  # the default is the quantile decision without a p column
+  dq = split_test(cd, ia, ib, inp$null_fit$rho)
+  expect_false("p" %in% names(dq))
+  expect_identical(dq, split_test(cd, ia, ib, inp$null_fit$rho, perm_decision = "quantile"))
+})
+
+test_that("caller_tumour(perm_decision = \"pvalue\") on sim_tum2: same clones, p in the tests, the run notes count the tests", {
+  r0 = tum2_result()
+  t0 = Sys.time()
+  r1 = clone_cached("clones_tum2_pvalue", function() caller_tumour(tum2_input(), opts = list(perm_decision = "pvalue"), verbose = FALSE))
+  tm = as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  tr = sim_truth(sim_tum2)
+  a = merge(r1$assignments, tr, by = "cell")[mult == FALSE]
+  expect_gte(clone_ari(a$clone, a$type), 0.9)
+  tt = r1$null_fit$clones$tests
+  expect_true("p" %in% names(tt))
+  expect_true(all(tt[differ == TRUE, n_perm] >= 999))
+  expect_true(all(tt$differ == (tt$p <= 0.001)))
+  expect_false("p" %in% names(r0$null_fit$clones$tests))
+  nt = grep("^split tests", r1$notes, value = TRUE)
+  expect_length(nt, 1)
+  expect_match(nt, "perm_decision pvalue")
+  expect_match(grep("^split tests", r0$notes, value = TRUE), "perm_decision quantile.*6.0 / 1,000")
+  message("sim_tum2 perm_decision pvalue: ", round(tm), " s; ", nt, "\n  default: ", grep("^split tests", r0$notes, value = TRUE),
+          "\n  global tests (pvalue): ", nrow(tt), ", permutations ", sum(tt$n_perm), " (quantile: ", nrow(r0$null_fit$clones$tests), ", ",
+          sum(r0$null_fit$clones$tests$n_perm), ")")
+})
+
 # ---- sim_tum3: the confirmation null refitted on the reference pool, matched null --------------------------------
 # sim_tum2's clones at half the depth with an attenuated allele signal (clone a ~ 0.7). The input rho is inflated 10x,
 # as in tumour samples, where call_scn fits it on copy-number-flat cells that partly carry tumour haplotypes.
@@ -482,6 +686,77 @@ test_that("ref_null refits rho on the reference pool; the matched null confirms 
   nf = null_fit_table(res$null_fit)
   expect_equal(nf[kind == "allelic_rho_confirm", rho], rc)
   expect_gt(nrow(nf[kind == "depth_t_confirm"]), 0)
+})
+
+# ---- confirm_sided: one-sided per-cell confirmation (clone-oriented votes) ---------------------------------------------
+
+test_that("b_score_hyp: two-sided confirms a cell whose opposite homologue is imbalanced; confirm_sided \"one\" does not", {
+  # votes oriented by the clone (haplotype A = the clone's major haplotype): 40 / 40 vs 0 / 40, depth at the loss shift
+  x = data.table(cell = c("same", "opposite"), region = "r", class = "arm", stratum = "x", z = -5, sd_null = 0.2,
+                 nA = c(40, 0), n_hap = 40)
+  p = caller_defaults()
+  s2 = scphasedcn:::b_score_hyp(x, "loss", -1, 0.95, NULL, 0.01, p, cn = 1L)
+  s1 = scphasedcn:::b_score_hyp(x, "loss", -1, 0.95, NULL, 0.01, p, cn = 1L, sided = "one")
+  expect_identical(scphasedcn:::b_score_hyp(x, "loss", -1, 0.95, NULL, 0.01, p, cn = 1L, sided = "two"), s2)
+  expect_equal(s2$s_comb[1], s2$s_comb[2])
+  expect_gt(s2$s_comb[2], 15)
+  expect_equal(s1$s_comb[1], s2$s_comb[1])
+  expect_lt(s1$s_comb[2], -20)
+  # b_score (cell_state_scores rows) passes it through
+  rows = data.table(cell = c("same", "opposite"), region = "r", sd_class = "arm", stratum = "x", z = -5, sd_null = 0.2,
+                    nA_o = c(40, 0), n_o = 40, label = "loss", cn = 1L, c = 1, a = 1, f_state = 0.95, base_ = 2L)
+  b1 = scphasedcn:::b_score(rows, NULL, 0.01, p, sided = "one")
+  expect_equal(b1$s_comb, s1$s_comb)
+  expect_equal(scphasedcn:::b_score(rows, NULL, 0.01, p)$s_comb, s2$s_comb)
+  expect_identical(scphasedcn:::check_clone_opts(list())$confirm_sided, "two")
+  expect_error(scphasedcn:::check_clone_opts(list(confirm_sided = "both")), "should be one of")
+})
+
+# per-event confirmed rate of the tumour cells (singlets of the truth type) and false confirmations: confirmed calls on
+# singlets whose truth type does not carry the event (normal cells, the other clone)
+tum_conf_table = function(res, sim) {
+  tr = sim_truth(sim)
+  x = merge(res$calls[level == "cell"], tr, by = "cell")[mult == FALSE]
+  ev = data.table(chrom = c("chr8", "chr21", "chr22", "chr2", "chr1"), carrier = c("cloneA|cloneB", "cloneA", "cloneB", "cloneB", "cloneB"))
+  x = merge(x, ev, by = "chrom")
+  x[, carries := mapply(grepl, carrier, type)]
+  x[, .(n_true = sum(carries), conf_true = mean(source[carries] == "confirmed"), n_false = sum(!carries),
+        conf_false = sum(source[!carries] == "confirmed")), by = chrom][order(chrom)]
+}
+
+test_that("confirm_sided \"one\": assignments and segments unchanged, events still confirmed, control false confirmations at the null rate", {
+  for (nm in c("tum2", "tum3")) {
+    r0 = if (nm == "tum2") tum2_result() else tum3_run("matched")
+    r1 = if (nm == "tum2") clone_cached("clones_tum2_one", function() caller_tumour(tum2_input(), opts = list(confirm_sided = "one"), verbose = FALSE)) else
+      tum3_run("one", list(confirm_sided = "one"))
+    sim = if (nm == "tum2") sim_tum2 else sim_tum3
+    # confirmation is after assignment: clones, assignments and segments are those of the default run
+    expect_identical(r1$assignments, r0$assignments)
+    expect_identical(r1$segments, r0$segments)
+    expect_identical(r1$clones, r0$clones)
+    expect_identical(r1$params$tumour$confirm_sided, "one")
+    expect_true(any(grepl("one-sided", r1$notes)))
+    c0 = tum_conf_table(r0, sim); c1 = tum_conf_table(r1, sim)
+    message(nm, " confirmed rate per event (two-sided / one-sided):\n",
+            paste(capture.output(print(merge(c0, c1, by = c("chrom", "n_true", "n_false"), suffixes = c(".two", ".one")))), collapse = "\n"))
+    # true events stay confirmed (within 10 points of the two-sided rate) ...
+    m = merge(c0, c1, by = "chrom", suffixes = c(".two", ".one"))
+    expect_true(all(m$conf_true.one >= m$conf_true.two - 0.1))
+    # ... and the held-out false confirmations of the matched null stay at the budget
+    cn = r1$null_fit$confirm_null
+    if (!is.null(cn) && nrow(cn[hyp == "all" & kind == "control"])) {
+      message(nm, " held-out false confirmations per 1,000 (two / one): control ",
+              signif(r0$null_fit$confirm_null[hyp == "all" & kind == "control", per_1000], 3), " / ",
+              signif(cn[hyp == "all" & kind == "control", per_1000], 3), ", pool ",
+              signif(r0$null_fit$confirm_null[hyp == "all" & kind == "pool", per_1000], 3), " / ",
+              signif(cn[hyp == "all" & kind == "pool", per_1000], 3))
+      expect_lte(cn[hyp == "all" & kind == "control", per_1000], 5)
+      expect_lte(cn[hyp == "all" & kind == "all", per_1000], 3)
+    }
+    cc = r1$calls[level == "cell"]
+    expect_equal(cc$called, cc$score > cc$thr)
+    check_calls(r1$calls)
+  }
 })
 
 # ---- sim_tum4: the disagreement split (split_pass = "disagree") ------------------------------------------------------

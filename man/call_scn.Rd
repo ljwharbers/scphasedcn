@@ -22,6 +22,7 @@ call_scn(
   keep_scores = TRUE,
   null_check = FALSE,
   caller_args = list(),
+  phasing = "auto",
   ...
 )
 }
@@ -80,10 +81,20 @@ about doubles the scoring time), stored as \code{null_check} and written as \cod
 \item{caller_args}{extra arguments for \code{\link[=caller_normal]{caller_normal()}} / \code{caller_tumour()} (e.g. \code{n_draws}, \code{opts}); they take
 precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts} merged key by key)}
 
+\item{phasing}{phasing / block orientation of the allele features (\code{\link[=cell_features]{cell_features()}}: "auto", "chromosome",
+"block", "loo" or "mirrored"; both modes; ignored with precomputed \code{features}). Normal mode with \code{loo} on
+block phasing (read-backed blocks without a population phase) gives a warning and a run note: it aligns allelic
+bias shared by all cells (false per-cell events) and cannot show allelic events carried by few cells, so
+chromosome-scale phasing is recommended (\verb{scphasedcn hybrid-phase}; \code{vignette("scphasedcn-inputs")} for its
+limits). \code{chromosome} on block phasing (overall, or on a chromosome with votes) and, in normal
+mode, \code{mirrored} (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
+chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)}
+
 \item{...}{extra arguments for \code{\link[=cell_features]{cell_features()}} (e.g. \code{centromeres}, \code{classes}, \code{qc})}
 }
 \value{
-\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, notes), \code{scores}
+\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, phasing_chrom (the
+per-chromosome phasing regimes, \code{\link[=phasing_by_chrom]{phasing_by_chrom()}}), notes), \code{scores}
 (normal, \code{keep_scores}), \code{thresholds}, \code{calls}, \code{events}, \code{pools}, \code{null_fit}, \code{false_calls} (normal:
 \code{\link[=null_false_calls]{null_false_calls()}}), normal mode: \code{p}, \code{q}, \code{null_borrowed} on the per-cell calls and \code{null_cell}, \code{p}, \code{q},
 \code{null_borrowed} on the events (\code{\link[=event_fdr]{event_fdr()}}; \code{q} is descriptive: not a false discovery rate, not a filter),

@@ -149,9 +149,14 @@ def load_snps(vcf_path: str, chrom: str, phased: bool = False, region: tuple[int
 class AlleleAccumulator:
     """Collects (cell, snp, allele) observations and per-read haplotype votes."""
 
-    def __init__(self, snps: SnpSet, min_bq: int = 10):
+    VOTE_PS = ("first", "majority")   # phase-set rule of the per-read vote (see vote(); cli --vote-ps)
+
+    def __init__(self, snps: SnpSet, min_bq: int = 10, vote_ps: str = "first"):
+        if vote_ps not in self.VOTE_PS:
+            raise ValueError(f"vote_ps must be one of {', '.join(self.VOTE_PS)}, not {vote_ps!r}")
         self.snps = snps
         self.min_bq = min_bq
+        self.vote_ps = vote_ps
         self.o_cell = array("i"); self.o_snp = array("i"); self.o_alt = array("b")
         self.n_other = np.zeros(len(snps), dtype=np.int64)
         self.n_lowbq = np.zeros(len(snps), dtype=np.int64)
@@ -195,7 +200,15 @@ class AlleleAccumulator:
         return out
 
     def vote(self, obs) -> tuple[int, int, int]:
-        """(hap, n_snp_obs, ps) from observations: hap 0 none, 1 A, 2 B, 3 ambiguous."""
+        """(hap, n_snp_obs, ps) from observations: hap 0 none, 1 A, 2 B, 3 ambiguous.
+
+        `n_snp_obs` counts the ref / alt observations of all SNPs (phased or not). vote_ps "first": the haplotype is
+        the majority over all phased SNPs whatever their phase set, `ps` the phase set of the first phased SNP that
+        has one. vote_ps "majority": only the phased SNPs of the phase set with the most phased observations vote and
+        `ps` is that phase set; a tie between phase sets is ambiguous (hap 3, `ps` the first of the tied sets).
+        """
+        if self.vote_ps == "majority":
+            return self._vote_majority(obs)
         na = nb = n = 0; ps = -1
         hoa = self.snps.hap_of_alt; pss = self.snps.ps
         for s, a in obs:
@@ -213,6 +226,30 @@ class AlleleAccumulator:
                 ps = int(pss[s])
         hap = 0 if na + nb == 0 else (1 if na > nb else (2 if nb > na else 3))
         return hap, n, ps
+
+    def _vote_majority(self, obs) -> tuple[int, int, int]:
+        """vote() with vote_ps "majority": the vote of the phase set holding most phased observations."""
+        n = 0
+        tally = {}                      # phase set -> [n hapA, n hapB], in order of first observation
+        hoa = self.snps.hap_of_alt; pss = self.snps.ps
+        for s, a in obs:
+            if a == 2:
+                continue
+            n += 1
+            h = hoa[s]
+            if h == 0:
+                continue
+            t = tally.setdefault(int(pss[s]), [0, 0])
+            t[0 if (a == 1) == (h == 1) else 1] += 1
+        if not tally:
+            return 0, n, -1
+        best = max(a + b for a, b in tally.values())
+        top = [p for p, (a, b) in tally.items() if a + b == best]
+        ps = top[0]
+        if len(top) > 1:
+            return 3, n, ps
+        na, nb = tally[ps]
+        return (1 if na > nb else (2 if nb > na else 3)), n, ps
 
     def process(self, r, ci: int, start: int, end: int) -> tuple[int, int, int]:
         obs = self.observe(r, start, end)

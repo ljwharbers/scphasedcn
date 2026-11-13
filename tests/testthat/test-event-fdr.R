@@ -229,3 +229,37 @@ test_that("null_selection_check counts real events on the measured half: per_100
   expect_lt(ch3$insample_per_1000, 2)
   expect_gt(ch3$n_exceed - ch0$n_exceed, 0.5 * length(car))
 })
+
+test_that("event_fdr: named events (thresholds borrowed from sd_class) get p-values calibrated like their thresholds", {
+  # two named events on a pure null: one borrows from arm (whose per-cell gains are not reportable, an event gain is),
+  # one from 10Mb (a class without per-cell call rows). Their p-values come from the sd_class's null rows scored as
+  # event rows: about uniform, never all 1 and not far too small
+  bins = sim_genome()
+  rg = fake_regions(bins, tiles = c("10Mb" = 1e7, "20Mb" = 2e7))
+  ev = data.table(region = c("ev_1q", "ev_2_10M"), class = "event", sd_class = c("arm", "10Mb"), chrom = c("chr1", "chr2"),
+                  start = c(24e6, 1e7), end = c(6e7, 2e7))
+  ev[, n_bins := vapply(seq_len(.N), function(i) sum(bins$chrom == chrom[i] & bins$start >= start[i] & bins$end <= end[i]), integer(1))]
+  ev[, `:=`(n_use = n_bins, eligible = TRUE, null_region = FALSE, allelic_ok = TRUE)]
+  rg = rbind(rg, ev, use.names = TRUE)
+  ff = fake_features(2000, rg, seed = 21, hap_frac = 0.1)
+  r = caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character())
+  expect_true(all(r$thresholds[level == "cell" & class == "event", borrowed_from] %in% c("arm", "10Mb")))
+  f = event_fdr(r)
+  ce = f$calls[level == "cell" & class == "event"]
+  expect_false(anyNA(ce$p))
+  expect_true(all(ce$null_borrowed))
+  s = ce[, .(n = .N, le_1e3 = mean(p <= 1e-3), le_0.01 = mean(p <= 0.01), le_0.1 = mean(p <= 0.1), all_1 = all(p == 1)), by = region]
+  expect_setequal(s$region, ev$region)
+  expect_false(any(s$all_1))
+  expect_true(all(s$le_0.1 > 0.02 & s$le_0.1 < 0.15))
+  expect_true(all(s$le_0.01 < 0.02))
+  expect_true(all(s$le_1e3 < 0.004))
+  # the borrowed calibration groups: null rows of the sd_class
+  g = f$groups[borrowed == TRUE]
+  expect_setequal(unique(g$class), c("arm", "10Mb"))
+  expect_true(all(g$n_null > 0))
+  # expected false calls of the event class: its sd_classes' null rows called as event rows
+  ef = f$expected_false[class == "event"]
+  expect_true(all(ef$null_borrowed))
+  expect_true(all(ef$n_null == r$scores[is_null == TRUE & class %in% c("arm", "10Mb"), .N]))
+})

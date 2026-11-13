@@ -69,8 +69,15 @@ cells with a higher allelic overdispersion than modelled), so for cells like tho
 the tail model extrapolates a truncated distribution: in such a sample many rows can reach a small q with the
 exponential tail and none with \code{tail = "none"}. Compare the two when the null is in doubt.
 Rows on chromosomes without null rows (chrX, whose rows are never null rows in normal mode) are compared with the
-autosomal null of their class x stratum, as their thresholds are (\code{null_borrowed = TRUE}); so are rows of a class
-without null rows that take the null of their \code{sd_class}.
+autosomal null of their class x stratum, as their thresholds are (\code{null_borrowed = TRUE}).
+
+\strong{Named events.} A class without null rows (named \code{event} regions) takes the thresholds of its \code{sd_class}
+(\code{\link[=budget_thresholds]{budget_thresholds()}}), and its p-values are calibrated on the same rows: the null rows of the sd_class group
+(and folds) its threshold was trained on, each scored as an event row would be (\code{s_comb} when its best state is
+reportable for an event and a gain passes the depth gate, else \code{-Inf}; the sd_class's own calling policy differs,
+e.g. arm gains are not reportable per cell). \code{null_borrowed = TRUE}; in \code{groups} such a group has the sd_class as
+\code{class} and \code{borrowed = TRUE}. The p-values are as good as the assumption behind the borrowed thresholds: that the
+event's scores under the null look like those of its sd_class (similar size and allele votes).
 
 \strong{q-value.} Benjamini-Hochberg over all tested rows (m = every tested row, called or not; rows with \verb{s' = -Inf}
 have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. \code{q} is a descriptive
@@ -92,5 +99,7 @@ calls count once). Every row of the class counts as a null hypothesis (no estima
 the null rate is measured on cells \emph{selected} for having no chromosome / arm call at a stricter threshold
 (\code{\link[=select_null_cells]{select_null_cells()}}), whose own rows are cleaner than those of an unselected normal cell: both estimates are
 lower bounds of the false load. chrX rows borrow the autosomal rate (\code{null_borrowed}), which ignores
-X-inactivation driven allelic imbalance. \code{\link[=null_selection_check]{null_selection_check()}} measures how much the selection lowers the rate.
+X-inactivation driven allelic imbalance. A class without null rows (named events) takes the rate of its
+sd_class's null rows called as event rows (per sd_class x stratum; that call rate also stands for its events).
+\code{\link[=null_selection_check]{null_selection_check()}} measures how much the selection lowers the rate.
 }

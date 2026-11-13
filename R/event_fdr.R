@@ -15,7 +15,7 @@
 
 utils::globalVariables(c("p", "rep_", "s_", "key_", "grp_", "borrowed_", "n_rows", "n_tested", "n_events", "n_null_called",
                          "n_null_events", "expected_false_calls", "expected_false_events", "chrom_group", "n_exceed",
-                         "insample_rows", "insample_exceed", "null_borrowed", "dl_gain", "top_region", "promoted_", "gkey"))
+                         "insample_rows", "insample_exceed", "null_borrowed", "dl_gain", "top_region", "promoted_", "gkey", "key"))
 
 # ---- calibration groups ----------------------------------------------------------------------------------
 
@@ -85,6 +85,22 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
   p
 }
 
+# The reportable score of scored rows `idx` of `sc` (null rows of an sd_class) as if they were rows of class `cls`
+# (a class that borrows the sd_class's thresholds): s_comb when the row is eligible and its best state is reportable
+# for `cls` under the cell policy `pol` (and, for a chromosome / event gain with `resolve_gains`, passes the depth gate
+# dl_gain > gain_min_dl), else -Inf. The statistic of the borrowing rows' p-values and expected false calls.
+borrowed_stat = function(sc, idx, cls, pol, resolve_gains, gain_min_dl) {
+  if (!length(idx)) return(numeric())
+  if (!"state_comb" %in% names(sc)) stop("event_fdr: scores lack state_comb")
+  y = data.table(class = cls, state = as.character(sc$state_comb[idx]), chrom = sc$chrom[idx])
+  r = policy_reportable(y, pol[level == "cell"]) %in% TRUE
+  if ("eligible" %in% names(sc)) r = r & sc$eligible[idx] %in% TRUE
+  if (isTRUE(resolve_gains) && cls %in% c("chrom", "event") && "dl_gain" %in% names(sc))
+    r = r & !(y$state == "gain" & !is.na(sc$dl_gain[idx]) & sc$dl_gain[idx] <= gain_min_dl)
+  s = sc$s_comb[idx]
+  fifelse(r & !is.na(s), s, -Inf)
+}
+
 # ---- false-event accounting ----------------------------------------------------------------------------
 
 #' False-event accounting of a normal-mode result: p- and q-values, expected false calls and events
@@ -122,8 +138,15 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
 #' the tail model extrapolates a truncated distribution: in such a sample many rows can reach a small q with the
 #' exponential tail and none with `tail = "none"`. Compare the two when the null is in doubt.
 #' Rows on chromosomes without null rows (chrX, whose rows are never null rows in normal mode) are compared with the
-#' autosomal null of their class x stratum, as their thresholds are (`null_borrowed = TRUE`); so are rows of a class
-#' without null rows that take the null of their `sd_class`.
+#' autosomal null of their class x stratum, as their thresholds are (`null_borrowed = TRUE`).
+#'
+#' **Named events.** A class without null rows (named `event` regions) takes the thresholds of its `sd_class`
+#' ([budget_thresholds()]), and its p-values are calibrated on the same rows: the null rows of the sd_class group
+#' (and folds) its threshold was trained on, each scored as an event row would be (`s_comb` when its best state is
+#' reportable for an event and a gain passes the depth gate, else `-Inf`; the sd_class's own calling policy differs,
+#' e.g. arm gains are not reportable per cell). `null_borrowed = TRUE`; in `groups` such a group has the sd_class as
+#' `class` and `borrowed = TRUE`. The p-values are as good as the assumption behind the borrowed thresholds: that the
+#' event's scores under the null look like those of its sd_class (similar size and allele votes).
 #'
 #' **q-value.** Benjamini-Hochberg over all tested rows (m = every tested row, called or not; rows with `s' = -Inf`
 #' have p = 1 and count in m). Within a class x stratum and fold, q is monotone in the score. `q` is a descriptive
@@ -145,7 +168,9 @@ conformal_p = function(s, cal, plain, tail_n = 0) {
 #' the null rate is measured on cells *selected* for having no chromosome / arm call at a stricter threshold
 #' ([select_null_cells()]), whose own rows are cleaner than those of an unselected normal cell: both estimates are
 #' lower bounds of the false load. chrX rows borrow the autosomal rate (`null_borrowed`), which ignores
-#' X-inactivation driven allelic imbalance. [null_selection_check()] measures how much the selection lowers the rate.
+#' X-inactivation driven allelic imbalance. A class without null rows (named events) takes the rate of its
+#' sd_class's null rows called as event rows (per sd_class x stratum; that call rate also stands for its events).
+#' [null_selection_check()] measures how much the selection lowers the rate.
 #' @param obj normal-mode `scphasedcn` with `scores` ([caller_normal()]; [call_scn()] with `keep_scores`)
 #' @param tail "exponential" (tail model beyond the top `tail_n` null scores) or "none" (the conformal p-value only)
 #' @param tail_n null scores above the tail anchor (per calibration group)
@@ -201,21 +226,32 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
   null_chroms = unique(sc$chrom[sc$is_null %in% TRUE])
   x[, null_borrowed := borrowed_ | !chrom %in% null_chroms]
   # p-values per calibration group x fold: the group's null rows (those its threshold was trained on) of the other
-  # folds (all folds for rows without one)
+  # folds (all folds for rows without one). Rows of a class that borrows (named events) are calibrated on the null
+  # rows of the sd_class group their threshold was borrowed from, scored as rows of the borrowing class
+  # (borrowed_stat()): the sd_class's own policy differs (arm gains are not reportable per cell, event gains are)
+  # and it may have no per-cell call rows at all (e.g. 10Mb)
   folds = sort(unique(x$fold[!is.na(x$fold) & x$fold != 0L]))
   x[, p := NA_real_]
   tn = if (tail == "exponential") tail_n else 0
   xi = rep(NA_integer_, nrow(sc)); xi[k] = seq_along(k)      # the call row of each scored row
+  x[, gkey := fifelse(borrowed_, paste0(key_, "\r\r", class), key_)]
   grp = list()
-  for (g in unique(x$key_[tested])) {
-    nul = xi[ck$rows[[g]]]
-    nul = nul[!is.na(nul)]
-    tg = which(x$key_ == g & tested)
+  for (g in unique(x$gkey[tested])) {
+    tg = which(x$gkey == g & tested)
+    if (x$borrowed_[tg[1]]) {
+      nul = ck$rows[[x$key_[tg[1]]]]                           # rows of sc
+      cs = borrowed_stat(sc, nul, x$class[tg[1]], pol, resolve_gains, gain_min_dl)
+      cp = sc$s_comb[nul]; cf = as.integer(sc$fold[nul])
+    } else {
+      nul = xi[ck$rows[[x$key_[tg[1]]]]]                        # rows of x
+      nul = nul[!is.na(nul)]
+      cs = x$s_[nul]; cp = x$score[nul]; cf = x$fold[nul]
+    }
     grp[[length(grp) + 1]] = data.table(gkey = g, n_null = length(nul))
     for (fo in unique(x$fold[tg])) {
       t_ = tg[x$fold[tg] %in% fo]
-      cal = if (!is.na(fo) && fo %in% folds) nul[!is.na(x$fold[nul]) & x$fold[nul] != fo] else nul
-      set(x, i = t_, j = "p", value = conformal_p(x$s_[t_], x$s_[cal], x$score[cal], tn))
+      cal = if (!is.na(fo) && fo %in% folds) which(!is.na(cf) & cf != fo) else seq_along(nul)
+      set(x, i = t_, j = "p", value = conformal_p(x$s_[t_], cs[cal], cp[cal], tn))
     }
   }
   m = sum(tested & !is.na(x$p))
@@ -243,11 +279,20 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
                          top_region = character(), score = numeric(), level = character(), top_class = character(),
                          n_regions = integer(), null_cell = logical(), p = numeric(), q = numeric(), null_borrowed = logical())
   # expected false calls / events per class x state x chromosome group
-  ef = expected_false_table(x, tested, ev, pol)
+  # (a class that borrows: its sd_class's null rows called as rows of the class, at their own (= the borrowed) thresholds)
+  bnull = NULL
+  bc = unique(x[borrowed_ & tested, .(class, sd_class)])
+  if (nrow(bc) && "thr_s_comb" %in% names(sc)) bnull = rbindlist(lapply(seq_len(nrow(bc)), function(i) {
+    idx = which(sc$is_null %in% TRUE & sc$class == bc$sd_class[i])
+    s = borrowed_stat(sc, idx, bc$class[i], pol, resolve_gains, gain_min_dl)
+    data.table(class = bc$class[i], sd_class = bc$sd_class[i], stratum = as.character(sc$stratum[idx]),
+               state = as.character(sc$state_comb[idx]), called = is.finite(s) & !is.na(sc$thr_s_comb[idx]) & s > sc$thr_s_comb[idx])
+  }))
+  ef = expected_false_table(x, tested, ev, pol, bnull)
   # calibration groups: class / stratum of each key, n_null, resolution
   groups = rbindlist(grp)
   if (nrow(groups)) {
-    kk = match(groups$gkey, x$key_)
+    kk = match(groups$gkey, x$gkey)
     lev = as.integer(sub("\r.*$", "", groups$gkey))
     hs = "hstratum" %in% names(sc)
     bw = x$borrowed_[kk]
@@ -268,8 +313,10 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
 }
 
 # expected false calls / events per class x state x chromosome group (see event_fdr): x = the cell-level calls with
-# is_null, stratum, chrom, rep_, key_; ev = the events with null_cell
-expected_false_table = function(x, tested, ev, pol) {
+# is_null, stratum, chrom, rep_, key_; ev = the events with null_cell; bnull = NULL or, for the classes that borrow
+# (named events), their sd_class's null rows scored as rows of the class (class, sd_class, stratum, state, called:
+# borrowed_stat() above the row's threshold)
+expected_false_table = function(x, tested, ev, pol, bnull = NULL) {
   x = copy(x)
   x[, grp_ := sex_group(chrom)]
   x[, fin_ := called %in% TRUE & reportable %in% TRUE]
@@ -282,29 +329,45 @@ expected_false_table = function(x, tested, ev, pol) {
   ncls = unique(x$class[x$is_null])
   rows = x[!is.na(thr), .(n_rows = .N), by = .(class, stratum, grp_)]
   nul = x[is_null == TRUE, .(n_null = .N), by = .(class, stratum)]
+  bcls = if (is.null(bnull)) character() else unique(bnull$class)
   out = list()
   for (i in seq_len(nrow(combos))) {
     cl = combos$class[i]; st = combos$state[i]
-    rc = cl
-    if (!cl %in% ncls) {
-      sdc = x$sd_class[match(cl, x$class)]
-      rc = if (!is.na(sdc) && sdc %in% ncls) sdc else NA_character_
+    if (cl %in% bcls) {
+      # a borrowing class: per sd_class x stratum, the rate of its sd_class's null rows called as rows of the class;
+      # a null row of the sd_class is no event of the class, so its call rate stands for the event rate as well
+      bn = bnull[class == cl]
+      rc = unique(bn$sd_class)
+      nr = x[class == cl & !is.na(thr), .(n_rows = .N), by = .(key = sd_class, stratum, grp_)]
+      nn = bn[, .(n_null = .N), by = .(key = sd_class, stratum)]
+      kn = bn[called & state == st, .N, by = .(key = sd_class, stratum)]
+      ke_ = kn
+    } else {
+      rc = cl
+      if (!cl %in% ncls) {
+        sdc = x$sd_class[match(cl, x$class)]
+        rc = if (!is.na(sdc) && sdc %in% ncls) sdc else NA_character_
+      }
+      nr = rows[class == cl, .(key = "", stratum, grp_, n_rows)]
+      kn = x[is_null == TRUE & class %in% rc & fin_ & state == st, .N, by = stratum][, key := ""]
+      ke_ = ce[top_null & class %in% rc & state == st, .N, by = stratum][, key := ""]
+      nn = nul[class %in% rc, .(key = "", stratum, n_null)]
     }
-    nr = rows[class == cl]
-    kn = x[is_null == TRUE & class %in% rc & fin_ & state == st, .N, by = stratum]
-    ke_ = ce[top_null & class %in% rc & state == st, .N, by = stratum]
-    nn = nul[class %in% rc]
     for (g in sort(unique(nr$grp_))) {
       r = nr[grp_ == g]
       tot_null = sum(nn$n_null); tot_k = sum(kn$N); tot_e = sum(ke_$N)
-      rate = function(cnt, s) {
-        n0 = nn$n_null[match(s, nn$stratum)]
-        c0 = cnt$N[match(s, cnt$stratum)]; c0[is.na(c0)] = 0
-        pooled = if (tot_null > 0) sum(cnt$N) / tot_null else NA_real_
+      # the rate per stratum (key: the sd_class of a borrowing class), else pooled over the key's strata
+      rate = function(cnt, kk, s) {
+        n0 = nn$n_null[match(paste(kk, s, sep = "\r"), paste(nn$key, nn$stratum, sep = "\r"))]
+        c0 = cnt$N[match(paste(kk, s, sep = "\r"), paste(cnt$key, cnt$stratum, sep = "\r"))]; c0[is.na(c0)] = 0
+        pooled = vapply(kk, function(k_) {
+          n_ = sum(nn$n_null[nn$key == k_])
+          if (n_ > 0) sum(cnt$N[cnt$key == k_]) / n_ else NA_real_
+        }, numeric(1), USE.NAMES = FALSE)
         fifelse(!is.na(n0) & n0 > 0, c0 / n0, pooled)
       }
-      e_calls = sum(r$n_rows * rate(kn, r$stratum))
-      e_events = sum(r$n_rows * rate(ke_, r$stratum))
+      e_calls = sum(r$n_rows * rate(kn, r$key, r$stratum))
+      e_events = sum(r$n_rows * rate(ke_, r$key, r$stratum))
       scale0 = if (tot_null > 0) sum(r$n_rows) / tot_null else NA_real_
       ci = function(e, cnt) {
         sc_ = if (cnt > 0) e / cnt else scale0

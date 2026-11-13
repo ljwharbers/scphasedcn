@@ -85,6 +85,8 @@ themselves; their chrX is not screened), `events | expected_false_cell_events` (
 nesting rule) `p` compares the score of a *reportable* call (the score when the row would be reportable if called,
 else minus infinity) with the same statistic on the null rows of the row's threshold group, in the
 cross-validation folds its threshold was trained on: `p = (1 + #{null >= score}) / (n + 1)` (a conformal p-value).
+A named `event` region borrows the thresholds of its `sd_class`, and its rows are compared with the same null rows
+(those of the sd_class group and folds), scored as event rows would be (`null_borrowed = TRUE`).
 With `n` null rows `p` cannot go below `1 / (n + 1)`; a strong event would then get a q-value that only reflects how
 many other events are as strong (with `m` tests no single event can reach a q below about `m / (n + 1)`, which is
 above 1 on real data). Beyond the (51st) largest null score of the group, `p` therefore follows an exponential tail

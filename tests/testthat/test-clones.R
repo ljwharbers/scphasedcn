@@ -768,7 +768,7 @@ test_that("confirm_sided \"one\": assignments and segments unchanged, events sti
       expect_lte(cn[hyp == "all" & kind == "all", per_1000], 3)
     }
     cc = r1$calls[level == "cell"]
-    expect_equal(cc$called, cc$score > cc$thr)
+    expect_equal(cc$called, cc$score > pmax(cc$thr, 0))            # the calling rule: above the threshold and 0
     check_calls(r1$calls)
   }
 })

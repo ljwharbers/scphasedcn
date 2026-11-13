@@ -258,6 +258,11 @@ clone_allelic_distance = function(oc, members, arms, floor = 0.03, min_mol = 200
 #' pooled counts under that orientation).
 #' Posterior over singles (prior `prior`, default uniform) and mixtures (total prior `mix_prior`); the
 #' reported `posterior` is the best clone's posterior among the single clones.
+#'
+#' The hypotheses are the clones with members plus the fixed normal clone `N0` whenever `segments` has it
+#' ([caller_tumour()] `normal_hypothesis`), even when no cell is labelled `N0` yet: its state is all-neutral, so it
+#' needs no orientation, and without it normal cells would be forced into a tumour clone. Its `c` is the median `c`
+#' of `par` (attenuation 1) when `par` has no `N0` row.
 #' @param feat_pieces list(features = per-cell depth features on the pieces ([region_features()]),
 #'   pieces = regions table, votes, atoms, cells = names in vote index order)
 #' @param clones data.table cell, clone: the clone members used for orientation (confident singlets)
@@ -303,7 +308,11 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
   d = as.data.table(fp$features)[region %in% pieces$region]
   clones = as.data.table(clones)[!is.na(clone), .(cell, clone = as.character(clone))]
   K = sort(unique(clones$clone))
+  # the fixed normal clone is a hypothesis whenever the segments have it, with or without members
+  if ("N0" %in% as.character(as.data.table(segments)$clone) && !"N0" %in% K) K = sort(c(K, "N0"))
   par = if (is.null(par)) data.table(clone = K, c = 1, a = 1) else as.data.table(par)[, .(clone = as.character(clone), c, a)]
+  if ("N0" %in% K && !"N0" %in% par$clone)
+    par = rbind(par, data.table(clone = "N0", c = if (nrow(par)) stats::median(par$c) else 1, a = 1))
   ps_ = piece_states(pieces, segments)
   ps_ = ps_[clone %in% K]
   # depth
@@ -410,7 +419,10 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
     hyp = c(K, colnames(LM))
   }
   sizes = as.vector(table(clones$clone)[K])
-  pk = if (is.null(prior)) rep(1 / length(K), length(K)) else as.vector(prior[K] / sum(prior[K]))
+  pk = if (is.null(prior)) rep(1 / length(K), length(K)) else {
+    pv = as.numeric(prior[K]); pv[is.na(pv)] = mean(pv, na.rm = TRUE)       # a clone without a prior (N0): the mean
+    pv / sum(pv)
+  }
   # per-cell total mixture prior: mix_prior, raised to the cell's multiplet prior probability (e.g. a soft multiplet score)
   pm = rep(if (is.null(LM)) 0 else mix_prior, length(sc))
   if (!is.null(LM) && !is.null(mult_prior)) {

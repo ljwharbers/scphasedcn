@@ -74,6 +74,80 @@ test_that("collapse_molecules equals the reference molecule collapse", {
   expect_equal(collapse_molecules(rf, gap = 1500), ref_e2_molecules(rf, gap = 1500))
 })
 
+test_that("collapse_molecules split_ps: one vote per molecule x phase set", {
+  # two fragments 500 bp apart in different phase sets: one molecule under the first PS today, two votes split
+  fr = data.table(cell = "c1", chrom = "chr1", start = c(1000, 2000), end = c(1500, 2600), hap = "A", ps = c(50, 4000))
+  m0 = collapse_molecules(fr)
+  expect_equal(m0[, .(start, end, ps, n_frag, hap)], data.table(start = 1000, end = 2600, ps = 50, n_frag = 2L, hap = "A"))
+  m1 = collapse_molecules(fr, split_ps = TRUE)
+  expect_equal(names(m1), names(m0))
+  expect_equal(m1[, .(start, end, ps, n_frag, hap)],
+               data.table(start = c(1000, 2000), end = c(1500, 2600), ps = c(50, 4000), n_frag = 1L, hap = "A"))
+  # PS 50 votes A, B, A and PS 4000 votes B: a 2:2 tie (dropped) today, A in PS 50 and B in PS 4000 split
+  fr2 = data.table(cell = "c1", chrom = "chr1", start = c(1000, 1600, 2300, 2900), end = c(1400, 2000, 2700, 3200),
+                   hap = c("A", "B", "B", "A"), ps = c(50, 50, 4000, 50))
+  expect_equal(nrow(collapse_molecules(fr2)), 0L)
+  m2 = collapse_molecules(fr2, split_ps = TRUE)
+  expect_equal(m2[, .(start, end, ps, n_frag, hap)],
+               data.table(start = c(1000, 2300), end = c(3200, 2700), ps = c(50, 4000), n_frag = c(3L, 1L), hap = c("A", "B")))
+  # one phase set per cell and chromosome: identical under both settings
+  set.seed(4)
+  n = 3000
+  rf = data.table(cell = sample(sprintf("b%02d", 1:10), n, TRUE), chrom = sample(c("chr1", "chr2"), n, TRUE),
+                  start = round(runif(n, 0, 2e6)))
+  rf[, end := start + round(rexp(n, 1 / 800))][, hap := sample(c("A", "B", "U"), n, TRUE, c(0.45, 0.45, 0.1))]
+  rf[, ps := fifelse(chrom == "chr1", 11, 22)]
+  expect_equal(collapse_molecules(rf, split_ps = TRUE), collapse_molecules(rf))
+  # mixed phase sets: the split never merges molecules, it only splits them by phase set
+  rf[, ps := sample(1:3, n, TRUE)]
+  ms = collapse_molecules(rf, split_ps = TRUE)
+  expect_gt(nrow(ms), nrow(collapse_molecules(rf)))
+  expect_equal(anyDuplicated(ms[, .(cell, chrom, start, ps)]), 0L)
+  expect_equal(collapse_molecules(rf[0], split_ps = TRUE), collapse_molecules(rf[0]))
+})
+
+test_that("read_votes clean: blacklisted fragments do not vote (tabix and fallback)", {
+  # flags: 2 = MAPQ 60, 8 = blacklist start, 16 = TRF start (only the blacklist bit makes a fragment not clean)
+  fr = data.table(chrom = "chr1", start = c(1000, 100000, 200000, 300000, 1500000, 1000),
+                  end = c(1500, 100500, 200500, 300500, 1500500, 1500),
+                  cell = c("c1", "c1", "c1", "c1", "c1", "c2"), strand = "+", mapq = 60L,
+                  flags = c(2L, 8L, 10L, 2L, 18L, 8L))
+  fr[, `:=`(len = end - start, piece = 1L, npieces = 1L, hap = c(1L, 2L, 1L, 1L, 2L, 2L), nsnp = 1L, ps = 50,
+            read_id = seq_len(.N))]
+  f = file.path(tempfile("votes_clean"), "fragments.tsv.gz")
+  dir.create(dirname(f))
+  suppressWarnings(write_fragments(fr, f))
+  atoms = data.table(atom = 1:2, chrom = "chr1", start = c(0, 1e6), end = c(1e6, 2e6), bin = 1:2)
+  v_all = data.table(cell = c(1L, 1L, 2L), atom = c(1L, 2L, 1L), ps = 50, nA = c(3L, 0L, 0L), nB = c(1L, 1L, 1L))
+  v_clean = data.table(cell = c(1L, 1L), atom = 1:2, ps = 50, nA = c(2L, 0L), nB = c(0L, 1L))
+  paths = list(fallback = NULL)
+  if (nzchar(Sys.which("tabix")) && file.exists(paste0(f, ".tbi"))) paths$tabix = ""
+  for (p in names(paths)) {
+    tb = paths[[p]]
+    v0 = read_votes(f, c("c1", "c2"), atoms, tabix = tb)
+    expect_equal(v0, v_all, ignore_attr = TRUE, info = p)
+    expect_equal(read_votes(f, c("c1", "c2"), atoms, tabix = tb, clean = FALSE, split_ps = FALSE), v0, info = p)
+    v1 = read_votes(f, c("c1", "c2"), atoms, tabix = tb, clean = TRUE)
+    expect_equal(v1, v_clean, ignore_attr = TRUE, info = p)
+    expect_silent(check_votes(v1))
+  }
+})
+
+test_that("cell_features passes mol_split_ps and votes_clean to read_votes", {
+  ev = data.table(region = "loh2", chrom = "chr2", start = 20e6, end = 40e6)
+  sim_features("sim_norm_f", method = "celltype", sex = "female", events = ev, classes = c("arm", "chrom", "10Mb"))
+  got = list()
+  local_mocked_bindings(read_votes = function(...) { got <<- list(...); stop("read_votes reached") })
+  d = feat_cache$sim_norm_f_dir
+  cf = function(params) cell_features(d, cells = sim_norm_f$scn$cells$cell, centromeres = sim_centromeres(sim_norm_f$scn$bins),
+                                      sex = "female", classes = "arm", params = params)
+  expect_error(cf(caller_defaults()), "read_votes reached")
+  expect_false(got$split_ps); expect_false(got$clean)
+  p = modifyList(caller_defaults(), list(mol_split_ps = TRUE, votes_clean = TRUE))
+  expect_error(cf(p), "read_votes reached")
+  expect_true(got$split_ps); expect_true(got$clean)
+})
+
 test_that("regions: names, arms, containment and start-inside rules, sd_class", {
   bins = sim_genome()
   ce = sim_centromeres(bins, chr1_left = 24.05e6, chr1_right = 24.05e6)
@@ -230,12 +304,91 @@ test_that("orient_blocks: a cell's own votes never orient its blocks (leak test)
   expect_true(all(mi$f >= 0.5 & mi$f < 1)); expect_equal(mi$orient[1], "none")
 })
 
+test_that("phasing_by_chrom: per-chromosome regimes by the detect_phasing rule", {
+  atoms = fake_atoms()
+  v = fake_votes(40, atoms, clones = rep("A", 40), events = NULL, mol_per_atom = 1)
+  chroms = unique(atoms$chrom)
+  pb = phasing_by_chrom(v, atoms)
+  expect_equal(names(pb), c("chrom", "n_votes", "n_ps", "k", "regime"))
+  expect_equal(pb$chrom, chroms)
+  expect_true(all(pb$regime == "block") && all(pb$k > 2))
+  expect_equal(pb$n_votes, v[, .(n = as.numeric(sum(nA + nB))), by = .(chrom = atoms$chrom[match(atom, atoms$atom)])][match(chroms, chrom), n])
+  expect_equal(pb$n_ps, v[, .(n = uniqueN(ps)), by = .(chrom = atoms$chrom[match(atom, atoms$atom)])][match(chroms, chrom), n])
+  # hybrid-like: one phase set per autosome plus residual small sets, chrX still in blocks
+  vc = copy(v)
+  ch = atoms$chrom[match(vc$atom, atoms$atom)]
+  vc[ch != "chrX", ps := as.numeric(match(ch[ch != "chrX"], chroms))]
+  set.seed(2); i = sample(which(ch != "chrX"), 30); vc[i, ps := 1000 + seq_along(i)]
+  pc = phasing_by_chrom(vc, atoms)
+  expect_equal(pc[chrom != "chrX", unique(regime)], "chromosome")
+  expect_equal(pc[chrom == "chrX", regime], "block")
+  expect_equal(detect_phasing(vc, atoms), "chromosome")
+  expect_equal(detect_phasing(v, atoms), "block")
+  # detect_phasing = the median rule over the per-chromosome k (frac passed through)
+  for (fr in c(0.5, 0.9, 0.99)) {
+    k = phasing_by_chrom(vc, atoms, frac = fr)$k
+    expect_equal(detect_phasing(vc, atoms, frac = fr), if (median(k) <= 2) "chromosome" else "block")
+  }
+  # empty votes
+  e = phasing_by_chrom(v[0], atoms)
+  expect_equal(nrow(e), 0L); expect_equal(names(e), names(pb))
+  expect_equal(detect_phasing(v[0], atoms), "chromosome")
+})
+
+test_that("cell_features on an imperfect hybrid: switch errors stay in the merged phase set as attenuation", {
+  # sim_norm_f is a perfect hybrid (one anchored phase set per chromosome). A switch error of the population phase
+  # flips a stretch of the merged phase set: here chr1 6-12 Mb, a quarter of the p arm (0-24 Mb) that carries the
+  # private 1:0 loss. Detection and orientation do not see it; the votes are summed as they are, so the carriers'
+  # oriented fraction moves towards 0.5 (what vignette("scphasedcn-inputs") describes under Limits).
+  s = sim_norm_f
+  ev = data.table(region = "loh2", chrom = "chr2", start = 20e6, end = 40e6)
+  args = list(method = "celltype", sex = "female", events = ev, classes = c("arm", "chrom", "10Mb"))
+  fe0 = do.call(sim_features, c(list("sim_norm_f"), args))
+  d = file.path(tempdir(), "feat_sim_norm_switch")
+  dir.create(d, showWarnings = FALSE)
+  file.copy(file.path(feat_cache$sim_norm_f_dir, c("bins_100kb.h5ad", "cells_qc.tsv")), d, overwrite = TRUE)
+  fr = copy(s$fragments)[, cell := s$scn$cells$cell[cell]]
+  lo = 6e6; hi = 12e6
+  fr[chrom == "chr1" & start >= lo & start < hi & hap %in% 1:2, hap := 3L - hap]   # A <-> B
+  write_fragments(fr, file.path(d, "fragments.tsv.gz"))
+  fe1 = do.call(cell_features, c(list(d, cells = s$scn$cells$cell, centromeres = sim_centromeres(s$scn$bins)), args))
+  expect_equal(unname(fe1$phasing), c("chromosome", "chromosome"))
+  expect_equal(fe1$phasing_chrom[, .(chrom, n_ps, regime)], fe0$phasing_chrom[, .(chrom, n_ps, regime)])
+  expect_null(phasing_run_note(fe1$phasing, "normal", fe1$phasing_chrom))
+  expect_true(all(fe1$long[chrom == "chr1", orient] == "anchored"))
+  # per cell, chr1p nA = nA outside the stretch + nB inside it (molecules across a boundary: at most a few votes)
+  at = fe0$atoms[chrom == "chr1" & start >= lo & start < hi, atom]
+  inside = fe0$votes[atom %in% at, .(iA = sum(nA), iB = sum(nB)), by = cell]
+  inside[, cell := fe0$cells$cell[cell]]
+  a0 = merge(fe0$long[region == "chr1p", .(cell, nA, nB, f)], inside, by = "cell", all.x = TRUE)
+  a0[is.na(iA), c("iA", "iB") := 0L]
+  a1 = fe1$long[region == "chr1p", .(cell, nA1 = nA, nB1 = nB, f1 = f)]
+  a = merge(a0, a1, by = "cell")
+  expect_equal(nrow(a), nrow(fe0$cells))
+  expect_lte(max(abs(a$nA1 - (a$nA - a$iA + a$iB))), 3)
+  expect_lte(max(abs((a$nA1 + a$nB1) - (a$nA + a$nB))), 3)
+  # single-nucleus carriers of the chr1p loss: oriented fraction attenuated by about the flipped vote share
+  b1 = which(s$scn$bins$chrom == "chr1")[1]
+  carrier = s$scn$cells$cell[s$truth$cn[b1, ] == 1 & !s$truth$cells$multiplet]
+  cr = a[cell %in% carrier & nA + nB >= 20]
+  expect_gte(nrow(cr), 3)
+  w = (cr$iA + cr$iB) / (cr$nA + cr$nB)
+  expect_gt(median(cr$f), 0.9)
+  expect_lt(median(cr$f1), median(cr$f) - 0.15)
+  expect_equal(median(cr$f1), median(cr$f - w * (2 * cr$f - 1)), tolerance = 0.03)
+  # non-carriers stay balanced
+  expect_equal(median(a[!cell %in% carrier & nA + nB >= 20, f1]), 0.5, tolerance = 0.03)
+})
+
 test_that("cell_features on sim_tum2 (male): chrX depth-only, clone-grouped orientation", {
   s = sim_tum2
   fe = sim_features("sim_tum2", method = "celltype", sex = "male", classes = c("arm", "chrom"), groups = "cell_type",
                     null_exclude = c("chr1", "chr2", "chr8", "chr21", "chr22"))
   expect_silent(check_features(fe$long))
   expect_equal(unname(fe$phasing), c("block", "loo"))
+  expect_equal(fe$phasing_chrom$chrom, unique(fe$atoms$chrom))
+  expect_true(all(fe$phasing_chrom$regime == "block"))
+  expect_true(any(grepl("^phasing per chromosome", fe$notes)))
   x = fe$long[chrom == "chrX"]
   expect_gt(nrow(x), 0)
   expect_true(all(!x$allelic_ok) && all(x$n_hap == 0) && all(x$orient == "none"))
@@ -282,4 +435,105 @@ test_that("orient_blocks reproduces the reference leave-one-out orientation exac
     expect_identical(o, ref)
   }
   expect_false(exists("read_phase_prior", envir = asNamespace("scphasedcn"), inherits = FALSE))
+})
+
+test_that("sex is validated at the entry points: female / male in any case or F / M, anything else stops", {
+  bins = sim_genome()
+  ce = sim_centromeres(bins)
+  cs = chrom_sizes_from_bins(bins)
+  expect_identical(check_sex("Male"), "male")
+  expect_identical(check_sex("F"), "female")
+  expect_identical(check_sex(" FEMALE "), "female")
+  expect_null(check_sex(NULL))
+  expect_identical(arm_table(ce, cs, "M"), arm_table(ce, cs, "male"))
+  expect_identical(region_set(bins, ce, classes = c("arm", "chrom"), sex = "Male"), region_set(bins, ce, classes = c("arm", "chrom"), sex = "male"))
+  expect_false(any(region_set(bins, ce, classes = c("arm", "chrom"), sex = "Male")[chrom == "chrX", allelic_ok]))
+  for (bad in list("mal", "unknown", NA_character_, c("female", "male"), ""))
+    expect_error(arm_table(ce, cs, bad), "`sex` must be")
+  expect_error(region_set(bins, ce, sex = "XY"), "region_set: `sex` must be")
+  expect_error(cell_features(tempfile(), sex = "Mle"), "cell_features: `sex` must be")
+  expect_error(call_scn(tempfile(), sex = "boy"), "call_scn: `sex` must be")
+  expect_error(caller_normal(data.table(), sex = "Mann"), "caller_normal: `sex` must be")
+})
+
+test_that("cell_meta without some of the given cells keeps their QC stratum / n_frag", {
+  meta = data.table(cell = c("a", "b", "c"), n_frag = c(15000, 30000, 60000), stratum = c("<20k", "20-50k", ">=50k"),
+                    cell_type = NA_character_, group = NA_character_, flat = NA, fold = NA_integer_)
+  cm = data.table(cell = c("c", "a"), stratum = factor(c("x", NA)), n_frag = c(1, NA), cell_type = c("epi", "fib"), fold = c(2, 1))
+  m = apply_cell_meta(copy(meta), cm)
+  expect_identical(m$stratum, c("<20k", "20-50k", "x"))                   # b: not in cell_meta, a: NA there -> QC value
+  expect_identical(m$n_frag, c(15000, 30000, 1))
+  expect_identical(m$cell_type, c("fib", NA, "epi"))                       # labels are used as given
+  expect_identical(m$fold, c(1L, NA, 2L))
+  expect_identical(apply_cell_meta(copy(meta), NULL), meta)
+})
+
+test_that("subset_features re-indexes the votes: each kept cell keeps its own votes (cells 2-3 of 3)", {
+  regions = data.table(region = "chr1", class = "chrom", sd_class = "chrom", chrom = "chr1", start = 0, end = 1e7,
+                       n_bins = 100L, n_use = 100L, eligible = TRUE, null_region = TRUE, allelic_ok = TRUE)
+  atoms = data.table(atom = 1:2, chrom = "chr1", start = c(0, 5e6), end = c(5e6, 1e7), bin = c(1L, 51L))
+  votes = data.table(cell = 1:3, atom = 1L, ps = 1, nA = c(10L, 0L, 3L), nB = c(0L, 7L, 4L))
+  cells = data.table(cell = c("c1", "c2", "c3"), n_frag = 1e4, stratum = "<20k")
+  long = data.table(cell = cells$cell, region = "chr1", nA = c(10, 0, 3), nB = c(0, 7, 4), n_blocks = 1, f = c(1, 0, 3 / 7))
+  long[, n_hap := nA + nB]
+  win = list(windows = data.table(window = "chr1:0", chrom = "chr1", start = 0, end = 1e6),
+             x = matrix(1:3, 1, 3, dimnames = list("chr1:0", cells$cell)), e = matrix(4:6, 1, 3, dimnames = list("chr1:0", cells$cell)))
+  fe = structure(list(long = long, regions = regions, cells = cells, votes = votes, atoms = atoms, win = win,
+                      phasing = c(detected = "chromosome", orientation = "chromosome")), class = "scn_features")
+  fs = subset_features(fe, c("c3", "c2"))
+  expect_identical(fs$cells$cell, c("c2", "c3"))
+  expect_identical(fs$votes$cell, 1:2)
+  expect_identical(fs$votes$nB, c(7L, 4L))
+  expect_identical(colnames(fs$win$x), c("c2", "c3"))
+  expect_identical(fs$win$e[1, ], c(c2 = 5L, c3 = 6L))
+  # the allele features re-aggregated from the votes are each cell's own
+  up = update_allelic_features(fs, exclude_atoms = integer())
+  expect_equal(up$long[order(cell), nA], c(0, 3))
+  expect_equal(up$long[order(cell), nB], c(7, 4))
+  expect_identical(subset_features(fe, fe$cells$cell), fe)
+})
+
+test_that("read_hap_fragments: a failing tabix command stops, no records gives no rows; read_votes warns on empty chromosomes", {
+  skip_on_os("windows")
+  td = tempfile("fake_tabix"); dir.create(td)
+  frag = file.path(td, "fragments.tsv.gz"); writeLines("x", frag); writeLines("x", paste0(frag, ".tbi"))
+  fake = function(name, body) { p = file.path(td, name); writeLines(c("#!/bin/sh", body), p); Sys.chmod(p, "0755"); p }
+  bad = fake("tabix_bad", c("echo 'could not load the index' >&2", "exit 1"))
+  empty = fake("tabix_empty", "exit 0")
+  # fragment table columns: chrom start end cell score strand ... flags (7) ... hap (11) ... ps (13)
+  rec = c("chr1\t100\t300\tAAAC\t1\t+\t0\t.\t.\t.\t1\t.\t5",
+          "chr1\t400\t600\tAAAG\t1\t+\t0\t.\t.\t.\t2\t.\t5",
+          "chr1\t700\t900\tAAAG\t1\t+\t0\t.\t.\t.\t0\t.\t5")              # hap 0: dropped by the awk filter
+  good = fake("tabix_good", c('[ "$2" = chr1 ] || exit 0', sprintf("printf '%s\\n'", paste(gsub("\t", "\\\\t", rec), collapse = "\\n"))))
+  expect_error(read_hap_fragments(frag, "chr1", bad), "tabix failed.*could not load the index")
+  e = read_hap_fragments(frag, "chr1", empty)
+  expect_equal(nrow(e), 0L)
+  expect_identical(names(e), c("start", "end", "cell", "hap", "ps"))
+  g = read_hap_fragments(frag, "chr1", good)
+  expect_equal(g$cell, c("AAAC", "AAAG"))
+  expect_equal(g$hap, c(1L, 2L))
+  atoms = data.table(atom = 1:2, chrom = c("chr1", "chr2"), start = 0, end = 1e6, bin = 1:2)
+  expect_warning(v <- read_votes(frag, c("AAAC", "AAAG"), atoms, tabix = good), "1 chromosome\\(s\\) \\(chr2\\)")
+  expect_equal(sum(v$nA + v$nB), 2L)
+  expect_warning(read_votes(frag, c("CCCC"), atoms[1], tabix = good), "barcodes")
+  expect_error(read_votes(frag, "AAAC", atoms, tabix = bad), "tabix failed")
+})
+
+test_that("events: unnamed ones are named after their region, events without a region warn (CLI --events chr7)", {
+  bins = sim_genome()
+  ce = sim_centromeres(bins)
+  ev = parse_event_arg("chr8;20q=chr1:30000000-; chr2:10000000-20000000 ")
+  expect_identical(unname(ev), c("chr8", "chr1:30000000-", "chr2:10000000-20000000"))
+  expect_identical(names(ev), c("", "20q", ""))
+  r = region_set(bins, ce, classes = c("arm", "chrom"), events = ev)
+  expect_setequal(r[class == "event", region], c("event|chr8", "20q", "chr2:10000000-20000000"))
+  expect_equal(r[region == "event|chr8", c(start, end)], r[region == "chr8", c(start, end)])
+  expect_equal(r[region == "chr2:10000000-20000000", c(start, end, n_bins)], c(10e6, 20e6, 100))   # 0-based half-open
+  # an unnamed character vector (R API) works the same way
+  r2 = region_set(bins, ce, classes = "chrom", events = c("chr8", "chr21:0-5000000"))
+  expect_setequal(r2[class == "event", region], c("event|chr8", "chr21:0-5000000"))
+  # unknown chromosome and an event without a whole bin inside: dropped with a warning naming each
+  expect_warning(r3 <- region_set(bins, ce, classes = "chrom", events = c(a = "chr99:0-1000000", b = "chr1:100-200", c = "chr1")),
+                 "a \\(chromosome chr99 not in the usable bins\\), b \\(no whole usable bin inside\\)")
+  expect_identical(r3[class == "event", region], "c")
 })

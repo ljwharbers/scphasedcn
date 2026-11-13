@@ -64,9 +64,6 @@ differing by 0.3); trunk cells = trunk posterior >= \code{trunk_post}; \code{\li
 state; \code{split_sep}, \code{split_max} splits per pass, \code{split_cand} candidates tested per clone, \code{split_min_len} minimal
 segment length, \code{split_min_df} major-fraction step of an alternative between amplified states, see
 \code{\link[=split_alt_states]{split_alt_states()}}, \code{split_min_excess} minimal contradiction above its noise floor).
-Clone profiles (\code{\link[=clone_profiles]{clone_profiles()}}, \code{profile_orient}): the split-half vote orientation per chromosome x phase set
-(\code{"ps"}, default) or per profile window x phase set (\code{"window"}: a phase set that spans two events on opposite
-haplotypes, e.g. a chromosome-wide one, is oriented separately in each window; fewer votes per orientation unit).
 Normal hypothesis (\code{normal_hypothesis}): a fixed all-neutral clone \code{N0} replaces every fitted clone without a
 non-neutral segment >= \code{normal_min_event} bp in each round. States: \code{size_small}, \code{small_clone}, \code{p_switch}, \code{min_win}, \code{min_llr};
 segment rules of \code{\link[=segment_clone]{segment_clone()}} (all segmentations of the run, including the split pass): \code{min_excess} (pooled
@@ -104,5 +101,10 @@ hypothesis in \code{null_fit$confirm_null}; the default). The refitted value is 
 by the clone's pseudobulk, so only the clone's major haplotype counts). The fallback without null rows (type-7
 quantile of \code{cell_state_scores()}) is always one-sided.
 
-A key that is not one of these defaults stops \code{\link[=caller_tumour]{caller_tumour()}} with an error.
+A key that is not one of these defaults stops \code{\link[=caller_tumour]{caller_tumour()}} with an error, and so does a value outside its range:
+\code{q}, \code{p_switch}, \code{trunk_post}, \code{min_post}, \code{ref_post}, \code{max_mix_prior} and every \code{mix_w} strictly
+between 0 and 1, \code{mix_prior} in [0, 1), \code{multiplet_prob}, \code{deep_q} and \code{member_post} in [0, 1], counts (\code{em_rounds},
+\code{min_size}, \code{n_perm}, \code{min_win}, \code{min_ref}, ...) whole numbers >= 1, the caps \code{max_cells}, \code{max_leaves} and
+\code{max_leaves_trunk} whole numbers >= 1 or \code{Inf} (no cap), \code{small_clone} a whole number >= 0, \code{trunk_dist} and
+\code{control_min_len} >= 0, the other sizes / lengths > 0, the other tolerances >= 0.
 }

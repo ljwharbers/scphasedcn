@@ -26,6 +26,11 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `eps` allele error floor of the beta-binomial (0.02);
 #'   * `mol_gap` fragments of one cell closer than this (bp) are one molecule (2000; the default of
 #'     [cell_features()] `mol_gap`);
+#'   * `mol_split_ps` split molecules by phase set (FALSE): a molecule whose fragments lie in different phase sets
+#'     (across a phase-block junction) gives one vote per phase set instead of one vote under the phase set of its
+#'     first fragment ([collapse_molecules()] `split_ps`);
+#'   * `votes_clean` votes from clean fragments only (FALSE): fragments with the blacklist bit in `flags` (the
+#'     fragments the extractor leaves out of the depth layers) do not vote ([read_votes()] `clean`);
 #'   * `sd_floor` floor of the per-cell null SD of the window log2 ratio (0.05);
 #'   * `strata_breaks` / `strata_labels` depth strata on clean fragments per cell
 #'     (`<20k`, `20-50k`, `>=50k`);
@@ -54,6 +59,11 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `mask_min_votes` minimal mean votes per null row for a tile to be assessed (3);
 #'   * `pool_sex_thr` males: the sex chromosomes get their own pooled threshold group (class x autosome / X / Y)
 #'     with the class threshold as fallback (TRUE; no effect in females);
+#'   * `pool_events` normal mode: call named `event` regions (no null rows of their own) also in pools (FALSE). Off,
+#'     their pools are scored but get no threshold and are never called; their per-cell calls are not affected.
+#'     On (experimental): their pools are standardised with the class-median scale of their `sd_class` and
+#'     thresholded with its pooled threshold, which is not calibrated per event (the null pooled score of a region
+#'     depends on its own vote count, which the per-region scale of [pool_scale()] corrects for);
 #'   * `pool_tail_q` pooled per-region tail calibration ([pool_scale()]): quantile of the region-standardised
 #'     null pools compared with the class (0 = off; e.g. 0.99);
 #'   * `pool_tail_k` shrinkage pseudo-count of the pooled tail factor (30 effective pools);
@@ -65,6 +75,8 @@ caller_defaults = function() {
     null_q = 0.999,
     eps = 0.02,
     mol_gap = 2000,
+    mol_split_ps = FALSE,
+    votes_clean = FALSE,
     sd_floor = 0.05,
     strata_breaks = c(2e4, 5e4),
     strata_labels = c("<20k", "20-50k", ">=50k"),
@@ -87,6 +99,7 @@ caller_defaults = function() {
     mask_rho_mad = 2,
     mask_min_votes = 3,
     pool_sex_thr = TRUE,
+    pool_events = FALSE,
     pool_tail_q = 0.99,
     pool_tail_k = 30,
     pool_tail_xfit = TRUE
@@ -140,6 +153,7 @@ ll_depth_shift = function(z, mu, tpar = NULL) {
     if (!all(c("t_m", "t_s", "t_df") %in% names(tpar))) stop("ll_depth_shift: tpar needs t_m, t_s, t_df")
     m = tpar[["t_m"]]; s = tpar[["t_s"]]; df = tpar[["t_df"]]
     for (v in list(m, s, df)) if (!length(v) %in% c(1L, length(z))) stop("ll_depth_shift: tpar must have 1 row or one row per z")
+    if (any(!is.na(s) & s <= 0)) stop("ll_depth_shift: the t scale t_s must be > 0 (a scale of 0 gives NaN depth LLRs)")
     lt = function(x) dt((x - m) / s, df, log = TRUE)
     out = lt(zz - mu) - lt(zz)
   }
@@ -153,7 +167,7 @@ ll_depth_shift = function(z, mu, tpar = NULL) {
 #' takes the better of `f` and `1 - f` (the orientation of the counts is
 #' unknown or may be wrong). With several `f` the best LLR over the grid is
 #' returned (the attenuation-aware 1:0 / 2:0 term over `f_att`). Rows with
-#' `n = 0` (or NA) give 0. The scorer uses llr_20 at
+#' `n = 0` (or NA) give 0; without any vote `rho` is not used (it may be NA). The scorer uses llr_20 at
 #' `f = 1 - eps`, llr_21 at 2/3, llr_31 at 3/4 and the grid form over `f_att`.
 #' @param nA votes for haplotype A
 #' @param n total votes
@@ -166,6 +180,7 @@ ll_depth_shift = function(z, mu, tpar = NULL) {
 #' @return numeric vector (length of n)
 #' @export
 ll_allelic = function(nA, n, f, rho, eps = 0.02, two_sided = TRUE, per_row = FALSE) {
+  if (!any(!is.na(n) & n > 0)) return(rep(0, length(n)))   # no votes: every term is 0, whatever rho (even NA)
   ll0 = bb_loglik(nA, n, 0.5, rho, eps)
   if (per_row) {
     if (!length(f) %in% c(1L, length(n))) stop("ll_allelic: with per_row = TRUE, f needs length 1 or length(n)")
@@ -189,7 +204,7 @@ ll_allelic = function(nA, n, f, rho, eps = 0.02, two_sided = TRUE, per_row = FAL
 #'
 #' Location-scale Student-t (`MASS::fitdistr(x, "t")`) of the finite null z
 #' per group, on a seeded subsample of at most `n_max` rows per group;
-#' fallback median / mad / df 30 when the fit fails.
+#' fallback median / mad / df 30 when the fit fails (the scale floored at the sd and at 1e-3).
 #' @param d null rows with `z` and the `by` columns
 #' @param by grouping columns (region class x depth stratum)
 #' @param n_max maximal rows per group used for the fit
@@ -201,7 +216,10 @@ fit_depth_null = function(d, by = c("class", "stratum"), n_max = 20000, seed = 1
   d[is.finite(z), {
     set.seed(seed)
     x = if (.N > n_max) z[sample.int(.N, n_max)] else z
-    f = tryCatch(suppressWarnings(MASS::fitdistr(x, "t")$estimate), error = function(e) c(m = median(x), s = mad(x), df = 30))
+    # fallback when the t fit fails: median / MAD / df 30, the scale floored (a MAD of 0, e.g. mostly tied z, would
+    # make every depth LLR NaN)
+    f = tryCatch(suppressWarnings(MASS::fitdistr(x, "t")$estimate),
+                 error = function(e) c(m = median(x), s = max(mad(x), stats::sd(x), 1e-3, na.rm = TRUE), df = 30))
     list(t_m = f[["m"]], t_s = f[["s"]], t_df = f[["df"]], n = .N)
   }, by = by]
 }

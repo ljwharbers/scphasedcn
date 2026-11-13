@@ -10,7 +10,9 @@ read_votes(
   atoms,
   chroms = NULL,
   gap = 2000,
-  tabix = caller_defaults()$tabix
+  tabix = caller_defaults()$tabix,
+  split_ps = FALSE,
+  clean = FALSE
 )
 }
 \arguments{
@@ -26,6 +28,10 @@ read_votes(
 
 \item{tabix}{path of the tabix binary ("" = the \code{tabix} on the PATH; NULL / not found = the R fallback through
 Rsamtools)}
+
+\item{split_ps}{split molecules by phase set (caller parameter \code{mol_split_ps}; default FALSE)}
+
+\item{clean}{votes from clean (not blacklisted) fragments only (caller parameter \code{votes_clean}; default FALSE)}
 }
 \value{
 votes data.table \verb{cell, atom, ps, nA, nB} (passes \code{\link[=check_votes]{check_votes()}})
@@ -35,5 +41,11 @@ Per chromosome: \verb{tabix <file> <chrom> | cut -f2,3,4,7,11,13} read with \cod
 \code{\link[=read_fragments]{read_fragments()}} when the tabix binary or index is missing; fragments of \code{cells} with haplotype
 A / B and a phase set are collapsed into molecules (\code{\link[=collapse_molecules]{collapse_molecules()}}), each molecule is assigned
 to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory
-stays per chromosome (integer cell indices, \code{gc()} between chromosomes).
+stays per chromosome (integer cell indices, \code{gc()} between chromosomes). A failing tabix command stops with its
+error; a chromosome with atoms but no haplotype-assigned fragment of \code{cells} gives a warning.
+}
+\details{
+\code{clean = TRUE} keeps only the fragments the extractor counts in the depth layers (no blacklist bit in \code{flags},
+the extractor's \code{clean = (flags & F_BLACKLIST) == 0}), in the tabix path (awk) and in the fallback;
+\code{split_ps = TRUE} gives one vote per molecule x phase set (\code{\link[=collapse_molecules]{collapse_molecules()}}).
 }

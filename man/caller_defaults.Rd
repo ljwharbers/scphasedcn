@@ -14,6 +14,11 @@ calls need score \code{>} threshold (strict, not \code{>=});
 \item \code{eps} allele error floor of the beta-binomial (0.02);
 \item \code{mol_gap} fragments of one cell closer than this (bp) are one molecule (2000; the default of
 \code{\link[=cell_features]{cell_features()}} \code{mol_gap});
+\item \code{mol_split_ps} split molecules by phase set (FALSE): a molecule whose fragments lie in different phase sets
+(across a phase-block junction) gives one vote per phase set instead of one vote under the phase set of its
+first fragment (\code{\link[=collapse_molecules]{collapse_molecules()}} \code{split_ps});
+\item \code{votes_clean} votes from clean fragments only (FALSE): fragments with the blacklist bit in \code{flags} (the
+fragments the extractor leaves out of the depth layers) do not vote (\code{\link[=read_votes]{read_votes()}} \code{clean});
 \item \code{sd_floor} floor of the per-cell null SD of the window log2 ratio (0.05);
 \item \code{strata_breaks} / \code{strata_labels} depth strata on clean fragments per cell
 (\verb{<20k}, \verb{20-50k}, \verb{>=50k});
@@ -42,6 +47,11 @@ votes of 5 Mb tiles whose null overdispersion is an outlier are left out of the 
 \item \code{mask_min_votes} minimal mean votes per null row for a tile to be assessed (3);
 \item \code{pool_sex_thr} males: the sex chromosomes get their own pooled threshold group (class x autosome / X / Y)
 with the class threshold as fallback (TRUE; no effect in females);
+\item \code{pool_events} normal mode: call named \code{event} regions (no null rows of their own) also in pools (FALSE). Off,
+their pools are scored but get no threshold and are never called; their per-cell calls are not affected.
+On (experimental): their pools are standardised with the class-median scale of their \code{sd_class} and
+thresholded with its pooled threshold, which is not calibrated per event (the null pooled score of a region
+depends on its own vote count, which the per-region scale of \code{\link[=pool_scale]{pool_scale()}} corrects for);
 \item \code{pool_tail_q} pooled per-region tail calibration (\code{\link[=pool_scale]{pool_scale()}}): quantile of the region-standardised
 null pools compared with the class (0 = off; e.g. 0.99);
 \item \code{pool_tail_k} shrinkage pseudo-count of the pooled tail factor (30 effective pools);

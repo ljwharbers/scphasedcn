@@ -162,7 +162,7 @@ test_that("two_means separates a bimodal vector and finds little in a unimodal o
   x = c(rnorm(100, -3), rnorm(60, 0))
   tm = two_means(x)
   expect_gt(tm$sep, 2.5)
-  expect_equal(sum(tm$g == tm$g[1]), 100, tolerance = 5)
+  expect_lte(abs(sum(tm$g == tm$g[1]) - 100), 5)                  # the first group: the 100 draws around -3, within 5
   expect_lt(two_means(rnorm(200))$sep, 3)
 })
 
@@ -296,13 +296,13 @@ test_that("caller_tumour finds the clones of sim_tum2 and their states", {
   check_thresholds(res$thresholds)
 })
 
-test_that("caller_tumour: the defaults of confirm_sided, perm_decision and profile_orient are today's code paths", {
-  # all-default results equal the run with the three options spelled out at their pre-option behaviour (the run before
+test_that("caller_tumour: the defaults of confirm_sided and perm_decision are today's code paths", {
+  # all-default results equal the run with the two options spelled out at their pre-option behaviour (the run before
   # these options existed is bit-identical: assignments, segments, calls; checked against the previous release)
   d = clone_defaults()
-  expect_identical(d[c("confirm_sided", "perm_decision", "profile_orient")], list(confirm_sided = "two", perm_decision = "quantile", profile_orient = "ps"))
+  expect_identical(d[c("confirm_sided", "perm_decision")], list(confirm_sided = "two", perm_decision = "quantile"))
   r0 = tum2_result()
-  r1 = caller_tumour(tum2_input(), opts = list(confirm_sided = "two", perm_decision = "quantile", profile_orient = "ps"), verbose = FALSE)
+  r1 = caller_tumour(tum2_input(), opts = list(confirm_sided = "two", perm_decision = "quantile"), verbose = FALSE)
   for (nm in c("assignments", "segments", "calls", "clones", "thresholds", "profiles", "events", "null_fit", "notes")) expect_identical(r1[[nm]], r0[[nm]])
   expect_false("p" %in% names(r0$null_fit$clones$tests))
 })
@@ -314,8 +314,8 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
   expect_error(caller_tumour(inp, opts = list(confirm_null = "x"), verbose = FALSE), "should be one of")
   expect_error(caller_tumour(inp, opts = list(confirm_sided = "x"), verbose = FALSE), "should be one of")
   expect_error(caller_tumour(inp, opts = list(perm_decision = "x"), verbose = FALSE), "should be one of")
-  expect_error(caller_tumour(inp, opts = list(profile_orient = "x"), verbose = FALSE), "should be one of")
   expect_error(caller_tumour(inp, opts = list(bogus = 1), verbose = FALSE), "unknown option")
+  expect_error(caller_tumour(inp, opts = list(profile_orient = "window"), verbose = FALSE), "unknown option")
   expect_identical(scphasedcn:::check_clone_opts(list()), clone_defaults())
   expect_identical(scphasedcn:::check_clone_opts(list(split_pass = "disagree"))$split_pass, "disagree")
   # segment_clone() rules: clone_defaults() keys with segment_clone()'s defaults, checked as numbers >= 0
@@ -325,6 +325,87 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
                    list(min_excess = 0, max_contra = Inf, bal_frac = 0.75, min_bal_len = 2e7))
   expect_error(caller_tumour(inp, opts = list(bal_frac = -1), verbose = FALSE), "bal_frac")
   expect_error(caller_tumour(inp, opts = list(min_bal_len = "x"), verbose = FALSE), "min_bal_len")
+})
+
+test_that("check_clone_opts rejects out-of-range tumour options with a clear error; the defaults pass", {
+  chk = scphasedcn:::check_clone_opts
+  expect_identical(chk(list()), clone_defaults())
+  bad = list(em_rounds = 0, em_rounds = 1.5, q = 1, q = 0, p_switch = -0.1, min_post = 1, mix_w = c(0.5, 1), mix_prior = 1,
+             multiplet_prob = 1.2, min_size = 0, n_perm = NA_real_, min_win = "3", size_small = 0, trunk_dist = -1,
+             depth_delta = -0.1, same_dist = -1, split_depth = NA, repass = "yes", classes = "bogus", classes = character())
+  for (i in seq_along(bad)) {
+    k = names(bad)[i]
+    expect_error(chk(stats::setNames(list(bad[[i]]), k)), paste0("opts\\$", k, " must be"), info = k)
+  }
+  ok = chk(list(em_rounds = 1, q = 0.99, mix_w = 0.5, mix_prior = 0, multiplet_prob = 1, n_nb_trunk = Inf, allelic_exclude = character()))
+  expect_equal(ok$em_rounds, 1)
+  expect_identical(ok$allelic_exclude, character())
+})
+
+test_that("caller_tumour without allele votes stops with a clear error", {
+  inp = tum2_input()
+  i1 = inp
+  i1$votes = i1$votes[0]
+  expect_error(caller_tumour(i1, verbose = FALSE), "caller_tumour: no allele votes")
+  i2 = inp
+  i2$rho = NA_real_
+  i2$features = copy(i2$features)[, `:=`(nA = 0, nB = 0, n_hap = 0)]
+  expect_error(caller_tumour(i2, verbose = FALSE), "caller_tumour: no allele votes")
+})
+
+test_that("caller_tumour notes degenerate nulls: no control rows for the reference cleaning, no or few confirmation null rows", {
+  # the notes themselves
+  cn = scphasedcn:::confirm_null_notes
+  expect_identical(cn(ref_thr = 2.5, n_null = c(a = 20000, b = 15000), q = 0.999), character())
+  expect_identical(cn(ref_thr = NA_real_), character())
+  expect_match(cn(ref_thr = Inf), "no control rows to calibrate the allelic threshold \\(Inf\\), so no cell was removed")
+  expect_match(cn(n_null = c(segment = 0)), "no null rows .* every threshold is Inf and no cell call is confirmed")
+  few = cn(n_null = c(h1 = 20000, h2 = 900, h3 = 0), q = 0.999)
+  expect_length(few, 1)
+  expect_match(few, "2 of 3 hypotheses have fewer than 10000 null rows .*: h2 900, h3 0;")
+  # in the run: control regions that are all filtered out leave the reference cleaning without control rows
+  inp = tum2_input()
+  ctl0 = data.table(region = character(), chrom = character(), start = numeric(), end = numeric())
+  res = caller_tumour(inp, control_regions = ctl0, verbose = FALSE)
+  expect_true(any(grepl("reference pool cleaning: no control rows", res$notes)))
+  expect_true(is.infinite(res$null_fit$ref_thr))
+  expect_false(any(grepl("reference pool cleaning", tum2_result()$notes)))
+})
+
+test_that("check_clone_opts accepts the values the options allow: no cap, zero lengths and sizes", {
+  chk = scphasedcn:::check_clone_opts
+  for (o in list(list(max_cells = Inf), list(max_leaves = Inf), list(max_leaves_trunk = Inf), list(trunk_dist = 0),
+                 list(small_clone = 0), list(control_min_len = 0), list(member_post = 0), list(member_post = 1)))
+    expect_no_error(chk(o))
+  for (k in c("max_cells", "trunk_dist", "small_clone", "control_min_len", "member_post"))
+    for (bad in list(-1, NA_real_, c(1, 2), numeric()))
+      expect_error(chk(stats::setNames(list(bad), k)), paste0("opts\\$", k, " must be"), info = k)
+  expect_error(chk(list(max_cells = 2.5)), "opts\\$max_cells must be one whole number >= 1 or Inf")
+  expect_error(chk(list(small_clone = 1.5)), "opts\\$small_clone must be one whole number >= 0")
+  expect_error(chk(list(member_post = 1.5)), "opts\\$member_post must be one number in \\[0, 1\\]")
+  expect_error(chk(list(min_size = 0)), "opts\\$min_size must be one whole number >= 1, not 0")
+  expect_error(chk(list(mix_w = c(0.5, 1))), "opts\\$mix_w must be numbers strictly between 0 and 1")
+})
+
+test_that("assign_cells keeps the normal clone N0 as a hypothesis when no cell is labelled N0", {
+  res = tum2_result()
+  inp = tum2_input()
+  tr = sim_truth(sim_tum2)
+  # N0 replaces the event-free clone(s); no member is labelled N0 (as when no fitted clone was replaced)
+  sg0 = as.data.table(res$segments)[clone != "N0"]
+  K0 = unique(sg0$clone)
+  nn = add_normal_clone(list(segments = sg0, fit = list(par = data.table(clone = K0, c = 0.9, a = 0.9, rho = 0.01, s_sys = 0))), 1e7)
+  expect_true("N0" %in% nn$st$segments$clone)
+  members = as.data.table(res$assignments)[assigned == TRUE & !clone %in% c(nn$replaced, "N0"), .(cell, clone)]
+  expect_false("N0" %in% members$clone)
+  pieces = segment_pieces(nn$st$segments, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  par = as.data.table(nn$st$fit$par)[clone != "N0"]                      # no N0 row: c = median c, a = 1
+  asg = assign_cells(fp, members, nn$st$segments, inp$null_fit$tpar, inp$null_fit$rho, par = par, mixtures = FALSE)
+  expect_true("N0" %in% colnames(attr(asg, "ll")))
+  a = merge(asg, tr, by = "cell")
+  expect_gte(a[type == "normal" & mult == FALSE, mean(clone == "N0")], 0.9)
+  expect_lte(a[type != "normal" & mult == FALSE, mean(clone == "N0")], 0.05)
 })
 
 test_that("control_regions and segment_pieces partition the clone breakpoints", {
@@ -605,80 +686,6 @@ test_that("ref_null refits rho on the reference pool; the matched null confirms 
   nf = null_fit_table(res$null_fit)
   expect_equal(nf[kind == "allelic_rho_confirm", rho], rc)
   expect_gt(nrow(nf[kind == "depth_t_confirm"]), 0)
-})
-
-# ---- profile_orient: clone profile orientation per window x phase set ------------------------------------------------
-
-truth_profiles = function(sim, inp, orient) {
-  tr = sim_truth(sim)[mult == FALSE]
-  members = tr[, .(cell, clone = type)]
-  clone_profiles(inp$win, inp$votes, inp$atoms, members, ref_cells = members[clone == "normal", cell], cells = inp$cells$cell,
-                 rho = inp$null_fit$rho, allelic_chroms = setdiff(unique(inp$regions$chrom), c("chrX", "chrY")),
-                 haploid = c("chrX", "chrY"), orient = orient)
-}
-
-test_that("clone_profiles(orient = \"window\") keeps two opposite-haplotype events inside one phase set; \"ps\" loses them", {
-  inp = clone_cached("clones_cw_input", function() clone_sim_input(sim_tum_cw))
-  expect_equal(sim_tum_cw$snps[chrom == "chr2", uniqueN(ps)], 1)        # one phase set over both chr2 events
-  p0 = truth_profiles(sim_tum_cw, inp, "ps"); p1 = truth_profiles(sim_tum_cw, inp, "window")
-  expect_identical(truth_profiles(sim_tum_cw, inp, c("ps", "window")), p0)          # "ps" is the default
-  fa = function(p, lo, hi) p[clone == "cloneA" & chrom == "chr2" & start >= lo & start < hi, sum(nA) / sum(n_hap)]
-  # one orientation for the chromosome: the arms point opposite ways (one of them below 0.5)
-  expect_lt(min(fa(p0, 0, 16e6), fa(p0, 16e6, 40e6)), 0.45)
-  # per window: both arms oriented to their own major haplotype (2:1 at f ~ 2/3)
-  expect_gt(fa(p1, 0, 16e6), 0.6); expect_gt(fa(p1, 16e6, 40e6), 0.6)
-  expect_equal(p1[, .(clone, window, log2)], p0[, .(clone, window, log2)])         # depth untouched
-  s0 = segment_clone(fit_clone_states(p0)); s1 = segment_clone(fit_clone_states(p1))
-  at = function(sg, ch, pos) sg[clone == "cloneA" & chrom == ch & start <= pos & end > pos]
-  message("sim_tum_cw cloneA chr2 (p 2:1, q 1:2): ps f p / q arm ", round(fa(p0, 0, 16e6), 3), " / ", round(fa(p0, 16e6, 40e6), 3),
-          ", state p / q ", at(s0, "chr2", 8e6)$state, " / ", at(s0, "chr2", 30e6)$state, "; window f ", round(fa(p1, 0, 16e6), 3),
-          " / ", round(fa(p1, 16e6, 40e6), 3), ", state ", at(s1, "chr2", 8e6)$state, " / ", at(s1, "chr2", 30e6)$state)
-  # "ps": the imbalanced run fails min_excess (pooled f ~ 0.5) and is reset to neutral although the depth is +0.58 log2
-  expect_true("neutral" %in% c(at(s0, "chr2", 8e6)$label, at(s0, "chr2", 30e6)$label))
-  expect_equal(at(s1, "chr2", 8e6)$state, "2:1"); expect_equal(at(s1, "chr2", 30e6)$state, "2:1")
-  expect_equal(at(s0, "chr22", 10e6)$state, "1:0"); expect_equal(at(s1, "chr22", 10e6)$state, "1:0")
-})
-
-test_that("caller_tumour(profile_orient = \"window\") calls both chr2 gains of sim_tum_cw", {
-  inp = clone_cached("clones_cw_input", function() clone_sim_input(sim_tum_cw))
-  r1 = caller_tumour(inp, opts = list(profile_orient = "window"), verbose = FALSE)
-  r0 = caller_tumour(inp, verbose = FALSE)
-  tr = sim_truth(sim_tum_cw)
-  a1 = merge(r1$assignments, tr, by = "cell")[mult == FALSE]
-  expect_gte(clone_ari(a1$clone, a1$type), 0.9)
-  kA = a1[type == "cloneA", .N, by = clone][order(-N), clone][1]
-  sg = r1$segments[clone == kA]
-  expect_true(all(sg[chrom == "chr2", label] == "gain"))
-  expect_equal(sg[chrom == "chr22" & start <= 10e6 & end > 10e6, state], "1:0")
-  # per-cell confirmation is not fixed by this option: it orients the votes per piece x phase set (trip_votes /
-  # oriented_counts), and the chr2 piece (one 2:1 segment over both arms) holds both opposite-haplotype gains in one
-  # phase set, so few cloneA cells confirm chr2 (reported, not asserted)
-  cc = merge(r1$calls[level == "cell" & chrom == "chr2"], tr, by = "cell")[mult == FALSE & type == "cloneA"]
-  expect_gt(nrow(cc), 0)
-  # the default ("ps") calls no chr2 gain in any clone
-  expect_false(any(r0$segments[chrom == "chr2", label] != "neutral"))
-  a0 = merge(r0$assignments, tr, by = "cell")[mult == FALSE]
-  message("sim_tum_cw caller_tumour: ps ARI ", round(clone_ari(a0$clone, a0$type), 2), ", non-neutral segments ",
-          paste(r0$segments[label != "neutral", paste(clone, chrom, state)], collapse = ", "), "; window ARI ",
-          round(clone_ari(a1$clone, a1$type), 2), ", ", paste(r1$segments[label != "neutral", paste(clone, chrom, start, end, state)], collapse = ", "),
-          "; cloneA cells with chr2 confirmed ", round(mean(cc$source == "confirmed"), 3))
-})
-
-test_that("profile_orient \"window\" on sim_tum2 (short phase blocks): near-identical profiles and the same clone states", {
-  inp = tum2_input()
-  p0 = truth_profiles(sim_tum2, inp, "ps"); p1 = truth_profiles(sim_tum2, inp, "window")
-  m = merge(p0[, .(clone, window, f0 = f, n0 = n_hap)], p1[, .(clone, window, f1 = f, n1 = n_hap)], by = c("clone", "window"))
-  # cost of the smaller orientation units: blocks that cross a window boundary are oriented per window part
-  ev = m[clone != "normal" & abs(f0 - 0.5) > 0.1]
-  message(sprintf("sim_tum2 profiles ps vs window: mean |f diff| %.4f (all windows), imbalanced windows mean f %.4f vs %.4f (oriented excess ratio %.3f), votes %.0f vs %.0f",
-                  mean(abs(m$f0 - m$f1), na.rm = TRUE), mean(ev$f0), mean(ev$f1), mean(ev$f1 - 0.5) / mean(ev$f0 - 0.5), sum(m$n0), sum(m$n1)))
-  expect_lt(mean(abs(m$f0 - m$f1), na.rm = TRUE), 0.02)
-  expect_gt(mean(ev$f1 - 0.5) / mean(ev$f0 - 0.5), 0.9)
-  r1 = clone_cached("clones_tum2_window", function() caller_tumour(inp, opts = list(profile_orient = "window"), verbose = FALSE))
-  r0 = tum2_result()
-  expect_equal(r1$assignments$clone, r0$assignments$clone)
-  expect_equal(r1$segments[, .(clone, chrom, start, end, state)], r0$segments[, .(clone, chrom, start, end, state)])
-  expect_identical(r1$params$tumour$profile_orient, "window")
 })
 
 # ---- confirm_sided: one-sided per-cell confirmation (clone-oriented votes) ---------------------------------------------

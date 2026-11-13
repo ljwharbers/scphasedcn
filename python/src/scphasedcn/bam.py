@@ -1,8 +1,8 @@
 """One pass over a chromosome of a SPLONGGET DNA BAM: record filter, fragment arrays, per-cell record counters.
 
-Filter (see vignette("scphasedcn-inputs", package = "scphasedcn")): primary, not duplicate, MAPQ >= min_mapq, CB in the whitelist
-(a CB that is not listed but whose form without a trailing "-1" is listed counts for that cell); "-" (unassigned)
-is counted and dropped; secondaries are counted and skipped; supplementaries are counted and skipped but the primary's
+Filter (see vignette("scphasedcn-inputs", package = "scphasedcn")): primary, not duplicate, not QC-fail (0x200; counted in
+`n_qcfail`), MAPQ >= min_mapq, CB in the whitelist (a CB that is not listed but whose form without a trailing "-1" is
+listed counts for that cell); "-" (unassigned) is counted and dropped; secondaries are counted and skipped; supplementaries are counted and skipped but the primary's
 SA tag sets `has_SA`. Blacklist / TRF / centromere / peak membership is flagged after the loop (bins.py); blacklist-start
 fragments are excluded from the depth and allele layers but kept in the fragments table with the flag bit set.
 """
@@ -30,7 +30,8 @@ FLAG_BITS = {"has_SA": F_HAS_SA, "mapq60": F_MAPQ60, "piece_multi": F_PIECE_MULT
 
 MAPQ_BUCKETS = ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]
 MIN_UNLISTED_MISMATCH = 1000   # records of unlisted barcodes that, with none of listed cells, mean a whitelist mismatch
-LOOP_COUNTERS = ["n_records", "n_secondary", "n_supplementary", "n_duplicate", "n_primary", "n_mapq_fail", "n_pass"]
+LOOP_COUNTERS = ["n_records", "n_secondary", "n_supplementary", "n_duplicate", "n_primary", "n_mapq_fail", "n_pass",
+                 "n_qcfail"]   # n_qcfail: primary, non-duplicate records flagged QC-fail (0x200), skipped (not in n_primary)
 
 
 def mapq_bucket(mq: int) -> int:
@@ -85,6 +86,8 @@ def _count(d: dict, flag: int, mq: int, min_mapq: int):
         d["n_supplementary"] += 1
     elif flag & 0x400:
         d["n_duplicate"] += 1
+    elif flag & 0x200:
+        d["n_qcfail"] += 1
     else:
         d["n_primary"] += 1
         if mq < min_mapq:
@@ -108,7 +111,7 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
     cnt = np.zeros((n_cells, len(LOOP_COUNTERS)), dtype=np.int64)
     mqh = np.zeros((n_cells, 4), dtype=np.int64)
     ctr = LoopCounters(n_cells, cnt, mqh)
-    I_REC, I_SEC, I_SUP, I_DUP, I_PRI, I_MQF, I_PASS = range(7)
+    I_REC, I_SEC, I_SUP, I_DUP, I_PRI, I_MQF, I_PASS, I_QCF = range(8)
 
     a_cell, a_start, a_end, a_strand = array("i"), array("q"), array("q"), array("b")
     a_mapq, a_flags, a_piece, a_np = array("B"), array("H"), array("i"), array("i")
@@ -152,6 +155,9 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
                 continue
             if flag & 0x400:
                 row[I_DUP] += 1
+                continue
+            if flag & 0x200:
+                row[I_QCF] += 1
                 continue
             row[I_PRI] += 1
             mqh[ci, mapq_bucket(mq)] += 1

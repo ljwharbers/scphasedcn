@@ -135,7 +135,7 @@ def _bam_references(bam, index):
 
 
 def cmd_extract(a):
-    from .bam import scan_chrom, flag_fragments, check_barcode_match, F_BLACKLIST
+    from .bam import scan_chrom, flag_fragments, check_barcode_match, F_BLACKLIST, LOOP_COUNTERS
     from .bins import Tiling, annotate_tiling, read_bed_intervals, read_centromere
     from .depth import depth_layers, fraglen_hist
     from .qc import chrom_qc
@@ -197,6 +197,7 @@ def cmd_extract(a):
     fr, ctr = scan_chrom(d["bam"], chrom, cells, min_mapq=a.min_mapq, index_filename=a.index,
                          region=reg[1] if reg else None, alleles=acc)
     _log(f"scan: {int(ctr.per_cell[:, 0].sum())} records of listed cells, {len(fr)} passing fragments, "
+         f"{int(ctr.per_cell[:, LOOP_COUNTERS.index('n_qcfail')].sum())} QC-fail (0x200) skipped, "
          f"'-' records {ctr.dash['n_records']} (pass {ctr.dash['n_pass']}), unlisted {ctr.unlisted['n_records']}, "
          f"{ctr.seconds:.0f} s")
     bc_warn = check_barcode_match(ctr, cells, chrom)

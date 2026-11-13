@@ -272,6 +272,8 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
         for k in ("n_pass", "n_clean"):
             if k in qc:
                 summary[f"median_{k}"] = float(np.median(qc[k]))
+        if "n_qcfail" in qc:
+            summary["n_qcfail"] = int(qc["n_qcfail"].sum())   # QC-fail (0x200) records of listed cells, skipped
     # --- alleles (DNA) ---
     adirs = [d for d in dirs if (d / "alleles.npz").exists()]
     if adirs:

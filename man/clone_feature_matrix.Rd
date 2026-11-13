@@ -14,7 +14,8 @@ clone_feature_matrix(
   atoms = NULL,
   regions = NULL,
   cells = NULL,
-  keep_orient = c("anchored", "pseudobulk")
+  keep_orient = c("anchored", "pseudobulk"),
+  allele = c("z", "fraction")
 )
 }
 \arguments{
@@ -31,6 +32,13 @@ clone_feature_matrix(
 \item{votes, atoms, regions, cells}{optional: orient unoriented input (cells = names in vote index order)}
 
 \item{keep_orient}{\code{orient} labels used as given (chromosome-wide anchored phase, all-cell pseudobulk)}
+
+\item{allele}{scale of the allelic columns: \code{"z"} (default) = the standardised count above, whose expectation in an
+imbalanced region grows like \verb{(f - 0.5) sqrt(n)}, so deep and shallow cells of one clone separate; \code{"fraction"} =
+coverage-free: the cell's oriented fraction \code{nA / n} minus 0.5, in units of the null SD at the region's median
+molecule count \code{n0} (\verb{sqrt(0.25 (1 + (n0 - 1) rho) / n0)}; same scale as \code{"z"} for a typical cell, expectation
+independent of the cell's depth), and cells below \code{min_n} molecules get the region's mean (no information)
+instead of 0 (balanced)}
 }
 \value{
 numeric matrix cells x features (rownames = cells)

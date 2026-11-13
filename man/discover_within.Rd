@@ -43,6 +43,8 @@ Features: per region (classes of \code{feat_disc}) the signed allelic z and the 
 allelic z varies across the trunk's cells beyond the null (variance > \code{disp_min}; unit variance expected) or is
 imbalanced on average (|mean| > \code{imb_min}): allelic features select the regions, depth is used only where the
 allele channel shows a clone-level event (a loss vs a gain of the same haplotype differ only in depth there).
+With \code{opts$disc_allele = "fraction"} the allelic features are the coverage-free oriented fractions of \code{\link[=clone_feature_matrix]{clone_feature_matrix()}}
+(regions still selected on z); \code{opts$test_allele} and \code{opts$drift_test} set the merge tests (\code{\link[=merge_clones]{merge_clones()}}).
 Discovery (\code{\link[=discover_clones]{discover_clones()}}) runs on the trunk's deeper cells (\code{n_frag} >= the \code{deep_q} quantile, at least
 \code{4 * min_size} cells), whose per-cell profiles separate subclones; \code{\link[=merge_clones]{merge_clones()}} then tests every pair of leaves
 (\code{n_nb = Inf}) on the test halves (\code{cdata}). Shallow cells are left to the likelihood assignment.

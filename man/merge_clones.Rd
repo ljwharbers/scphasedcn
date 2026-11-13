@@ -21,7 +21,9 @@ merge_clones(
   cdata = NULL,
   depth_delta = 0.2,
   n_nb = 3,
-  perm_decision = c("quantile", "pvalue")
+  perm_decision = c("quantile", "pvalue"),
+  allele = c("z", "fraction", "centred"),
+  drift_test = "none"
 )
 }
 \arguments{
@@ -57,12 +59,22 @@ merge_clones(
 \code{q}-quantile of the \code{n_perm} permutations (at 200 permutations and \code{q = 0.999} it must beat about the null maximum:
 ~6 false splits per 1,000 tests, not 1); \code{"pvalue"} = permutation p-value \verb{(1 + #null >= observed) / (1 + permutations) <= 1 - q} over \code{max(n_perm, ceiling(1 / (1 - q)) - 1)} permutations, exact early stop for "same"
 (the \code{tests} table then has \code{p})}
+
+\item{allele}{per-cell allele values of the contrast: \code{"z"} (default; standardised count, grows with the cell's depth
+in an imbalanced region), \code{"fraction"} (coverage-free oriented fraction) or \code{"centred"} (standardised count about the
+compared cells' pooled fraction); see \code{\link[=clone_defaults]{clone_defaults()}} \code{test_allele}}
+
+\item{drift_test}{\code{"none"} (default), \code{"modes"} or \code{"modes_event"}: an allele-driven difference must also be discrete
+(the per-cell shares of all leaf cells are multimodal on a region where the pair differs, and the two clones lie on
+different sides of the antimode), or (\code{"modes_event"}) the events of one clone be absent from the other; see
+\code{\link[=clone_defaults]{clone_defaults()}} \code{drift_test}}
 }
 \value{
 list(clones = named integer labels, tests = data.table of all tests: stat, thr (the \code{q}-quantile of the
 permutations run; with \code{perm_decision = "pvalue"} for information only, \code{differ} is decided by \code{p}), n_perm
-(permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (\code{p} with \code{perm_decision = "pvalue"}),
-key, l1, l2)
+(permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (\code{p} with \code{perm_decision = "pvalue"};
+\code{by_depth}, \code{mode_p}, \code{mode_sep}, \code{discrete}, \code{differ_contrast} with \code{drift_test = "modes"}, plus \code{by_event} with
+\code{"modes_event"}), key, l1, l2)
 }
 \description{
 Bottom-up: each round, every clone's \code{n_nb} nearest clones (Ward distance between the clones' centroids in

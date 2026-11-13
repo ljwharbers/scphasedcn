@@ -844,3 +844,226 @@ test_that("caller_tumour(split_pass = \"disagree\") separates the chr21 subclone
   check_calls(r1$calls)
   check_thresholds(r1$thresholds)
 })
+
+# ---- coverage-free allele scale, same-state posteriors, drift-aware split test -------------------------------------
+
+# contrast data by hand: per cell x phase block counts nA / nB (cells x blocks matrices), blocks -> regions; depth L = 0
+fake_cdata = function(nA, nB, blk_region, regions) {
+  nc = nrow(nA)
+  ii = which(nA + nB > 0, arr.ind = TRUE)
+  trip = data.table(ci = ii[, 1], blk = ii[, 2], nA = as.numeric(nA[ii]), nB = as.numeric(nB[ii]))
+  cells = paste0("c", seq_len(nc))
+  structure(list(L = matrix(0, nc, length(regions), dimnames = list(cells, regions)), regions = regions, cells = cells,
+                 MA = Matrix::sparseMatrix(i = trip$ci, j = trip$blk, x = trip$nA, dims = dim(nA)),
+                 MB = Matrix::sparseMatrix(i = trip$ci, j = trip$blk, x = trip$nB, dims = dim(nA)),
+                 blk_region = blk_region, trip = trip), class = "contrast_data")
+}
+
+# votes of cells with latent haplotype-A shares p (one per cell) and depth n per block, in blocks of random orientation
+fake_block_votes = function(p, n, n_blk = 6, seed = 1) {
+  set.seed(seed)
+  flip = stats::runif(n_blk) < 0.5
+  nn = matrix(stats::rpois(length(p) * n_blk, rep(n, n_blk)), length(p))
+  a = matrix(stats::rbinom(length(nn), as.vector(nn), rep(p, n_blk)), length(p))
+  nA = a; nA[, flip] = (nn - a)[, flip]
+  list(nA = nA, nB = nn - nA)
+}
+
+test_that("clone_feature_matrix(allele = \"fraction\"): deep and shallow cells of one clone get the same allelic value", {
+  set.seed(1)
+  n = c(rep(20, 60), rep(200, 60), 2)
+  nA = stats::rbinom(length(n), n, 0.75)
+  f = data.table(cell = paste0("c", seq_along(n)), region = rep(c("r1", "r2"), each = length(n)), class = "arm", eligible = TRUE,
+                 z = 0, nA = c(nA, stats::rbinom(length(n), n, 0.5)), nB = 0, orient = "pseudobulk")
+  f[, nB := c(n, n) - nA]
+  dif = function(X) mean(X[61:120, "a|r1"]) - mean(X[1:60, "a|r1"])
+  Xz = clone_feature_matrix(f, "arm", rho = 0.01)
+  expect_identical(clone_feature_matrix(f, "arm", rho = 0.01, allele = "z"), Xz)
+  Xf = clone_feature_matrix(f, "arm", rho = 0.01, allele = "fraction")
+  expect_gt(dif(Xz), 1.5)                            # z: deep cells ~2x further from 0 (sqrt(n) growth)
+  expect_lt(abs(dif(Xf)), 0.6)                       # fraction: same expectation at any depth
+  # same scale as z for a cell at the region's median depth; a cell below min_n gets the region's mean, not 0
+  expect_equal(mean(Xf[1:120, "a|r1"]), 0.25 / sqrt(0.25 * (1 + 109 * 0.01) / 110), tolerance = 0.1)
+  expect_equal(Xf[121, "a|r1"], mean(Xf[1:120, "a|r1"]))
+  expect_equal(Xz[121, "a|r1"], 0)
+  expect_error(clone_feature_matrix(f, "arm", rho = 0.01, allele = "x"), "should be one of")
+})
+
+test_that("contrast_stat(allele = \"fraction\" / \"centred\"): no allelic difference between deep and shallow cells of one clone", {
+  # 40 deep (8 votes per block) and 40 shallow (1 per block) cells, all at haplotype share 0.8, one region of 6 blocks
+  v = fake_block_votes(rep(0.8, 80), rep(c(8, 1), each = 40), seed = 2)
+  cd = fake_cdata(v$nA, v$nB, rep(1L, 6), "r1")
+  deep = 1:40; shallow = 41:80
+  al = function(allele, a = deep, b = shallow) contrast_stat(cd, a, b, rho = 0.01, allele = allele)$by_region$allelic
+  expect_identical(contrast_stat(cd, deep, shallow, rho = 0.01)$by_region, contrast_stat(cd, deep, shallow, rho = 0.01, allele = "z")$by_region)
+  expect_gt(al("z"), 8)                              # z: the depth strata differ
+  expect_lt(al("fraction"), 4)
+  expect_lt(al("centred"), 4)
+  # a real difference of the share (0.8 vs 0.6 at the same depth) stays large under every scale
+  w = fake_block_votes(rep(c(0.85, 0.55), each = 40), rep(4, 80), seed = 3)
+  cd2 = fake_cdata(w$nA, w$nB, rep(1L, 6), "r1")
+  for (s in c("z", "fraction", "centred")) expect_gt(contrast_stat(cd2, 1:40, 41:80, rho = 0.01, allele = s)$by_region$allelic, 8)
+})
+
+test_that("pop_modes: a skewed drifting population has one mode, a 15 % subclone adds a second one", {
+  set.seed(4)
+  n = round(stats::rlnorm(400, log(12), 0.4)) + 2                  # votes per block (6 blocks)
+  # one clone at share 0.7 with a skewed cell-level drift (beta, rho 0.1); the same plus 60 cells at 0.97
+  p1 = stats::rbeta(400, 0.7 * 9, 0.3 * 9)
+  p2 = c(stats::rbeta(340, 0.5 * 30, 0.5 * 30), stats::rbeta(60, 0.97 * 60, 0.03 * 60))
+  v1 = fake_block_votes(p1, n, seed = 5); v2 = fake_block_votes(p2, n, seed = 6)
+  cd1 = fake_cdata(v1$nA, v1$nB, rep(1L, 6), "r1"); cd2 = fake_cdata(v2$nA, v2$nB, rep(1L, 6), "r1")
+  set.seed(7); m1 = scphasedcn:::pop_modes(cd1, 1:400, 1L)
+  set.seed(7); m2 = scphasedcn:::pop_modes(cd2, 1:400, 1L)
+  expect_false(m1$multimodal)
+  expect_gt(m1$p, 0.01)
+  expect_true(m2$multimodal)
+  expect_lte(m2$p, 0.01)
+  # the antimode separates the subclone from the rest
+  expect_gt(m2$cut, 0.6); expect_lt(m2$cut, 0.92)
+  expect_gt(mean(m2$x[341:400] > m2$cut, na.rm = TRUE), 0.9)
+  expect_lt(mean(m2$x[1:340] > m2$cut, na.rm = TRUE), 0.1)
+  expect_equal(length(m2$x), 400)
+  expect_true(all(is.na(scphasedcn:::pop_modes(cd2, 1:200, 1L)$x[201:400])))   # only the population's cells
+})
+
+test_that("split_test(drift_test = \"modes\"): leaves cut from a continuous drift merge, a real subclone stays", {
+  set.seed(8)
+  # one clone whose cells' shares drift continuously (beta, rho 0.1) on one region: a = the cells above the median share,
+  # b = the rest (what a discovery on drift-sharing halves produces); the permutation contrast calls them different
+  p = stats::rbeta(300, 0.7 * 9, 0.3 * 9)
+  v = fake_block_votes(p, rep(6, 300), seed = 9)
+  cd = fake_cdata(v$nA, v$nB, rep(1L, 6), "r1")
+  a = which(p > stats::median(p)); b = which(p <= stats::median(p))
+  t0 = split_test(cd, a, b, rho = 0.01, seed = 1)
+  t1 = split_test(cd, a, b, rho = 0.01, seed = 1, drift_test = "modes", pop = list(idx = seq_len(300)))
+  expect_true(t0$differ)
+  expect_true(t1$differ_contrast)
+  expect_false(t1$by_depth)
+  expect_false(t1$discrete)
+  expect_false(t1$differ)
+  expect_identical(t1[, names(t0), with = FALSE][, differ := TRUE], t0)       # the contrast's columns are unchanged
+  # a real subclone: 60 cells at share 0.97 among 240 at 0.5, both drifting
+  q = c(stats::rbeta(60, 0.97 * 60, 0.03 * 60), stats::rbeta(240, 0.5 * 30, 0.5 * 30))
+  w = fake_block_votes(q, rep(6, 300), seed = 10)
+  cd2 = fake_cdata(w$nA, w$nB, rep(1L, 6), "r1")
+  t2 = split_test(cd2, 1:60, 61:300, rho = 0.01, seed = 1, drift_test = "modes")
+  expect_true(t2$discrete)
+  expect_true(t2$differ)
+  expect_gte(t2$mode_sep, 0.5)
+})
+
+test_that("split_test(drift_test = \"modes_event\"): an event in one set only stays different; a drift cut still merges", {
+  set.seed(11)
+  # 170 balanced cells (normal) and a set of 30 in which 22 carry LOH-like imbalances on two chromosomes (tumour cells
+  # with a few normal ones), 9 votes per cell and chromosome, no drift
+  p = c(rep(0.5, 170), rep(c(0.92, 0.5), c(22, 8)))
+  v = fake_block_votes(p, rep(3, 200), seed = 12)
+  cd = fake_cdata(v$nA, v$nB, rep(1:2, each = 3), c("chr1p", "chr2p"))
+  a = 1:170; b = 171:200
+  t0 = split_test(cd, a, b, rho = 0.01, seed = 1)
+  tm = split_test(cd, a, b, rho = 0.01, seed = 1, drift_test = "modes")
+  te = split_test(cd, a, b, rho = 0.01, seed = 1, drift_test = "modes_event")
+  expect_true(t0$differ)
+  expect_false(tm$differ)                         # no mode of its own in the population: "modes" merges
+  expect_true(te$by_event)
+  expect_true(te$differ)
+  # the rule: the other set balanced on >= 75 % and >= 2 of the chromosomes where one set is imbalanced
+  br = data.table(region = c("chr1p", "chr1q", "chr2p", "chr3p"), imbalance_a = c(0, 0.5, 1, 30), imbalance_b = c(20, 25, 15, 0),
+                  share_a = c(0.5, 0.51, 0.49, 0.8), share_b = c(0.8, 0.85, 0.7, 0.5))
+  expect_true(scphasedcn:::event_absent(br, thr = 10))
+  expect_false(scphasedcn:::event_absent(br[1:2][, `:=`(imbalance_a = c(0, 12), share_a = c(0.5, 0.65))][], thr = 10))   # one chromosome, a has an event
+  expect_true(scphasedcn:::event_absent(br[1:2], thr = 10))                      # one chromosome, a event-free
+  # a significant imbalance of only 0.02 (e.g. a few contaminating cells in a large set) is not an event
+  expect_true(scphasedcn:::event_absent(br[1:2][, `:=`(imbalance_a = c(0, 12), share_a = c(0.5, 0.52))][], thr = 10))
+  br2 = copy(br)[, `:=`(imbalance_a = c(0, 5, 1, 30), share_a = c(0.5, 0.6, 0.49, 0.8))]   # chr1q: a imbalanced too
+  expect_false(scphasedcn:::event_absent(br2, thr = 10))                         # 1 of 2 chromosomes absent
+  expect_false("by_event" %in% names(tm))
+  expect_identical(tm[, names(t0), with = FALSE][, differ := TRUE], t0)
+  # leaves cut from one drifting imbalanced clone: both sets imbalanced, so no event bypass; merged as with "modes"
+  q = stats::rbeta(300, 0.7 * 9, 0.3 * 9)
+  w = fake_block_votes(q, rep(6, 300), seed = 9)
+  cd2 = fake_cdata(w$nA, w$nB, rep(1L, 6), "r1")
+  a2 = which(q > stats::median(q)); b2 = which(q <= stats::median(q))
+  t2 = split_test(cd2, a2, b2, rho = 0.01, seed = 1, drift_test = "modes_event", pop = list(idx = seq_len(300)))
+  expect_true(t2$differ_contrast)
+  expect_false(t2$by_event)
+  expect_false(t2$differ)
+})
+
+test_that("assign_cells(same_groups): two clones with the same states no longer split each cell's posterior", {
+  inp0 = tum2_input(); inp = clone_input(inp0)
+  r0 = tum2_result()
+  sg = copy(r0$segments); cl_ = copy(r0$clones); par0 = copy(r0$null_fit$clones$par)
+  k = cl_[normal == FALSE & doublet == FALSE][order(-n_members), clone][1]
+  sg2 = rbind(sg, copy(sg[clone == k])[, clone := "Kdup"])
+  m = copy(r0$assignments)[confident == TRUE, .(cell, clone)]
+  set.seed(1)
+  half = m[clone == k, sample(cell, floor(.N / 2))]
+  m[cell %in% half, clone := "Kdup"]
+  par = rbind(par0, copy(par0[clone == k])[, clone := "Kdup"])
+  tr = stats::setNames(rep("T1", length(unique(sg2$clone))), unique(sg2$clone))
+  grp = stats::setNames(names(tr), names(tr)); grp["Kdup"] = k      # the twins form one group
+  pieces = segment_pieces(sg2, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  a0 = assign_cells(fp, m, sg2, inp$tpar, inp$rho, par = par, params = caller_defaults(), trunks = tr)
+  a1 = assign_cells(fp, m, sg2, inp$tpar, inp$rho, par = par, params = caller_defaults(), trunks = tr, same_groups = grp)
+  kc = a0[clone %in% c(k, "Kdup"), cell]
+  expect_lt(mean(a0[cell %in% kc, posterior] >= 0.9), 0.2)        # the posterior is split between the twins
+  expect_gt(mean(a1[cell %in% kc, posterior] >= 0.9), 0.8)        # summed over the same-state group
+  expect_equal(a1$post_clone, a0$posterior)
+  expect_identical(a1$clone, a0$clone)
+  expect_false("post_clone" %in% names(a0))
+})
+
+test_that("caller_tumour: disc_allele, test_allele, same_post, drift_test at their defaults are today's code paths; checked", {
+  d = clone_defaults()
+  expect_identical(d[c("disc_allele", "test_allele", "same_post", "drift_test")],
+                   list(disc_allele = "z", test_allele = "z", same_post = "clone", drift_test = "none"))
+  r0 = tum2_result()
+  r1 = caller_tumour(tum2_input(), opts = list(disc_allele = "z", test_allele = "z", same_post = "clone", drift_test = "none"),
+                     verbose = FALSE)
+  # (data.table auto-indices that other tests' queries leave on the cached result are not part of the result)
+  strip = function(x) if (is.data.table(x)) setattr(copy(x), "index", NULL) else if (is.list(x) && !is.data.frame(x)) lapply(x, strip) else x
+  for (nm in c("assignments", "segments", "calls", "clones", "thresholds", "profiles", "events", "null_fit", "notes"))
+    expect_identical(strip(r1[[nm]]), strip(r0[[nm]]))
+  expect_false(any(c("discrete", "post_clone") %in% c(names(r0$null_fit$clones$tests), names(r0$assignments))))
+  inp = tum2_input()
+  for (k in c("disc_allele", "test_allele", "same_post", "drift_test"))
+    expect_error(caller_tumour(inp, opts = stats::setNames(list("x"), k), verbose = FALSE), "should be one of")
+  expect_identical(scphasedcn:::check_clone_opts(list(drift_test = "modes_event"))$drift_test, "modes_event")
+  expect_error(caller_tumour(inp, opts = list(disc_allele = "centred"), verbose = FALSE), "should be one of")
+})
+
+test_that("same_state_groups: the clones the same-state merge joins (one trunk, same states)", {
+  sg = copy(tum2_result()$segments)
+  k = sg[label != "neutral", .N, by = clone][order(-N), clone][1]
+  sg2 = rbind(sg, copy(sg[clone == k])[, clone := "Kdup"])
+  K = unique(sg2$clone)
+  g1 = scphasedcn:::same_state_groups(sg2, stats::setNames(rep("T1", length(K)), K), 5e6)
+  expect_identical(unname(g1[c(k, "Kdup")]), rep(g1[[k]], 2))
+  expect_equal(uniqueN(g1), uniqueN(sg$clone))
+  expect_true(all(g1[setdiff(K, c(k, "Kdup"))] == setdiff(K, c(k, "Kdup"))))
+  # different trunks are never grouped
+  g2 = scphasedcn:::same_state_groups(sg2, stats::setNames(ifelse(K == "Kdup", "T2", "T1"), K), 5e6)
+  expect_identical(unname(g2["Kdup"]), "Kdup")
+})
+
+test_that("caller_tumour with the coverage-free / drift-aware opt-ins finds sim_tum2's clones and states", {
+  r0 = tum2_result()
+  r1 = clone_cached("clones_tum2_c2", function() caller_tumour(tum2_input(), opts = list(disc_allele = "fraction", test_allele = "centred",
+                                                                                      same_post = "group", drift_test = "modes"), verbose = FALSE))
+  tr = sim_truth(sim_tum2)[mult == FALSE]
+  s0 = r0$assignments[tr, on = "cell", nomatch = NULL][doublet_like == FALSE]
+  s1 = r1$assignments[tr, on = "cell", nomatch = NULL][doublet_like == FALSE]
+  expect_gte(clone_ari(s1$clone, s1$type), clone_ari(s0$clone, s0$type) - 0.02)
+  expect_equal(sum(!r1$clones$doublet), sum(!r0$clones$doublet))
+  key = function(r) r$segments[label != "neutral", .(n = .N), by = .(chrom, state)][order(chrom, state)]
+  expect_equal(key(r1), key(r0))
+  tt = r1$null_fit$clones$tests
+  expect_true(all(c("discrete", "differ_contrast", "by_depth", "mode_p", "mode_sep") %in% names(tt)))
+  expect_true(all(tt$differ <= tt$differ_contrast))
+  expect_true("post_clone" %in% names(r1$assignments))
+  expect_identical(r1$params$tumour[c("disc_allele", "test_allele", "same_post", "drift_test")],
+                   list(disc_allele = "fraction", test_allele = "centred", same_post = "group", drift_test = "modes"))
+})

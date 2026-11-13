@@ -229,10 +229,18 @@ half_depth_features = function(inp, win, classes) {
 #' @param min_n minimal molecules for an allelic value
 #' @param votes,atoms,regions,cells optional: orient unoriented input (cells = names in vote index order)
 #' @param keep_orient `orient` labels used as given (chromosome-wide anchored phase, all-cell pseudobulk)
+#' @param allele scale of the allelic columns: `"z"` (default) = the standardised count above, whose expectation in an
+#'   imbalanced region grows like `(f - 0.5) sqrt(n)`, so deep and shallow cells of one clone separate; `"fraction"` =
+#'   coverage-free: the cell's oriented fraction `nA / n` minus 0.5, in units of the null SD at the region's median
+#'   molecule count `n0` (`sqrt(0.25 (1 + (n0 - 1) rho) / n0)`; same scale as `"z"` for a typical cell, expectation
+#'   independent of the cell's depth), and cells below `min_n` molecules get the region's mean (no information)
+#'   instead of 0 (balanced)
 #' @return numeric matrix cells x features (rownames = cells)
 #' @export
 clone_feature_matrix = function(feat_long, classes = c("arm", "20Mb"), rho, cap = 6, min_n = 5,
-                                votes = NULL, atoms = NULL, regions = NULL, cells = NULL, keep_orient = c("anchored", "pseudobulk")) {
+                                votes = NULL, atoms = NULL, regions = NULL, cells = NULL, keep_orient = c("anchored", "pseudobulk"),
+                                allele = c("z", "fraction")) {
+  allele = match.arg(allele)
   f = as.data.table(feat_long)[class %in% classes & eligible == TRUE,
                                .(cell, region, z, nA, nB, orient = if ("orient" %in% names(feat_long)) orient else "pseudobulk")]
   if (!nrow(f)) stop("clone_feature_matrix: no eligible rows of classes ", paste(classes, collapse = ", "))
@@ -246,7 +254,11 @@ clone_feature_matrix = function(feat_long, classes = c("arm", "20Mb"), rho, cap 
     f[is.na(nA), `:=`(nA = 0, nB = 0)]
   }
   f[, n := nA + nB]
-  f[, az := fifelse(n >= min_n, (nA - n / 2) / sqrt(n / 4 * (1 + (n - 1) * rho)), 0)]
+  if (allele == "z") {
+    f[, az := fifelse(n >= min_n, (nA - n / 2) / sqrt(n / 4 * (1 + (n - 1) * rho)), 0)]
+  } else {
+    f[, az := allele_fraction_feature(nA, n, rho, min_n, cap), by = region]
+  }
   f[, az := pmin(pmax(az, -cap), cap)]
   f[, dz := pmin(pmax(fifelse(is.finite(z), z, 0), -cap), cap)]
   cc = unique(f$cell); rr = sort(unique(f$region))
@@ -259,6 +271,20 @@ clone_feature_matrix = function(feat_long, classes = c("arm", "20Mb"), rho, cap 
   X[, colSums(X != 0) > 0, drop = FALSE]
 }
 utils::globalVariables(c("az", "dz", "den", "n_a", "n_b"))
+
+# coverage-free allelic clone feature of one region (clone_feature_matrix / discover_within, allele = "fraction"): the
+# oriented fraction nA / n minus 0.5 in units of the null SD at the region's median molecule count n0 (cells with >=
+# min_n molecules), capped at +/- cap, so its expectation does not grow with the cell's depth; cells below min_n get the
+# mean of the others (no information; 0 would read as balanced)
+allele_fraction_feature = function(nA, n, rho, min_n = 5, cap = Inf) {
+  ok = n >= min_n & n > 0
+  if (!any(ok)) return(rep(0, length(n)))
+  n0 = stats::median(n[ok])
+  out = rep(NA_real_, length(n))
+  out[ok] = pmin(pmax((nA[ok] / n[ok] - 0.5) / sqrt(0.25 * (1 + (n0 - 1) * rho) / n0), -cap), cap)
+  out[!ok] = mean(out[ok])
+  out
+}
 
 # PCA (irlba) of the centred matrix + kNN smoothing (mean over each cell and its k neighbours)
 smooth_embedding = function(X, n_pc = 20, k = 20, seed = 1) {
@@ -431,12 +457,19 @@ contrast_agg = function(cd) {
 # allele term exceeds `allele_support` (default 8, t ~ 4; regions without an allele channel, chrX / chrY, never separate clones): leaves of normal tissue that share
 # a chromatin / replication state differ in depth by tenths of a log2 unit at arm scale, while
 # every clonal copy-number change except a balanced one (2:2) also shifts the haplotype fraction.
+#
+# `allele` = the per-cell values of the allele term: "z" (default, above; its expectation in an imbalanced region grows like
+# (f - 0.5) sqrt(n), so deep and shallow cells of one clone differ), "fraction" (coverage-free: the oriented fraction
+# OA / ON, NA below min_n) or "centred" (the standardised count about the pooled oriented fraction of the compared cells
+# instead of 1 / 2: mean 0 at any depth when the two sets share the fraction). The imbalance term always uses "z" (its
+# null, f = 1 / 2, is depth-free).
 contrast_stat = function(cd, a, b, rho, depth_delta = 0.2, trim = 0.25, min_n = 5, allele_support = 8,
-                         depth_support = c("imbalance", "difference")) {
+                         depth_support = c("imbalance", "difference"), allele = c("z", "fraction", "centred")) {
   depth_support = match.arg(depth_support)
+  allele = match.arg(allele)
   nr = length(cd$regions)
   dep = yuen_cols(cd$L[a, , drop = FALSE], cd$L[b, , drop = FALSE], trim, depth_delta)
-  al = rep(0, nr); imb = rep(0, nr)
+  al = rep(0, nr); imb = rep(0, nr); imb_h = list(rep(0, nr), rep(0, nr)); shr_h = list(rep(NA_real_, nr), rep(NA_real_, nr))
   if (!is.null(cd$trip)) {
     nc = length(cd$cells)
     # fixed aggregation (triplet -> cell x region, column-major); a permutation only changes the orientation
@@ -458,9 +491,20 @@ contrast_stat = function(cd, a, b, rho, depth_delta = 0.2, trim = 0.25, min_n = 
       OA = OA[rows, , drop = FALSE]; ON = ON[rows, , drop = FALSE]
       Z = (OA - ON / 2) / sqrt(pmax(ON, 1) / 4 * (1 + (ON - 1) * rho))
       Z[ON < min_n] = NA
-      al = pmax(al, yuen_cols(Z[seq_along(own_t), , drop = FALSE], Z[length(own_t) + seq_along(oth), , drop = FALSE], trim, 0))
+      ZA = if (allele == "z") Z else if (allele == "fraction") OA / pmax(ON, 1) else {
+        f0 = pmin(pmax(colSums(OA * (ON >= min_n)) / pmax(colSums(ON * (ON >= min_n)), 1), 0.02), 0.98)
+        f0 = matrix(f0, nrow(OA), ncol(OA), byrow = TRUE)
+        (OA - ON * f0) / sqrt(pmax(ON, 1) * f0 * (1 - f0) * (1 + (ON - 1) * rho))
+      }
+      ZA[ON < min_n] = NA
+      al = pmax(al, yuen_cols(ZA[seq_along(own_t), , drop = FALSE], ZA[length(own_t) + seq_along(oth), , drop = FALSE], trim, 0))
       # imbalance of the orienting set's own compared cells (one-sample, oriented by the other half of the set)
-      imb = pmax(imb, yuen_one(Z[seq_along(own_t), , drop = FALSE], trim))
+      imb_h[[h]] = yuen_one(Z[seq_along(own_t), , drop = FALSE], trim)
+      # the same cells' oriented fraction (trimmed mean): the size of the set's imbalance
+      Fo = OA[seq_along(own_t), , drop = FALSE] / pmax(ON[seq_along(own_t), , drop = FALSE], 1)
+      Fo[ON[seq_along(own_t), , drop = FALSE] < min_n] = NA
+      shr_h[[h]] = ifelse(colSums(!is.na(Fo)) >= 3, trim_moments(Fo, trim)$m, NA_real_)
+      imb = pmax(imb, imb_h[[h]])
     }
   }
   dep[!is.finite(dep)] = 0; al[!is.finite(al)] = 0; imb[!is.finite(imb)] = 0
@@ -473,8 +517,10 @@ contrast_stat = function(cd, a, b, rho, depth_delta = 0.2, trim = 0.25, min_n = 
   has_al = if (is.null(cd$blk_region)) rep(FALSE, nr) else seq_len(nr) %in% cd$blk_region
   sup = if (depth_support == "imbalance") pmax(al, imb) else al
   dep_used = if (is.finite(allele_support)) ifelse(has_al & sup > allele_support, dep, 0) else dep
+  imb_h = lapply(imb_h, function(x) { x[!is.finite(x)] = 0; x })
   list(stat = max(c(dep_used, al)), by_region = data.table(region = cd$regions, depth = dep, allelic = al, imbalance = imb,
-                                                           depth_used = dep_used))
+                                                           depth_used = dep_used, imbalance_a = imb_h[[1]], imbalance_b = imb_h[[2]],
+                                                           share_a = shr_h[[1]], share_b = shr_h[[2]]))
 }
 
 # contrast data restricted to a set of cells (rows renumbered 1..length(idx) in the order of idx)
@@ -502,21 +548,27 @@ subset_contrast_data = function(cd, idx) {
 # q = 0.999 the observed must beat about the null maximum: ~6 false splits per 1,000 tests of exchangeable groups.
 # "pvalue" = permutation p (1 + #null >= observed) / (1 + permutations) <= 1 - q over max(n_perm, ceiling(1 / (1 - q)) - 1)
 # permutations (999 at q = 0.999), exact early stop for "same" only; `p` is always reported (thr: the q-quantile of the
-# permutations run, for information).
+# permutations run, for information). `allele`: the contrast's per-cell allele values (contrast_stat). `drift_test = "modes"`:
+# an allele-driven "different" must also be discrete (pop_modes on the population `pop` = list(idx = its cell indices,
+# env = a cache shared by the tests of one merge), default a + b; the depth term alone beating thr keeps a "different");
+# the table gains by_depth, mode_p, mode_sep, discrete and differ_contrast (the contrast's own verdict). "modes_event": as
+# "modes", and also kept when the events of one set are absent from the other (event_absent; column by_event).
 split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, seed = 1, early = TRUE, depth_delta = 0.2,
-                      with_p = FALSE, perm_decision = c("quantile", "pvalue")) {
+                      with_p = FALSE, perm_decision = c("quantile", "pvalue"), allele = "z", drift_test = "none",
+                      drift_regions = 3, pop = NULL) {
   perm_decision = match.arg(perm_decision)
   set.seed(seed)
   if (length(a) > max_cells) a = sample(a, max_cells)
   if (length(b) > max_cells) b = sample(b, max_cells)
+  a0 = a; b0 = b; cd0 = cd
   # restrict the contrast data to the tested cells once (permutations then touch only their votes)
   cd = subset_contrast_data(cd, c(a, b))
   a = seq_along(a); b = length(a) + seq_along(b)
-  obs = contrast_stat(cd, a, b, rho, depth_delta)
+  obs = contrast_stat(cd, a, b, rho, depth_delta, allele = allele)
   pool = c(a, b); na = length(a)
   pd = perm_decide(obs$stat, function() {
     pp = sample(pool)
-    contrast_stat(cd, pp[seq_len(na)], pp[-seq_len(na)], rho, depth_delta)$stat
+    contrast_stat(cd, pp[seq_len(na)], pp[-seq_len(na)], rho, depth_delta, allele = allele)$stat
   }, q, n_perm, early, perm_decision)
   top = obs$by_region[order(-pmax(depth_used, allelic))][1]
   out = data.table(stat = obs$stat, thr = pd$thr, n_perm = pd$n_perm, differ = pd$differ,
@@ -524,8 +576,41 @@ split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, s
   # permutation p (with an early stop: over the permutations run); for "quantile" only on request, so the merge tests'
   # tables keep their columns
   if (with_p || perm_decision == "pvalue") out[, p := pd$p]
+  if (drift_test %in% c("modes", "modes_event")) {
+    # a difference that the depth term alone carries stays (cell-level drift is allelic); an allele-driven one must also
+    # be discrete: in at least one of the (up to drift_regions) regions whose allele term alone beats the null threshold,
+    # the per-cell shares of the population (pop$idx: the cells under discovery; default a + b) are multimodal
+    # (pop_modes) and the two sets lie on different sides of the antimode (fractions above it differ by >= 0.5)
+    br = obs$by_region
+    by_depth = isTRUE(any(br$depth_used > pd$thr))
+    ri = utils::head(which(br$allelic > pd$thr)[order(-br$allelic[br$allelic > pd$thr])], drift_regions)
+    # "modes_event": the events of one set are absent from the other: the other set is balanced (oriented by its other
+    # half, |t| <= 2) on >= 75 % of the chromosomes, and on >= 2 of them, where the first set is imbalanced beyond the null
+    # threshold (e.g. normal cells against tumour cells). A cut along a cell-level drift of one clone can bring a set to
+    # 1/2 on one arm, not on most of the other set's events on independent chromosomes, so this pair is kept without
+    # the modes test
+    by_event = drift_test == "modes_event" && event_absent(br, pd$thr)
+    dr = NULL
+    if (pd$differ && !by_depth && !by_event && length(ri) && !is.null(cd$trip)) {
+      P = pop$idx %||% c(a0, b0)
+      env = pop$env %||% new.env()
+      dr = rbindlist(lapply(ri, function(r) {
+        pm = env[[as.character(r)]]
+        if (is.null(pm)) { pm = pop_modes(cd0, P, r); assign(as.character(r), pm, envir = env) }
+        up = function(s_) { x = pm$x[s_]; x = x[!is.na(x)]; if (length(x) >= 3 && is.finite(pm$cut)) mean(x > pm$cut) else NA_real_ }
+        data.table(p = pm$p, multimodal = pm$multimodal, sep = abs(up(a0) - up(b0)))
+      }))
+    }
+    disc = !is.null(dr) && isTRUE(any(dr$multimodal & dr$sep >= 0.5, na.rm = TRUE))
+    out[, `:=`(by_depth = by_depth, mode_p = if (is.null(dr)) NA_real_ else min(dr$p),
+               mode_sep = if (is.null(dr)) NA_real_ else suppressWarnings(max(dr$sep, na.rm = TRUE)),
+               discrete = if (is.null(dr)) NA else disc, differ_contrast = pd$differ)]
+    if (drift_test == "modes_event") out[, by_event := by_event]
+    out[, differ := pd$differ & (by_depth | by_event | disc)]
+  }
   out
 }
+utils::globalVariables(c("mode_p", "mode_sep", "discrete", "differ_contrast", "by_depth", "by_event"))
 
 # permutations of the p-value decision at level 1 - q: the smallest count with which p = 1 / (1 + n) can reach 1 - q
 perm_min = function(q) {
@@ -571,6 +656,91 @@ perm_decide = function(obs, draw, q = 0.999, n_perm = 200, early = TRUE, perm_de
        differ = m == n_run && k <= k_max)
 }
 
+# ---- drift-aware split test (drift_test = "modes") ------------------------------------------------------
+
+# events of one set absent from the other (split_test, drift_test = "modes_event"). A set has an event on a region when
+# its imbalance (by_region imbalance_a / imbalance_b: t^2 / 2 of its oriented z, oriented by its own other half) beats
+# `thr` and its oriented fraction (share_a / share_b, trimmed mean) is off 1/2 by more than `bal_f`; it is balanced there
+# when the imbalance is <= `bal` or the fraction within `bal_f` of 1/2 (a few contaminating cells in a large set make a
+# significant but small imbalance). For either direction: the chromosomes where the first set has an event and the other
+# set is balanced on every such region; TRUE when that holds on >= `min_chrom` chromosomes and >= `min_frac` of the first
+# set's event chromosomes, or when the other set has no event at all (an event-free, e.g. normal, set) and is balanced on
+# at least one of the first set's events
+event_absent = function(br, thr, bal = 2, bal_f = 0.05, min_chrom = 2, min_frac = 0.75) {
+  chrom = regmatches(br$region, regexpr("chr[0-9XYM]+", br$region))
+  if (length(chrom) != nrow(br)) return(FALSE)
+  off = function(sh) { d = abs(sh - 0.5); d[is.na(d)] = Inf; d }
+  one = function(ev, sh_ev, other, sh_other) {
+    on = ev > thr & off(sh_ev) > bal_f
+    if (!any(on)) return(FALSE)
+    is_bal = other <= bal | off(sh_other) <= bal_f
+    if (!any(other > thr & off(sh_other) > bal_f) && any(is_bal[on])) return(TRUE)
+    ab = tapply(is_bal[on], chrom[on], all)
+    sum(ab) >= min_chrom && mean(ab) >= min_frac
+  }
+  sa = br$share_a %||% rep(NA_real_, nrow(br)); sb = br$share_b %||% rep(NA_real_, nrow(br))
+  isTRUE(one(br$imbalance_a, sa, br$imbalance_b, sb)) || isTRUE(one(br$imbalance_b, sb, br$imbalance_a, sa))
+}
+
+# modes of a Gaussian kernel density of x at bandwidth h (256-point grid over the data range +- 3 h): list(n, x, y, peaks)
+kde_modes = function(x, h, n_grid = 256) {
+  d = stats::density(x, bw = h, n = n_grid, from = min(x) - 3 * h, to = max(x) + 3 * h)
+  pk = which(diff(sign(diff(d$y))) == -2) + 1
+  list(n = length(pk), x = d$x, y = d$y, peaks = pk)
+}
+
+# Silverman's critical bandwidth: the smallest h at which the kernel density of x has one mode (bisection on log h)
+crit_bw = function(x, n_iter = 40) {
+  hi = 2 * stats::sd(x)
+  for (i in 1:30) if (kde_modes(x, hi)$n > 1) hi = 2 * hi else break
+  lo = hi / 1e3
+  if (kde_modes(x, lo)$n <= 1) return(lo)
+  for (it in seq_len(n_iter)) {
+    mid = sqrt(lo * hi)
+    if (kde_modes(x, mid)$n > 1) lo = mid else hi = mid
+    if (hi / lo < 1.005) break
+  }
+  hi
+}
+
+# Population modality of the per-cell oriented shares on one region (drift_test = "modes"): the shares of the cells
+# `pop` (indices into contrast data `cd`; at most max_pop of them orient the phase blocks, leave-one-out) on region `r`
+# (column index of cd$regions), cells with >= min_n votes. Silverman's test of unimodality: p = the share of smoothed
+# bootstrap samples (from the kernel density at the critical bandwidth h_c, variance-corrected) whose kernel density at
+# h_c has more than one mode, decided at level 1 - q over n_boot draws (perm_decide, p-value rule with its early stop);
+# a cell-level drift of the haplotype share, also a skewed one, keeps one mode, a subclone adds one. `cut` = the antimode
+# between the two highest modes at 0.9 h_c. Returns list(x = shares per cd cell (NA outside pop or below min_n), p,
+# multimodal, cut, h).
+pop_modes = function(cd, pop, r, min_n = 10, q = 0.99, n_boot = 199, max_pop = 1500) {
+  ps = if (length(pop) > max_pop) sort(sample(pop, max_pop)) else pop
+  x = rep(NA_real_, length(cd$cells))
+  none = list(x = x, p = 1, multimodal = FALSE, cut = NA_real_, h = NA_real_)
+  tr = cd$trip[cd$blk_region[blk] == r & ci %in% pop]
+  if (!nrow(tr)) return(none)
+  tr[, in_ := ci %in% ps]
+  tr[, `:=`(gA = sum(nA * in_) - nA * in_, gB = sum(nB * in_) - nB * in_), by = blk]
+  tr = tr[gA != gB]
+  sh = tr[, .(oA = sum(fifelse(gA > gB, nA, nB)), oN = sum(nA + nB)), by = ci][oN >= min_n]
+  x[sh$ci] = sh$oA / sh$oN
+  v = x[ps]; v = v[!is.na(v)]
+  if (length(v) < 20 || stats::var(v) <= 0) return(none)
+  h = crit_bw(v); m = mean(v); s2 = stats::var(v)
+  pd = perm_decide(0.5, function() {
+    y = sample(v, replace = TRUE)
+    y = m + (y - m + h * stats::rnorm(length(y))) / sqrt(1 + h^2 / s2)
+    as.numeric(kde_modes(y, h)$n > 1)
+  }, q, n_boot, TRUE, "pvalue")
+  km = kde_modes(v, 0.9 * h)
+  cut = NA_real_
+  if (km$n >= 2) {
+    t2 = sort(km$peaks[order(-km$y[km$peaks])][1:2])
+    seg = t2[1]:t2[2]
+    cut = km$x[seg[which.min(km$y[seg])]]
+  }
+  list(x = x, p = pd$p, multimodal = pd$differ, cut = cut, h = h)
+}
+utils::globalVariables(c("in_", "gA", "gB"))
+
 #' Merge over-split clone leaves with a permutation-calibrated split test
 #'
 #' Bottom-up: each round, every clone's `n_nb` nearest clones (Ward distance between the clones' centroids in
@@ -600,15 +770,24 @@ perm_decide = function(obs, draw, q = 0.999, n_perm = 200, early = TRUE, perm_de
 #'   ~6 false splits per 1,000 tests, not 1); `"pvalue"` = permutation p-value `(1 + #null >= observed) / (1 +
 #'   permutations) <= 1 - q` over `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations, exact early stop for "same"
 #'   (the `tests` table then has `p`)
+#' @param allele per-cell allele values of the contrast: `"z"` (default; standardised count, grows with the cell's depth
+#'   in an imbalanced region), `"fraction"` (coverage-free oriented fraction) or `"centred"` (standardised count about the
+#'   compared cells' pooled fraction); see [clone_defaults()] `test_allele`
+#' @param drift_test `"none"` (default), `"modes"` or `"modes_event"`: an allele-driven difference must also be discrete
+#'   (the per-cell shares of all leaf cells are multimodal on a region where the pair differs, and the two clones lie on
+#'   different sides of the antimode), or (`"modes_event"`) the events of one clone be absent from the other; see
+#'   [clone_defaults()] `drift_test`
 #' @return list(clones = named integer labels, tests = data.table of all tests: stat, thr (the `q`-quantile of the
 #'   permutations run; with `perm_decision = "pvalue"` for information only, `differ` is decided by `p`), n_perm
-#'   (permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (`p` with `perm_decision = "pvalue"`),
-#'   key, l1, l2)
+#'   (permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (`p` with `perm_decision = "pvalue"`;
+#'   `by_depth`, `mode_p`, `mode_sep`, `discrete`, `differ_contrast` with `drift_test = "modes"`, plus `by_event` with
+#'   `"modes_event"`), key, l1, l2)
 #' @export
 merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.999, n_perm = 200, seed = 1,
                         rho = 0.01, classes = c("arm", "20Mb"), cells = NULL, max_cells = 250, cdata = NULL, depth_delta = 0.2,
-                        n_nb = 3, perm_decision = c("quantile", "pvalue")) {
+                        n_nb = 3, perm_decision = c("quantile", "pvalue"), allele = c("z", "fraction", "centred"), drift_test = "none") {
   perm_decision = match.arg(perm_decision)
+  allele = match.arg(allele)
   S = if (is.matrix(tree)) tree else tree$smooth
   S = S[names(leaves), , drop = FALSE]
   if (is.null(cells)) cells = names(leaves)
@@ -617,13 +796,14 @@ merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.99
   cur = as.character(leaves)
   comp = split(as.character(leaves), cur); comp = lapply(comp, unique)
   cache = list(); tests = list()
+  pop = list(idx = idx, env = new.env())      # drift_test: per-region population modality, shared by all tests
   ckey = function(l) paste(sort(as.integer(comp[[l]])), collapse = ",")
   run_test = function(l1, l2) {
     k1 = ckey(l1); k2 = ckey(l2)
     key = if (k1 < k2) paste(k1, k2, sep = "|") else paste(k2, k1, sep = "|")
     if (!is.null(cache[[key]])) return(cache[[key]])
     tt = split_test(cdata, idx[cur == l1], idx[cur == l2], rho, q, n_perm, max_cells, seed = seed + length(cache), depth_delta = depth_delta,
-                    perm_decision = perm_decision)
+                    perm_decision = perm_decision, allele = allele, drift_test = drift_test, pop = pop)
     tt[, `:=`(key = key, l1 = l1, l2 = l2)]
     cache[[key]] <<- tt
     tests[[length(tests) + 1]] <<- tt
@@ -673,6 +853,8 @@ utils::globalVariables(c("differ", "l1", "l2", "depth_used", "p"))
 #' allelic z varies across the trunk's cells beyond the null (variance > `disp_min`; unit variance expected) or is
 #' imbalanced on average (|mean| > `imb_min`): allelic features select the regions, depth is used only where the
 #' allele channel shows a clone-level event (a loss vs a gain of the same haplotype differ only in depth there).
+#' With `opts$disc_allele = "fraction"` the allelic features are the coverage-free oriented fractions of [clone_feature_matrix()]
+#' (regions still selected on z); `opts$test_allele` and `opts$drift_test` set the merge tests ([merge_clones()]).
 #' Discovery ([discover_clones()]) runs on the trunk's deeper cells (`n_frag` >= the `deep_q` quantile, at least
 #' `4 * min_size` cells), whose per-cell profiles separate subclones; [merge_clones()] then tests every pair of leaves
 #' (`n_nb = Inf`) on the test halves (`cdata`). Shallow cells are left to the likelihood assignment.
@@ -707,6 +889,11 @@ discover_within = function(inp, tcells, votes_disc, feat_disc, cdata, n_frag, op
                            n_leaves = 1L, note = why)
   if (!length(keep) || length(deep) < 2 * opts$min_size) return(one("no selected region or too few cells"))
   f = f[cell %in% deep & region %in% keep]
+  if (identical(opts$disc_allele, "fraction")) {
+    # coverage-free feature (the regions are still selected on the standardised z above, whose mean is depth-free
+    # where the trunk is balanced and whose imbalance flags the rest); a cell below min_n gets the region's mean
+    f[, az := allele_fraction_feature(nA, n, inp$rho, opts$min_n, opts$cap), by = region]
+  }
   f[is.na(az), az := 0]
   rr = sort(keep); cc = deep
   ii = cbind(match(f$cell, cc), match(f$region, rr))
@@ -720,7 +907,8 @@ discover_within = function(inp, tcells, votes_disc, feat_disc, cdata, n_frag, op
   if (length(unique(disc$leaves)) < 2) return(one("one leaf"))
   mc = merge_clones(NULL, NULL, inp$atoms, inp$regions, disc$leaves, disc, q = opts$q, n_perm = opts$n_perm, seed = seed,
                     rho = inp$rho, classes = opts$classes, cells = cells, max_cells = opts$max_cells, cdata = cdata,
-                    depth_delta = opts$depth_delta, n_nb = opts$n_nb_trunk, perm_decision = opts$perm_decision %||% "quantile")
+                    depth_delta = opts$depth_delta, n_nb = opts$n_nb_trunk, perm_decision = opts$perm_decision %||% "quantile",
+                    allele = opts$test_allele %||% "z", drift_test = opts$drift_test %||% "none")
   list(clones = mc$clones, tests = mc$tests, regions = keep, n_leaves = length(unique(disc$leaves)), note = "")
 }
 utils::globalVariables(c("n_ok", "v", "m"))
@@ -939,7 +1127,8 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     ia = match(cs$a, cdata$cells); ib = match(cs$b, cdata$cells)
     tt = split_test(subset_contrast_regions(cdata, treg), ia[!is.na(ia)], ib[!is.na(ib)], inp$rho, opts$q, opts$n_perm,
                     opts$max_cells, seed = seed + ii, depth_delta = opts$depth_delta, with_p = TRUE,
-                    perm_decision = opts$perm_decision %||% "quantile")
+                    perm_decision = opts$perm_decision %||% "quantile", allele = opts$test_allele %||% "z",
+                    drift_test = opts$drift_test %||% "none")
     tests[ii, `:=`(stat = tt$stat, thr = tt$thr, n_perm = tt$n_perm, p = tt$p, differ = tt$differ)]
     if (!tt$differ) { tests[ii, outcome := "not different on the test halves"]; next }
     ka = paste0(k, "a"); kb = paste0(k, "b")

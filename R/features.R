@@ -556,6 +556,17 @@ phasing_by_chrom = function(votes, atoms, frac = 0.9) {
 }
 utils::globalVariables(c("n_votes", "n_ps", "regime"))
 
+# the note on the chromosomes whose phasing regime ([phasing_by_chrom()]) differs from the run's regime `detected`;
+# NULL when there are none (or no table)
+phasing_mixed_note = function(pbc, detected, orientation) {
+  if (is.null(pbc) || !nrow(pbc) || is.null(detected)) return(NULL)
+  off = as.data.table(pbc)[regime != detected]
+  if (!nrow(off)) return(NULL)
+  sprintf("phasing: %s phased %s while the run's regime is %s (orientation %s applies to all chromosomes)",
+          paste(off$chrom, collapse = ", "), if (detected == "chromosome") "in blocks" else "chromosome-wide",
+          detected, orientation)
+}
+
 # ---- region votes ----------------------------------------------------------------------------------------
 
 # greedy interval colouring: regions in one layer never overlap (each atom maps to <= 1 region per layer)
@@ -864,10 +875,8 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   if (nrow(pbc)) {
     note(sprintf("phasing per chromosome (phase sets holding 90%% of the votes): %s",
                  paste0(pbc$chrom, " ", pbc$regime, " (", pbc$k, ")", collapse = ", ")))
-    off = pbc[regime != detected]
-    if (nrow(off)) note(sprintf("phasing: %s phased %s while the run's regime is %s (orientation %s applies to all chromosomes)",
-                                paste(off$chrom, collapse = ", "), if (detected == "chromosome") "in blocks" else "chromosome-wide",
-                                detected, orientation))
+    mixed = phasing_mixed_note(pbc, detected, orientation)
+    if (!is.null(mixed)) note(mixed)
   }
   g = groups
   if (!is.null(g)) {

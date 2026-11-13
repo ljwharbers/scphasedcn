@@ -323,9 +323,12 @@ utils::globalVariables(c("st", "k", "region"))
 #'   "block", "loo" or "mirrored"; both modes; ignored with precomputed `features`). Normal mode with `loo` on
 #'   block phasing (read-backed blocks without a population phase) gives a warning and a run note: per-cell allelic
 #'   calls of events carried by few cells need chromosome-scale phasing (`vignette("scphasedcn-inputs")`,
-#'   `scphasedcn hybrid-phase`)
+#'   `scphasedcn hybrid-phase`). `chromosome` on block phasing (overall, or on a chromosome with votes) and, in normal
+#'   mode, `mirrored` (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
+#'   chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)
 #' @param ... extra arguments for [cell_features()] (e.g. `centromeres`, `classes`, `qc`)
-#' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, notes), `scores`
+#' @return `scphasedcn` with `features` (the long table), `feature_info` (path, cells, phasing, phasing_chrom (the
+#'   per-chromosome phasing regimes, [phasing_by_chrom()]), notes), `scores`
 #'   (normal, `keep_scores`), `thresholds`, `calls`, `events`, `pools`, `null_fit`, `false_calls` (normal:
 #'   [null_false_calls()]), `embedding`, clone components (tumour), `params` (the caller parameters plus the
 #'   arguments used: `normal` = every [caller_normal()] argument of the run, `tumour` = the full tumour options) and
@@ -338,6 +341,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   mode = match.arg(mode)
   phasing = match.arg(phasing, c("auto", "chromosome", "block", "loo", "mirrored"))
+  phasing_req = if (is.null(features)) phasing else NA_character_   # ignored with precomputed features
   # caller argument blocks of the parameters (caller_params `normal:` / `tumour:`); caller_args take precedence
   sp = split_params(params)
   params = sp$params
@@ -405,8 +409,12 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   if (!is.null(nc_cells)) { long = copy(long); long[, null_cell := cell %in% nc_cells] }
   say(sprintf("features: %d cells x %d regions (%.1f min)", nrow(features$cells), nrow(features$regions), mins()))
   ftab = features$cells
-  phase_note = phasing_run_note(features$phasing, mode)
-  if (!is.null(phase_note)) warning("call_scn: ", phase_note, call. = FALSE)
+  phase_note = c(phasing_run_note(features$phasing, mode, features$phasing_chrom),
+                 phasing_orientation_notes(features$phasing, features$phasing_chrom, mode, phasing_req))
+  for (pn in phase_note) warning("call_scn: ", pn, call. = FALSE)
+  # chromosomes whose phasing regime differs from the run's (a note of cell_features() that the run notes repeat)
+  mixed_note = if (phasing_ok(features$phasing))
+    phasing_mixed_note(features$phasing_chrom, features$phasing[["detected"]], features$phasing[["orientation"]])
 
   if (mode == "normal") {
     if (!is.null(control_regions)) warning("call_scn: `control_regions` is used in tumour mode only", call. = FALSE)
@@ -457,7 +465,6 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       res$null_fit$allelic_mask = amask
       res$notes = c(res$notes, mask_note)
     }
-    if (!is.null(phase_note)) res$notes = c(res$notes, phase_note)
     fc = null_false_calls(res$scores)
     res$false_calls = fc$rates
     res$false_events = fc$events
@@ -485,6 +492,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     res = do.call(caller_tumour, c(args, caller_args))
     res$embedding = NULL
   }
+  res$notes = c(res$notes, mixed_note, phase_note)
 
   # cells table: QC, stratum, fold, null cell, number of reportable cell calls, clone columns
   ct = as.data.table(res$cells)
@@ -516,7 +524,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   res$cells = ct
 
   res$features = long
-  res$feature_info = list(path = feat_path, cells = ftab, phasing = features$phasing, notes = features$notes, use = features$use)
+  res$feature_info = list(path = feat_path, cells = ftab, phasing = features$phasing, phasing_chrom = features$phasing_chrom,
+                          notes = features$notes, use = features$use)
   # parameters of the run: the caller's own record (tumour: + the full `tumour` options) over the input parameters,
   # plus every caller_normal() argument (defaults filled in) in normal mode
   rp = res$params %||% list()
@@ -541,17 +550,55 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
 }
 utils::globalVariables(c("flat", "cell_type", "multiplet"))
 
-# the run note (and warning text) of normal mode on block phasing: allele features oriented by the other cells'
-# pseudobulk (`loo`) on unoriented read-backed blocks; NULL otherwise (tumour mode, chromosome-wide phasing, other
-# orientations, or features without a phasing record)
-phasing_run_note = function(phasing, mode) {
-  if (mode != "normal" || is.null(phasing) || !all(c("detected", "orientation") %in% names(phasing))) return(NULL)
+# the run note (and warning text) of a phasing regime that does not fit the mode. Normal mode on block phasing: allele
+# features oriented by the other cells' pseudobulk (`loo`) on unoriented read-backed blocks. Tumour mode on
+# chromosome-scale phasing: population-merged phase sets, which the clone orientation cannot re-orient (not with an
+# empty per-chromosome table `phasing_chrom`, i.e. no votes). NULL otherwise (other regimes or orientations, or
+# features without a phasing record)
+phasing_run_note = function(phasing, mode, phasing_chrom = NULL) {
+  if (!phasing_ok(phasing)) return(NULL)
+  if (mode == "tumour") {
+    if (phasing[["detected"]] != "chromosome" || (!is.null(phasing_chrom) && !nrow(phasing_chrom))) return(NULL)
+    return(paste("tumour mode on chromosome-scale phasing: the phase sets are merged per chromosome (e.g. by a population",
+                 "phase), and population-merged phase sets cannot be re-oriented per clone; read-based phase blocks, which",
+                 "are oriented by the pseudobulk of each clone, are preferable for tumour mode: see",
+                 "vignette(\"scphasedcn-inputs\")."))
+  }
+  if (mode != "normal") return(NULL)
   if (!(phasing[["detected"]] == "block" && phasing[["orientation"]] %in% c("loo", "block"))) return(NULL)
   paste("normal mode on block phasing: the allele features were oriented by the pseudobulk of the other cells (loo),",
         "which is blind to events carried by few cells and aligns allelic bias shared by all cells. Per-cell allelic",
         "calls for events carried by few cells are not supported with block-only phasing; use chromosome-scale",
         "(hybrid) phasing: see vignette(\"scphasedcn-inputs\") and `scphasedcn hybrid-phase`.")
 }
+
+# the run notes (and warning texts) of orientations that do not fit the phasing: `chromosome` orientation (plain sums
+# over each phase set) on unoriented read-backed blocks, i.e. detected `block`, or `chromosome` requested while some
+# chromosome with votes is in blocks (`auto` on such data only gets the mixed-regime note); `mirrored` in normal mode.
+# character(0) when none apply
+phasing_orientation_notes = function(phasing, phasing_chrom, mode, requested = NA_character_) {
+  if (!phasing_ok(phasing)) return(character())
+  det = phasing[["detected"]]
+  ori = phasing[["orientation"]]
+  out = character()
+  if (ori == "chromosome") {
+    pc = if (is.null(phasing_chrom)) NULL else as.data.table(phasing_chrom)
+    blk = if (!is.null(pc) && nrow(pc)) pc[regime == "block" & n_votes > 0, chrom] else character()
+    if (det == "block" || (identical(requested, "chromosome") && length(blk)))
+      out = c(out, sprintf(paste("phasing = \"chromosome\" on block phasing (%s): the unoriented read-backed blocks are",
+                                 "summed as they are, so the allele channel of %s carries no signal; use phasing = \"auto\"",
+                                 "or chromosome-scale phasing (`scphasedcn hybrid-phase`)."),
+                           if (length(blk)) paste(blk, collapse = ", ") else "all chromosomes",
+                           if (length(blk) == 1) "this chromosome" else "these chromosomes"))
+  }
+  if (mode == "normal" && ori == "mirrored")
+    out = c(out, paste("normal mode with phasing = \"mirrored\": the block-wise majority orientation is a diagnostic",
+                       "(every cell looks allelically imbalanced) and is not calibrated for calling; use phasing = \"auto\"."))
+  out
+}
+
+# a phasing record with `detected` and `orientation`
+phasing_ok = function(phasing) !is.null(phasing) && all(c("detected", "orientation") %in% names(phasing))
 
 # ---- output ------------------------------------------------------------------------------------------------
 

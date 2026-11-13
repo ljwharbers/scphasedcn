@@ -71,12 +71,15 @@ precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts}
 "block", "loo" or "mirrored"; both modes; ignored with precomputed \code{features}). Normal mode with \code{loo} on
 block phasing (read-backed blocks without a population phase) gives a warning and a run note: per-cell allelic
 calls of events carried by few cells need chromosome-scale phasing (\code{vignette("scphasedcn-inputs")},
-\verb{scphasedcn hybrid-phase})}
+\verb{scphasedcn hybrid-phase}). \code{chromosome} on block phasing (overall, or on a chromosome with votes) and, in normal
+mode, \code{mirrored} (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
+chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)}
 
 \item{...}{extra arguments for \code{\link[=cell_features]{cell_features()}} (e.g. \code{centromeres}, \code{classes}, \code{qc})}
 }
 \value{
-\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, notes), \code{scores}
+\code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, phasing_chrom (the
+per-chromosome phasing regimes, \code{\link[=phasing_by_chrom]{phasing_by_chrom()}}), notes), \code{scores}
 (normal, \code{keep_scores}), \code{thresholds}, \code{calls}, \code{events}, \code{pools}, \code{null_fit}, \code{false_calls} (normal:
 \code{\link[=null_false_calls]{null_false_calls()}}), \code{embedding}, clone components (tumour), \code{params} (the caller parameters plus the
 arguments used: \code{normal} = every \code{\link[=caller_normal]{caller_normal()}} argument of the run, \code{tumour} = the full tumour options) and

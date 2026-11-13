@@ -14,9 +14,12 @@ allele equals the population's first allele, else "disagree" (D).
 Orientation. Per block (contig + PS): with at least `min_votes` votes and a strict majority the block is oriented: GT
 flipped when the majority disagrees, PS set to the contig's merged phase set (the smallest position of an oriented site,
 moved up if a kept block already uses that value). Blocks without votes, with fewer than `min_votes` or with a tie keep
-their own GT and PS. With `fill_unphased`, heterozygous SNVs outside any block (unphased, or phased without PS) take the
-population phase and the merged phase set when the population file has them (and the contig has one). Every other
-record and FORMAT field is written unchanged.
+their own GT and PS. Every other phased heterozygous record of an oriented block (indels, multi-allelic sites, SNVs
+without a population marker) follows its block: GT flipped with it and PS set to the merged phase set, so that the
+merged phase set is consistent for tools that read all variant types; records of kept blocks are left as they are.
+With `fill_unphased`, heterozygous SNVs outside any block (unphased, or phased without PS) take the population phase
+and the merged phase set when the population file has them (and the contig has one). Every other record and FORMAT
+field is written unchanged.
 
 INFO tags of the output: PHASE_SRC (O = block oriented by the population phase, PS merged; B = block kept with its own
 PS; P = population phase of a site outside the blocks) and POP_VOTE (A / D = the site's population vote relative to the
@@ -27,6 +30,8 @@ oriented, flipped, output PS. Per contig: population markers used, blocks orient
 rate (switches / consecutive vote pairs inside blocks) and the minority fraction (votes against the majority in oriented
 blocks / votes in oriented blocks). Both measure how often the population phase disagrees with the reads: the
 switch rate is roughly the population phaser's switch-error rate at the spacing of the voting sites.
+A contig of the blocks file with no record in the population input (e.g. chrX missing from the panel) keeps its
+blocks; it is named in a `[warn]` line and counted in the log's total line (`contigs_without_markers`).
 
 Inputs. `blocks`: the read-backed phased VCF (plain or bgzip, indexed or not; sorted). `population`: one phased VCF, or a
 pattern with `{chrom}` for one file per contig (the contig name is tried as in the blocks file, then with / without the
@@ -200,10 +205,12 @@ class Population:
         return out, st, os.path.basename(path)
 
 
-def _decide(contig: str, sites: list, pop: dict, min_votes: int):
+def _decide(contig: str, sites: list, pop: dict, min_votes: int, other_ps=()):
     """Orientation of the blocks of one contig.
 
     sites: (pos, ref, alt, ps or None, first_is_alt) of the contig's het SNVs (ps None = outside the blocks).
+    other_ps: phase sets of the contig's other phased het records (blocks without a het SNV keep their PS, so the
+    merged PS must not reuse one).
     Returns dict with flip (ps -> bool, oriented blocks only), merged (PS or None), votes ((pos, ref, alt) -> A / D
     relative to the input GT), fill ((pos, ref, alt) -> first allele ALT), block rows and contig counts."""
     blocks = OrderedDict()          # ps -> ([positions], [(position, vote)])
@@ -240,7 +247,7 @@ def _decide(contig: str, sites: list, pop: dict, min_votes: int):
         rows.append([contig, ps, len(poss), min(poss), max(poss), len(vs), n_a, n_d, sw, int(ok), int(flip.get(ps, False))])
     merged = None
     if flip:
-        kept = {ps for ps in blocks if ps not in flip}
+        kept = {ps for ps in blocks if ps not in flip} | {ps for ps in other_ps if ps not in flip}
         merged = min(min(blocks[ps][0]) for ps in flip)
         while merged in kept:
             merged += 1
@@ -262,6 +269,15 @@ def _site(rec, si):
         return None
     ps = s.get("PS") if s.phased else None
     return rec.pos, rec.ref.upper(), rec.alts[0].upper(), ps, gt[0] == 1
+
+
+def _block_ps(rec, si):
+    """PS of a phased heterozygous record of any type (two different called alleles, phased, with a PS), else None."""
+    s = rec.samples[si]
+    gt = s.get("GT")
+    if gt is None or len(gt) != 2 or None in gt or gt[0] == gt[1] or not s.phased:
+        return None
+    return s.get("PS")
 
 
 CHROM_KEYS = ["contig", "population_file", "population_markers", "population_imputed", "population_het_used",
@@ -290,14 +306,17 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
     vf = pysam.VariantFile(blocks)
     si = _sample_index(vf, sample, "blocks")
     pop = Population(population, sample=population_sample, prefer_sample=si, imputed_flag=imputed_flag, log=log)
-    dec, rows, chrom_rows, seen = {}, [], [], []
+    dec, rows, chrom_rows, seen, no_markers = {}, [], [], [], []
     n_rec = Counter()
 
-    def finish(c, sites):
+    def finish(c, sites, other_ps):
         mk, st, fname = pop.markers(c)
         if fname is None:
             log(f"[warn] {c}: no population file ({population}); blocks kept as they are")
-        d = _decide(c, sites, mk, min_votes)
+        elif st["markers"] == 0:
+            no_markers.append(c)
+            log(f"[warn] {c}: no markers in the population file {fname}; blocks kept as they are")
+        d = _decide(c, sites, mk, min_votes, other_ps)
         dec[c] = d
         rows.extend(d["rows"])
         n = d["n"]
@@ -311,24 +330,28 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
             switch_rate=round(n["switches"] / n["vote_pairs"], 5) if n["vote_pairs"] else 0,
             filled=len(d["fill"]) if fill_unphased else 0, merged_ps=d["merged"] if d["merged"] is not None else "."))
 
-    cur, sites = None, []
+    cur, sites, other_ps = None, [], set()
     for rec in vf:
         c = rec.chrom
         if want is not None and c not in want:
             continue
         if c != cur:
             if cur is not None:
-                finish(cur, sites)
+                finish(cur, sites, other_ps)
             if c in dec:
                 raise SystemExit(f"hybrid-phase: --blocks is not sorted by contig ({c} appears twice)")
-            cur, sites = c, []
+            cur, sites, other_ps = c, [], set()
             seen.append(c)
         n_rec[c] += 1
         x = _site(rec, si)
         if x is not None:
             sites.append(x)
+        else:
+            ps = _block_ps(rec, si)
+            if ps is not None:
+                other_ps.add(ps)
     if cur is not None:
-        finish(cur, sites)
+        finish(cur, sites, other_ps)
     vf.close()
     if not seen:
         raise SystemExit("hybrid-phase: no records in --blocks" + (f" on {', '.join(sorted(want))}" if want else ""))
@@ -354,7 +377,7 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
     hdr.add_line(f'##scphasedcn_hybrid_phase="population={os.path.basename(population)} min_votes={min_votes} '
                  f'imputed_flag={imputed_flag or "none"} fill_unphased={fill_unphased}"')
     ofh = pysam.VariantFile(out, "wz", header=hdr)
-    tot = Counter(records=0, sites_oriented=0, sites_kept=0, sites_filled=0)
+    tot = Counter(records=0, sites_oriented=0, sites_kept=0, sites_filled=0, other_oriented=0)
     for rec in vf:
         d = dec.get(rec.chrom)
         x = _site(rec, si) if d is not None else None
@@ -384,6 +407,19 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
                 rec.info[SRC_TAG] = "P"
                 rec.info[VOTE_TAG] = "."
                 tot["sites_filled"] += 1
+        elif d is not None:
+            # any other phased het record (indel, multi-allelic, ...) of an oriented block follows the block
+            ps = _block_ps(rec, si)
+            if ps is not None and ps in d["flip"]:
+                s = rec.samples[si]
+                if d["flip"][ps]:
+                    gt = s["GT"]
+                    s["GT"] = (gt[1], gt[0])
+                s.phased = True
+                s["PS"] = d["merged"]
+                rec.info[SRC_TAG] = "O"
+                rec.info[VOTE_TAG] = "."
+                tot["other_oriented"] += 1
         ofh.write(rec)
         tot["records"] += 1
     ofh.close()
@@ -401,7 +437,8 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
     sums["minority_frac"] = round(sums["sites_minority"] / nvo, 5) if nvo else 0
     sums["switch_rate"] = round(sums["switches"] / sums["vote_pairs"], 5) if sums["vote_pairs"] else 0
     log("[total] " + " ".join(f"{k}={sums[k]}" for k in CHROM_KEYS[2:-1]) +
-        f" sites_oriented={tot['sites_oriented']} sites_kept={tot['sites_kept']} sites_filled={tot['sites_filled']}")
+        f" sites_oriented={tot['sites_oriented']} sites_kept={tot['sites_kept']} sites_filled={tot['sites_filled']}"
+        f" other_oriented={tot['other_oriented']} contigs_without_markers={len(no_markers)}")
     if chrom_tsv:
         with open(chrom_tsv, "w") as fh:
             fh.write("\t".join(CHROM_KEYS) + "\n")
@@ -413,4 +450,4 @@ def hybrid_phase(blocks: str, population: str, out: str, contigs: list[str] | No
             fh.write("\t".join(BLOCK_KEYS) + "\n")
             for r in rows:
                 fh.write("\t".join(str(x) for x in r) + "\n")
-    return dict(sums) | dict(tot)
+    return dict(sums) | dict(tot) | {"contigs_without_markers": len(no_markers)}

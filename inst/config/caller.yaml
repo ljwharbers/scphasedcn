@@ -43,6 +43,8 @@ normal:                     # normal mode: caller_normal() arguments (CLI --n-dr
   n_draws: 20000            # null pool-regions per class for the pooled thresholds
   depth_model: "t"          # depth null: "t" (Student-t per class x stratum) or "gauss"
   resolve_gains: true       # per-cell chromosome gains need depth support and lose to a stronger nested loss / CN-LOH
+  gain_gate: "dl"           # depth support of a gain: "dl" (gain depth LLR > 0) or "z" (opt-in: z above the midpoint and the gain_gate_q null quantile)
+  gain_gate_q: 0.95         # null quantile of the "z" gain gate
   pool_loo: true            # pools are called on the leave-one-out robust score s_rob
   pool_standardize: true    # pooled best LLR standardised per region by the null pools of the same construction
 tumour:                     # tumour mode: clone_defaults() options (CLI --confirm-null / --split-pass override)

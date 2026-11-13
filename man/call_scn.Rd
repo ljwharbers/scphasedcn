@@ -69,9 +69,10 @@ precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts}
 
 \item{phasing}{phasing / block orientation of the allele features (\code{\link[=cell_features]{cell_features()}}: "auto", "chromosome",
 "block", "loo" or "mirrored"; both modes; ignored with precomputed \code{features}). Normal mode with \code{loo} on
-block phasing (read-backed blocks without a population phase) gives a warning and a run note: per-cell allelic
-calls of events carried by few cells need chromosome-scale phasing (\code{vignette("scphasedcn-inputs")},
-\verb{scphasedcn hybrid-phase}). \code{chromosome} on block phasing (overall, or on a chromosome with votes) and, in normal
+block phasing (read-backed blocks without a population phase) gives a warning and a run note: it aligns allelic
+bias shared by all cells (false per-cell events) and cannot show allelic events carried by few cells, so
+chromosome-scale phasing is recommended (\verb{scphasedcn hybrid-phase}; \code{vignette("scphasedcn-inputs")} for its
+limits). \code{chromosome} on block phasing (overall, or on a chromosome with votes) and, in normal
 mode, \code{mirrored} (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
 chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)}
 

@@ -321,9 +321,10 @@ utils::globalVariables(c("st", "k", "region"))
 #'   precedence over `params$normal` / `params$tumour` (tumour: `opts` merged key by key)
 #' @param phasing phasing / block orientation of the allele features ([cell_features()]: "auto", "chromosome",
 #'   "block", "loo" or "mirrored"; both modes; ignored with precomputed `features`). Normal mode with `loo` on
-#'   block phasing (read-backed blocks without a population phase) gives a warning and a run note: per-cell allelic
-#'   calls of events carried by few cells need chromosome-scale phasing (`vignette("scphasedcn-inputs")`,
-#'   `scphasedcn hybrid-phase`). `chromosome` on block phasing (overall, or on a chromosome with votes) and, in normal
+#'   block phasing (read-backed blocks without a population phase) gives a warning and a run note: it aligns allelic
+#'   bias shared by all cells (false per-cell events) and cannot show allelic events carried by few cells, so
+#'   chromosome-scale phasing is recommended (`scphasedcn hybrid-phase`; `vignette("scphasedcn-inputs")` for its
+#'   limits). `chromosome` on block phasing (overall, or on a chromosome with votes) and, in normal
 #'   mode, `mirrored` (a diagnostic orientation) also give a warning and a run note; so does tumour mode on
 #'   chromosome-scale phasing (read-based blocks, oriented per clone, are preferable there)
 #' @param ... extra arguments for [cell_features()] (e.g. `centromeres`, `classes`, `qc`)
@@ -567,9 +568,10 @@ phasing_run_note = function(phasing, mode, phasing_chrom = NULL) {
   if (mode != "normal") return(NULL)
   if (!(phasing[["detected"]] == "block" && phasing[["orientation"]] %in% c("loo", "block"))) return(NULL)
   paste("normal mode on block phasing: the allele features were oriented by the pseudobulk of the other cells (loo),",
-        "which is blind to events carried by few cells and aligns allelic bias shared by all cells. Per-cell allelic",
-        "calls for events carried by few cells are not supported with block-only phasing; use chromosome-scale",
-        "(hybrid) phasing: see vignette(\"scphasedcn-inputs\") and `scphasedcn hybrid-phase`.")
+        "which is blind to allelic events carried by few cells and aligns allelic bias shared by all cells, giving",
+        "false per-cell events. Chromosome-scale (hybrid) phasing is recommended: it avoids that bias, while per-cell",
+        "recall of losses and CN-LOH on it depends on the switch errors of the population phase; see",
+        "vignette(\"scphasedcn-inputs\") and `scphasedcn hybrid-phase`.")
 }
 
 # the run notes (and warning texts) of orientations that do not fit the phasing: `chromosome` orientation (plain sums

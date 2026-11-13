@@ -4,7 +4,8 @@ A read-backed phaser (e.g. longphase on the bulk long reads) phases heterozygous
 orientation relative to each other is unknown. A population phaser (e.g. Beagle 5 or SHAPEIT with a reference panel)
 phases the same sample's genotypes along the whole chromosome, with occasional switch errors. `hybrid_phase` puts every
 read-backed block into the population haplotype frame by majority vote and merges the oriented blocks into one
-chromosome-wide phase set per contig, which the normal-tissue mode of the scphasedcn caller needs.
+chromosome-wide phase set per contig, as recommended for the normal-tissue mode of the scphasedcn caller (switch errors
+of the population phase attenuate allelic events on the merged phase set; see the scphasedcn-inputs vignette).
 
 Votes. A site votes when it is a heterozygous biallelic SNV in both inputs with the same REF and ALT, phased in the
 population file and inside a block (phased GT with a PS) in the blocks file; population records flagged imputed (INFO

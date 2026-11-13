@@ -19,8 +19,8 @@ scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
 `scphasedcn run` extracts every chromosome in parallel and merges; `scphasedcn extract --chrom <c>` and
 `scphasedcn merge` are the same steps for one cluster job per chromosome. `scphasedcn select-hets` selects the
 heterozygous SNVs of a phased VCF (Clair3 + longphase) for `--snps`. `scphasedcn hybrid-phase` orients those
-read-backed phase blocks with a population-phased VCF of the same sample and writes one phase set per chromosome (the
-phasing the normal-tissue mode of the caller needs; see below). `scphasedcn index-check` checks the BAM index
+read-backed phase blocks with a population-phased VCF of the same sample and writes one phase set per chromosome
+(recommended for the normal-tissue mode of the caller; see below). `scphasedcn index-check` checks the BAM index
 and can write a fresh one to a separate path (`--reindex`, then `--index` in `extract` / `run`).
 See `scphasedcn <command> --help` and the scphasedcn documentation for the input requirements and the phasing recipe.
 

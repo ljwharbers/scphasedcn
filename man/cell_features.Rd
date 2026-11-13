@@ -55,9 +55,10 @@ the package, \code{\link[=hg38_centromeres]{hg38_centromeres()}})}
 \item{null_exclude}{chromosomes / regions without null rows (known events)}
 
 \item{phasing}{"auto", "chromosome", "block" (= "loo"), "loo" or "mirrored". \code{auto} = \code{chromosome} when
-\code{\link[=detect_phasing]{detect_phasing()}} finds chromosome-wide phase sets, else \code{loo}. Normal tissue needs chromosome-wide phasing
-(\verb{scphasedcn hybrid-phase}, \code{vignette("scphasedcn-inputs")}): \code{loo} orients each block by the other cells and
-cannot show events carried by few cells}
+\code{\link[=detect_phasing]{detect_phasing()}} finds chromosome-wide phase sets, else \code{loo}. Chromosome-wide phasing is recommended for
+normal tissue (\verb{scphasedcn hybrid-phase}; \code{vignette("scphasedcn-inputs")} for its limits): \code{loo} orients each
+block by the other cells, cannot show allelic events carried by few cells and aligns allelic bias shared by all
+cells}
 
 \item{groups}{NULL, the name of a \code{cell_meta} column, a vector named by cell, or one label per kept
 cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)}

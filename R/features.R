@@ -788,9 +788,10 @@ read_sample_depth = function(dir, layers = character()) {
 #' @param events named events (see [region_set()])
 #' @param null_exclude chromosomes / regions without null rows (known events)
 #' @param phasing "auto", "chromosome", "block" (= "loo"), "loo" or "mirrored". `auto` = `chromosome` when
-#'   [detect_phasing()] finds chromosome-wide phase sets, else `loo`. Normal tissue needs chromosome-wide phasing
-#'   (`scphasedcn hybrid-phase`, `vignette("scphasedcn-inputs")`): `loo` orients each block by the other cells and
-#'   cannot show events carried by few cells
+#'   [detect_phasing()] finds chromosome-wide phase sets, else `loo`. Chromosome-wide phasing is recommended for
+#'   normal tissue (`scphasedcn hybrid-phase`; `vignette("scphasedcn-inputs")` for its limits): `loo` orients each
+#'   block by the other cells, cannot show allelic events carried by few cells and aligns allelic bias shared by all
+#'   cells
 #' @param groups NULL, the name of a `cell_meta` column, a vector named by cell, or one label per kept
 #'   cell: the pseudobulk groups of the block orientation (NA = all-cell pseudobulk)
 #' @param mol_gap molecule gap (bp; default `params$mol_gap`, 2000)

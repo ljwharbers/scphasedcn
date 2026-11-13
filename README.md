@@ -46,7 +46,7 @@ the PATH speeds up reading the fragment table.
 ```bash
 # 1. phased heterozygous SNPs (Clair3 + longphase on the pooled BAM; see vignette("scphasedcn-inputs"))
 scphasedcn select-hets --vcf sample.longphase.vcf.gz --loci 1000G_snvs_hg38.vcf.gz --out het_phased.vcf.gz
-#    normal tissue: join the blocks into chromosome-wide haplotypes with a population phase of the same sample
+#    normal tissue (recommended): join the blocks into chromosome-wide haplotypes with a population phase of the sample
 #    (e.g. Beagle 5 + 1000 Genomes panel, one VCF per chromosome), then extract with het_hybrid.vcf.gz
 scphasedcn hybrid-phase --blocks het_phased.vcf.gz --population 'popphased_{chrom}.vcf.gz' --out het_hybrid.vcf.gz
 

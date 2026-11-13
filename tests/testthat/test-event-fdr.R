@@ -318,3 +318,24 @@ test_that("event_fdr with gain_gate = 'z': a gain the z gate removes is not repo
   nz = ce[cell %in% r$cells[null_cell == TRUE, cell] & !(called %in% TRUE) & !z_pass]
   expect_true(all(nz$p == 1))
 })
+
+test_that("event_fdr: the borrowed null accounting uses the calling rule score > max(thr, 0)", {
+  # a named event borrows the arm thresholds; with a negative arm threshold, the arm null rows counted as called event
+  # rows are those scoring above 0 (as call_table calls them), not every row above the negative threshold
+  bins = sim_genome()
+  rg = fake_regions(bins, tiles = c("20Mb" = 2e7))
+  ev = data.table(region = "ev_1q", class = "event", sd_class = "arm", chrom = "chr1", start = 24e6, end = 6e7)
+  ev[, n_bins := sum(bins$chrom == chrom & bins$start >= start & bins$end <= end)]
+  ev[, `:=`(n_use = n_bins, eligible = TRUE, null_region = FALSE, allelic_ok = TRUE)]
+  rg = rbind(rg, ev, use.names = TRUE)
+  ff = fake_features(400, rg, seed = 23, hap_frac = 0.1)
+  r = caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character())
+  r$scores[class == "arm", thr_s_comb := -1e6]
+  idx = which(r$scores$is_null %in% TRUE & r$scores$class == "arm")
+  s = borrowed_stat(r$scores, idx, "event", call_policy("normal", r$null_fit$sex),
+                    list(resolve = TRUE, type = "dl", min_dl = 0))
+  expect_gt(sum(is.finite(s) & s <= 0), 0)                      # rows between the threshold and 0 exist
+  ef = event_fdr(r)$expected_false[class == "event"]
+  expect_equal(nrow(ef), uniqueN(ef$state))                      # one chromosome group (chr1)
+  expect_equal(sum(ef$n_null_called), sum(is.finite(s) & s > 0))
+})

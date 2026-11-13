@@ -70,6 +70,8 @@ quantile is taken per \code{by} (class). Random constructions are redrawn
 (seed + draw) until every class has at least \code{n_draws} null pool-regions;
 a deterministic construction (same pools twice, e.g. kNN) is used once.
 With \code{cv} one threshold per fold from the null cells of the other folds,
-plus fold 0 from all null cells. With \code{loo} the leave-one-out scores (\code{s_rob}) are computed and can be
+plus fold 0 from all null cells; the fold-0 rows and scale do not depend on \code{cv}. \code{\link[=call_pools]{call_pools()}} applies
+fold 0 only (pools have no fold), so \code{\link[=caller_normal]{caller_normal()}} computes fold 0 only (\code{cv = FALSE}). With \code{loo} the
+leave-one-out scores (\code{s_rob}) are computed and can be
 thresholded, exactly as \code{\link[=call_pools]{call_pools()}} scores the test pools.
 }

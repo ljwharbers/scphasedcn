@@ -296,6 +296,20 @@ test_that("caller_tumour finds the clones of sim_tum2 and their states", {
   check_thresholds(res$thresholds)
 })
 
+test_that("caller_tumour: per-cell confirmation needs a positive score when the confirmation threshold is negative", {
+  # a low null quantile makes the confirmation thresholds negative; rows scoring between the threshold and 0 stay
+  # inherited, rows above 0 are confirmed, and the thresholds table keeps the quantiles
+  p = modifyList(caller_defaults(), list(null_q = 0.05))
+  res = caller_tumour(tum2_input(), params = p, verbose = FALSE)
+  cc = res$calls[level == "cell"]
+  expect_gt(sum(res$thresholds$thr < 0), 0)
+  expect_gt(nrow(cc[thr < score & score <= 0]), 0)
+  expect_false(any(cc[score <= 0, called]))
+  expect_true(all(cc[score <= 0, source] == "inherited"))
+  expect_identical(cc$called, cc$score > pmax(cc$thr, 0))
+  expect_identical(cc$source == "confirmed", cc$called)
+})
+
 test_that("caller_tumour: the defaults of confirm_sided and perm_decision are today's code paths", {
   # all-default results equal the run with the two options spelled out at their pre-option behaviour (the run before
   # these options existed is bit-identical: assignments, segments, calls; checked against the previous release)
@@ -668,7 +682,7 @@ test_that("ref_null refits rho on the reference pool; the matched null confirms 
   expect_true("hyp" %in% names(res$thresholds))
   cc = res$calls[level == "cell"]
   expect_true(all(is.finite(cc$thr)))
-  expect_equal(cc$called, cc$score > cc$thr)
+  expect_equal(cc$called, cc$score > pmax(cc$thr, 0))              # the calling rule: above the threshold and 0
   hy = res$thresholds$hyp
   expect_setequal(sub("\\|.*", "", hy), unique(res$segments[label != "neutral", clone]))
   # chr21 2:1 (f ~ 0.61) in cloneA: more confirmed than with the generic null on the inflated rho; other events kept
@@ -754,7 +768,7 @@ test_that("confirm_sided \"one\": assignments and segments unchanged, events sti
       expect_lte(cn[hyp == "all" & kind == "all", per_1000], 3)
     }
     cc = r1$calls[level == "cell"]
-    expect_equal(cc$called, cc$score > cc$thr)
+    expect_equal(cc$called, cc$score > pmax(cc$thr, 0))            # the calling rule: above the threshold and 0
     check_calls(r1$calls)
   }
 })

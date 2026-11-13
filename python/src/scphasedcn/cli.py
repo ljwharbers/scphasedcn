@@ -55,6 +55,8 @@ def _region(s: str | None):
 
 # ----------------------------------------------------------------------------------------------- index-check
 def cmd_index_check(a):
+    """Exit 0 when the index is usable (fresh, or rebuilt with --reindex); 1 when it is missing or older than the BAM
+    and was not rebuilt (an index older than its BAM can point to the wrong offsets and silently drop records)."""
     from .bam import check_index, build_index
     info = check_index(a.bam, a.index)
     _log(json.dumps(info))
@@ -64,7 +66,16 @@ def cmd_index_check(a):
         t0 = time.time()
         build_index(a.bam, out, threads=a.threads)
         _log(f"index written to {out} in {time.time() - t0:.0f} s")
-    elif a.reindex:
+        return 0
+    if not info["exists"]:
+        _log(f"ERROR: no index {info['bai']} for {a.bam}; write one to a separate path with --reindex <path> "
+             f"(then pass it as --index to extract / run)")
+        return 1
+    if info.get("stale"):
+        _log(f"ERROR: the index {info['bai']} is older than the BAM {a.bam} (stale): rebuild it, e.g. with "
+             f"--reindex <path> (then pass it as --index to extract / run)")
+        return 1
+    if a.reindex:
         _log("index is fresh; nothing to do (use --force to rebuild)")
     return 0
 
@@ -124,7 +135,7 @@ def _bam_references(bam, index):
 
 
 def cmd_extract(a):
-    from .bam import scan_chrom, flag_fragments, check_barcode_match, F_BLACKLIST
+    from .bam import scan_chrom, flag_fragments, check_barcode_match, F_BLACKLIST, LOOP_COUNTERS
     from .bins import Tiling, annotate_tiling, read_bed_intervals, read_centromere
     from .depth import depth_layers, fraglen_hist
     from .qc import chrom_qc
@@ -186,6 +197,7 @@ def cmd_extract(a):
     fr, ctr = scan_chrom(d["bam"], chrom, cells, min_mapq=a.min_mapq, index_filename=a.index,
                          region=reg[1] if reg else None, alleles=acc)
     _log(f"scan: {int(ctr.per_cell[:, 0].sum())} records of listed cells, {len(fr)} passing fragments, "
+         f"{int(ctr.per_cell[:, LOOP_COUNTERS.index('n_qcfail')].sum())} QC-fail (0x200) skipped, "
          f"'-' records {ctr.dash['n_records']} (pass {ctr.dash['n_pass']}), unlisted {ctr.unlisted['n_records']}, "
          f"{ctr.seconds:.0f} s")
     bc_warn = check_barcode_match(ctr, cells, chrom)
@@ -370,7 +382,8 @@ def build_parser():
     p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("index-check", help="check the BAM index (and optionally rebuild it at a separate path, e.g. in the output directory)")
+    s = sub.add_parser("index-check", help="check the BAM index (and optionally rebuild it at a separate path, e.g. in the output "
+                                           "directory); exits 1 when the index is missing or older than the BAM and was not rebuilt")
     s.add_argument("--bam", required=True); s.add_argument("--index", help="existing .bai to check")
     s.add_argument("--reindex", help="write a fresh .bai to this path when missing/stale (use with --index in extract / run)")
     s.add_argument("--force", action="store_true"); s.add_argument("--threads", type=int, default=8)

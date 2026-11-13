@@ -68,9 +68,13 @@ key, l1, l2)
 Bottom-up: each round, every clone's \code{n_nb} nearest clones (Ward distance between the clones' centroids in
 the smoothed PC space) are candidate pairs; the pairs are tested in order of distance with the clone contrast (\code{split_test})
 against the \code{q}-quantile of the same statistic on random splits of the pooled pair at matching sizes
-(\code{n_perm} permutations, sequential early stop; or on the permutation p-value, \code{perm_decision}), and non-different pairs are merged (each clone at most once
-per round). Stops when every candidate pair of the remaining clones differs at the budget (\code{q = 0.999}: about 1
-false split per 1,000 tests with \code{perm_decision = "pvalue"}, about 6 with the default \code{"quantile"}). Each half is subsampled to \code{max_cells} cells (observed and null alike).
+(\code{n_perm} permutations, sequential early stop; or on the permutation p-value, \code{perm_decision}), and non-different
+pairs are merged (each clone at most once per round). Stops when every candidate pair of the remaining clones
+differs at the budget (\code{q = 0.999}: about 1 false split per 1,000 tests with \code{perm_decision = "pvalue"}, about 6
+with the default \code{"quantile"}: the 0.999 quantile of 200 permutations sits near their maximum, about 1 / 201 per
+test, and the early "different" stop, observed above 3 x the null maximum after 20 / 50 / 100 permutations, adds
+about 0.6-1 per 1,000 at the minimum leaf size, 20 against 20 cells; no correction for the number of tests). Each
+half is subsampled to \code{max_cells} cells (observed and null alike).
 Nearest neighbours rather than Ward siblings only: once two sibling clones differ, a sibling-only rule never
 compares either of them with any other clone.
 }

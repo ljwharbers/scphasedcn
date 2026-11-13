@@ -302,7 +302,8 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' [clean_reference()] -> optional depth re-pass relative to the clean pool -> per-cell calls. Each cell
 #' inherits its clone's non-neutral segments (`source = "inherited"`) and is `confirmed` when its own
 #' score under the clone state (depth + allele LLR vs neutral; allele term two-sided, or one-sided on the clone-oriented
-#' votes with `opts$confirm_sided = "one"`) is above the threshold of the tumour null:
+#' votes with `opts$confirm_sided = "one"`) is above the threshold of the tumour null and above 0 (`score > max(thr,
+#' 0)`: a negative null threshold never confirms a row on which neutral is at least as likely):
 #' reference-pool cells x all pieces + all cells x control pieces, scored as the best of the loss / gain /
 #' CN-LOH / amp states (type-7 `null_q` quantile per stratum, strict `>`; pooled over strata below
 #' `min_null_rows`).
@@ -766,8 +767,8 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     notes = c(notes, confirm_null_notes(n_null = n_null_h, q = params$null_q))
     sc[is.na(thr), thr := Inf]
     calls = sc[, .(cell, region, class = "segment", chrom, start = ev$start[match(region, ev$region)],
-                   end = ev$end[match(region, ev$region)], state = label, score, thr, called = score > thr, level = "cell",
-                   source = fifelse(score > thr, "confirmed", "inherited"),
+                   end = ev$end[match(region, ev$region)], state = label, score, thr, called = above_thr(score, thr), level = "cell",
+                   source = fifelse(above_thr(score, thr), "confirmed", "inherited"),
                    reportable = ev$confident[match(region, ev$region)])]
     # every cell has calls from its likelihood-best clone; `confident` = the cell's clone membership is confident
     calls[, confident := asg$confident[match(cell, asg$cell)] %in% TRUE]

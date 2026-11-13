@@ -36,6 +36,7 @@ calls table (check_calls schema) plus \code{stratum}, \code{fold} and \code{keep
 }
 \description{
 One row per scored cell x region whose class and best state (\code{state_comb})
-the policy lists at \code{level}; \code{called = score > thr}. Rows with
+the policy lists at \code{level}; \code{called = score > max(thr, 0)} (the threshold, and a positive log-likelihood
+ratio: a negative null threshold never lets a row be called while neutral is at least as likely). Rows with
 \code{eligible = FALSE} (regions that are not scored) are left out.
 }

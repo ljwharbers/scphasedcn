@@ -261,6 +261,51 @@ test_that("phasing_by_chrom: per-chromosome regimes by the detect_phasing rule",
   expect_equal(detect_phasing(v[0], atoms), "chromosome")
 })
 
+test_that("cell_features on an imperfect hybrid: switch errors stay in the merged phase set as attenuation", {
+  # sim_norm_f is a perfect hybrid (one anchored phase set per chromosome). A switch error of the population phase
+  # flips a stretch of the merged phase set: here chr1 6-12 Mb, a quarter of the p arm (0-24 Mb) that carries the
+  # private 1:0 loss. Detection and orientation do not see it; the votes are summed as they are, so the carriers'
+  # oriented fraction moves towards 0.5 (what vignette("scphasedcn-inputs") describes under Limits).
+  s = sim_norm_f
+  ev = data.table(region = "loh2", chrom = "chr2", start = 20e6, end = 40e6)
+  args = list(method = "celltype", sex = "female", events = ev, classes = c("arm", "chrom", "10Mb"))
+  fe0 = do.call(sim_features, c(list("sim_norm_f"), args))
+  d = file.path(tempdir(), "feat_sim_norm_switch")
+  dir.create(d, showWarnings = FALSE)
+  file.copy(file.path(feat_cache$sim_norm_f_dir, c("bins_100kb.h5ad", "cells_qc.tsv")), d, overwrite = TRUE)
+  fr = copy(s$fragments)[, cell := s$scn$cells$cell[cell]]
+  lo = 6e6; hi = 12e6
+  fr[chrom == "chr1" & start >= lo & start < hi & hap %in% 1:2, hap := 3L - hap]   # A <-> B
+  write_fragments(fr, file.path(d, "fragments.tsv.gz"))
+  fe1 = do.call(cell_features, c(list(d, cells = s$scn$cells$cell, centromeres = sim_centromeres(s$scn$bins)), args))
+  expect_equal(unname(fe1$phasing), c("chromosome", "chromosome"))
+  expect_equal(fe1$phasing_chrom[, .(chrom, n_ps, regime)], fe0$phasing_chrom[, .(chrom, n_ps, regime)])
+  expect_null(phasing_run_note(fe1$phasing, "normal", fe1$phasing_chrom))
+  expect_true(all(fe1$long[chrom == "chr1", orient] == "anchored"))
+  # per cell, chr1p nA = nA outside the stretch + nB inside it (molecules across a boundary: at most a few votes)
+  at = fe0$atoms[chrom == "chr1" & start >= lo & start < hi, atom]
+  inside = fe0$votes[atom %in% at, .(iA = sum(nA), iB = sum(nB)), by = cell]
+  inside[, cell := fe0$cells$cell[cell]]
+  a0 = merge(fe0$long[region == "chr1p", .(cell, nA, nB, f)], inside, by = "cell", all.x = TRUE)
+  a0[is.na(iA), c("iA", "iB") := 0L]
+  a1 = fe1$long[region == "chr1p", .(cell, nA1 = nA, nB1 = nB, f1 = f)]
+  a = merge(a0, a1, by = "cell")
+  expect_equal(nrow(a), nrow(fe0$cells))
+  expect_lte(max(abs(a$nA1 - (a$nA - a$iA + a$iB))), 3)
+  expect_lte(max(abs((a$nA1 + a$nB1) - (a$nA + a$nB))), 3)
+  # single-nucleus carriers of the chr1p loss: oriented fraction attenuated by about the flipped vote share
+  b1 = which(s$scn$bins$chrom == "chr1")[1]
+  carrier = s$scn$cells$cell[s$truth$cn[b1, ] == 1 & !s$truth$cells$multiplet]
+  cr = a[cell %in% carrier & nA + nB >= 20]
+  expect_gte(nrow(cr), 3)
+  w = (cr$iA + cr$iB) / (cr$nA + cr$nB)
+  expect_gt(median(cr$f), 0.9)
+  expect_lt(median(cr$f1), median(cr$f) - 0.15)
+  expect_equal(median(cr$f1), median(cr$f - w * (2 * cr$f - 1)), tolerance = 0.03)
+  # non-carriers stay balanced
+  expect_equal(median(a[!cell %in% carrier & nA + nB >= 20, f1]), 0.5, tolerance = 0.03)
+})
+
 test_that("cell_features on sim_tum2 (male): chrX depth-only, clone-grouped orientation", {
   s = sim_tum2
   fe = sim_features("sim_tum2", method = "celltype", sex = "male", classes = c("arm", "chrom"), groups = "cell_type",

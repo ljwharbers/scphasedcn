@@ -18,7 +18,7 @@ named list (the keys of \code{\link[=caller_defaults]{caller_defaults()}}, plus 
 \code{\link[=caller_defaults]{caller_defaults()}} updated from a YAML file (default \code{inst/config/caller.yaml} of the package: one key per
 default, named vectors as maps) and then from \code{overrides}. Values are coerced to the type of the default
 (numeric, logical, character; names kept for named vectors). Empty strings and nulls keep the default
-(e.g. \code{tabix: ""} = the \code{tabix} on the PATH). Unknown keys in the file are ignored with a
+(e.g. \code{tabix: ""} = the \code{tabix} on the PATH); an empty list (\verb{[]}) is an empty vector (e.g. \verb{allelic_exclude: []}). Unknown keys in the file are ignored with a
 warning; unknown keys in \code{overrides} are added as-is.
 }
 \details{

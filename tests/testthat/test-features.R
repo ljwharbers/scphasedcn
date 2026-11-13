@@ -362,3 +362,104 @@ test_that("orient_blocks reproduces the reference leave-one-out orientation exac
   }
   expect_false(exists("read_phase_prior", envir = asNamespace("scphasedcn"), inherits = FALSE))
 })
+
+test_that("sex is validated at the entry points: female / male in any case or F / M, anything else stops", {
+  bins = sim_genome()
+  ce = sim_centromeres(bins)
+  cs = chrom_sizes_from_bins(bins)
+  expect_identical(check_sex("Male"), "male")
+  expect_identical(check_sex("F"), "female")
+  expect_identical(check_sex(" FEMALE "), "female")
+  expect_null(check_sex(NULL))
+  expect_identical(arm_table(ce, cs, "M"), arm_table(ce, cs, "male"))
+  expect_identical(region_set(bins, ce, classes = c("arm", "chrom"), sex = "Male"), region_set(bins, ce, classes = c("arm", "chrom"), sex = "male"))
+  expect_false(any(region_set(bins, ce, classes = c("arm", "chrom"), sex = "Male")[chrom == "chrX", allelic_ok]))
+  for (bad in list("mal", "unknown", NA_character_, c("female", "male"), ""))
+    expect_error(arm_table(ce, cs, bad), "`sex` must be")
+  expect_error(region_set(bins, ce, sex = "XY"), "region_set: `sex` must be")
+  expect_error(cell_features(tempfile(), sex = "Mle"), "cell_features: `sex` must be")
+  expect_error(call_scn(tempfile(), sex = "boy"), "call_scn: `sex` must be")
+  expect_error(caller_normal(data.table(), sex = "Mann"), "caller_normal: `sex` must be")
+})
+
+test_that("cell_meta without some of the given cells keeps their QC stratum / n_frag", {
+  meta = data.table(cell = c("a", "b", "c"), n_frag = c(15000, 30000, 60000), stratum = c("<20k", "20-50k", ">=50k"),
+                    cell_type = NA_character_, group = NA_character_, flat = NA, fold = NA_integer_)
+  cm = data.table(cell = c("c", "a"), stratum = factor(c("x", NA)), n_frag = c(1, NA), cell_type = c("epi", "fib"), fold = c(2, 1))
+  m = apply_cell_meta(copy(meta), cm)
+  expect_identical(m$stratum, c("<20k", "20-50k", "x"))                   # b: not in cell_meta, a: NA there -> QC value
+  expect_identical(m$n_frag, c(15000, 30000, 1))
+  expect_identical(m$cell_type, c("fib", NA, "epi"))                       # labels are used as given
+  expect_identical(m$fold, c(1L, NA, 2L))
+  expect_identical(apply_cell_meta(copy(meta), NULL), meta)
+})
+
+test_that("subset_features re-indexes the votes: each kept cell keeps its own votes (cells 2-3 of 3)", {
+  regions = data.table(region = "chr1", class = "chrom", sd_class = "chrom", chrom = "chr1", start = 0, end = 1e7,
+                       n_bins = 100L, n_use = 100L, eligible = TRUE, null_region = TRUE, allelic_ok = TRUE)
+  atoms = data.table(atom = 1:2, chrom = "chr1", start = c(0, 5e6), end = c(5e6, 1e7), bin = c(1L, 51L))
+  votes = data.table(cell = 1:3, atom = 1L, ps = 1, nA = c(10L, 0L, 3L), nB = c(0L, 7L, 4L))
+  cells = data.table(cell = c("c1", "c2", "c3"), n_frag = 1e4, stratum = "<20k")
+  long = data.table(cell = cells$cell, region = "chr1", nA = c(10, 0, 3), nB = c(0, 7, 4), n_blocks = 1, f = c(1, 0, 3 / 7))
+  long[, n_hap := nA + nB]
+  win = list(windows = data.table(window = "chr1:0", chrom = "chr1", start = 0, end = 1e6),
+             x = matrix(1:3, 1, 3, dimnames = list("chr1:0", cells$cell)), e = matrix(4:6, 1, 3, dimnames = list("chr1:0", cells$cell)))
+  fe = structure(list(long = long, regions = regions, cells = cells, votes = votes, atoms = atoms, win = win,
+                      phasing = c(detected = "chromosome", orientation = "chromosome")), class = "scn_features")
+  fs = subset_features(fe, c("c3", "c2"))
+  expect_identical(fs$cells$cell, c("c2", "c3"))
+  expect_identical(fs$votes$cell, 1:2)
+  expect_identical(fs$votes$nB, c(7L, 4L))
+  expect_identical(colnames(fs$win$x), c("c2", "c3"))
+  expect_identical(fs$win$e[1, ], c(c2 = 5L, c3 = 6L))
+  # the allele features re-aggregated from the votes are each cell's own
+  up = update_allelic_features(fs, exclude_atoms = integer())
+  expect_equal(up$long[order(cell), nA], c(0, 3))
+  expect_equal(up$long[order(cell), nB], c(7, 4))
+  expect_identical(subset_features(fe, fe$cells$cell), fe)
+})
+
+test_that("read_hap_fragments: a failing tabix command stops, no records gives no rows; read_votes warns on empty chromosomes", {
+  skip_on_os("windows")
+  td = tempfile("fake_tabix"); dir.create(td)
+  frag = file.path(td, "fragments.tsv.gz"); writeLines("x", frag); writeLines("x", paste0(frag, ".tbi"))
+  fake = function(name, body) { p = file.path(td, name); writeLines(c("#!/bin/sh", body), p); Sys.chmod(p, "0755"); p }
+  bad = fake("tabix_bad", c("echo 'could not load the index' >&2", "exit 1"))
+  empty = fake("tabix_empty", "exit 0")
+  # fragment table columns: chrom start end cell score strand ... flags (7) ... hap (11) ... ps (13)
+  rec = c("chr1\t100\t300\tAAAC\t1\t+\t0\t.\t.\t.\t1\t.\t5",
+          "chr1\t400\t600\tAAAG\t1\t+\t0\t.\t.\t.\t2\t.\t5",
+          "chr1\t700\t900\tAAAG\t1\t+\t0\t.\t.\t.\t0\t.\t5")              # hap 0: dropped by the awk filter
+  good = fake("tabix_good", c('[ "$2" = chr1 ] || exit 0', sprintf("printf '%s\\n'", paste(gsub("\t", "\\\\t", rec), collapse = "\\n"))))
+  expect_error(read_hap_fragments(frag, "chr1", bad), "tabix failed.*could not load the index")
+  e = read_hap_fragments(frag, "chr1", empty)
+  expect_equal(nrow(e), 0L)
+  expect_identical(names(e), c("start", "end", "cell", "hap", "ps"))
+  g = read_hap_fragments(frag, "chr1", good)
+  expect_equal(g$cell, c("AAAC", "AAAG"))
+  expect_equal(g$hap, c(1L, 2L))
+  atoms = data.table(atom = 1:2, chrom = c("chr1", "chr2"), start = 0, end = 1e6, bin = 1:2)
+  expect_warning(v <- read_votes(frag, c("AAAC", "AAAG"), atoms, tabix = good), "1 chromosome\\(s\\) \\(chr2\\)")
+  expect_equal(sum(v$nA + v$nB), 2L)
+  expect_warning(read_votes(frag, c("CCCC"), atoms[1], tabix = good), "barcodes")
+  expect_error(read_votes(frag, "AAAC", atoms, tabix = bad), "tabix failed")
+})
+
+test_that("events: unnamed ones are named after their region, events without a region warn (CLI --events chr7)", {
+  bins = sim_genome()
+  ce = sim_centromeres(bins)
+  ev = parse_event_arg("chr8;20q=chr1:30000000-; chr2:10000000-20000000 ")
+  expect_identical(unname(ev), c("chr8", "chr1:30000000-", "chr2:10000000-20000000"))
+  expect_identical(names(ev), c("", "20q", ""))
+  r = region_set(bins, ce, classes = c("arm", "chrom"), events = ev)
+  expect_setequal(r[class == "event", region], c("event|chr8", "20q", "chr2:10000000-20000000"))
+  expect_equal(r[region == "event|chr8", c(start, end)], r[region == "chr8", c(start, end)])
+  expect_equal(r[region == "chr2:10000000-20000000", c(start, end, n_bins)], c(10e6, 20e6, 100))   # 0-based half-open
+  # an unnamed character vector (R API) works the same way
+  r2 = region_set(bins, ce, classes = "chrom", events = c("chr8", "chr21:0-5000000"))
+  expect_setequal(r2[class == "event", region], c("event|chr8", "chr21:0-5000000"))
+  # unknown chromosome and an event without a whole bin inside: dropped with a warning naming each
+  expect_warning(r3 <- region_set(bins, ce, classes = "chrom", events = c(a = "chr99:0-1000000", b = "chr1:100-200", c = "chr1")),
+                 "a \\(chromosome chr99 not in the usable bins\\), b \\(no whole usable bin inside\\)")
+  expect_identical(r3[class == "event", region], "c")
+})

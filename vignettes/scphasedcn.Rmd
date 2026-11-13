@@ -25,7 +25,8 @@ Two modes:
 
 - **normal tissue** (`mode = "normal"`): rare, cell-private events. Thresholds come from null cells (cells the caller
   selects as copy-number neutral, or that you give), cross-validated at 1 false call per 1,000 null cell-regions; cells
-  are also called in pools (random pools within a cell type, chromatin-kNN pools).
+  are also called in pools (random pools within a cell type, chromatin-kNN pools). Named events (`events`) are called
+  per cell; their pooled calls are off by default (`pool_events`: experimental, not calibrated per event).
 - **tumour** (`mode = "tumour"`): clones. The caller discovers clones, fits their allele-specific copy-number states,
   re-assigns every cell by likelihood and reports per-cell calls inherited from the clone or confirmed by the cell.
 
@@ -139,9 +140,9 @@ move them.
 
 Tumour mode needs read-phased alleles (the allele votes drive the clone discovery). Phase blocks of longphase are not
 oriented between blocks; the caller orients them per clone. Optional inputs: cells known to be normal (`flat` in the
-cell metadata; the caller otherwise finds the normal clone itself), groups for the block orientation (`groups`, e.g.
-spatial regions), known events (`events`, reported as their own regions) and multiplet probabilities
-(`multiplets`).
+cell metadata: they set the input depth and allelic null; the reference pool is always the normal clone the caller
+finds), groups for the block orientation (`groups`, e.g. spatial regions), known events (`events`, reported as their
+own regions) and multiplet probabilities (`multiplets`).
 
 ```{r tumour, eval = FALSE}
 res_t = call_scn("results/tumour/extract", mode = "tumour", sex = "male",
@@ -150,5 +151,14 @@ res_t$clones
 head(res_t$segments)
 ```
 
-MEDICC2 trees of the clones: `medicc2_pieces()` and `medicc2_table()` write MEDICC2's input from the clone
-segments.
+MEDICC2 trees of the clones: `medicc2_pieces()` cuts the clone segments into common pieces,
+`orient_clone_states()` assigns each clone's allele-specific copy numbers (`cn_a`, `cn_b`) from the molecule votes of
+the features, and `medicc2_table()` makes MEDICC2's input table (write it yourself):
+
+```{r medicc2, eval = FALSE}
+feat = cell_features("results/tumour/extract", method = "model", sex = "male")
+res_t = call_scn("results/tumour/extract", mode = "tumour", features = feat)
+pcs = medicc2_pieces(res_t$segments, res_t$clones)
+ori = orient_clone_states(pcs, feat, res_t$assignments, res_t$clones)
+data.table::fwrite(medicc2_table(ori), "medicc2_input.tsv", sep = "\t")
+```

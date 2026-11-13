@@ -10,11 +10,15 @@
 #'
 #' Builds the `cell_meta` table of [call_scn()] (the `--cell-meta` TSV of `call_scn.R`). Every column but `cell` is
 #' optional for the caller:
+#' * `qc_pass`: the cells to call. [call_scn()] (and `call_scn.R --cell-meta`) without `cells` calls the cells of the
+#'   table that pass [cell_qc()] (with the run's `qc` arguments) and, with this column, also have `qc_pass` TRUE.
 #' * `cell_type`: the depth reference of normal-tissue mode is matched by cell type (types with fewer than 20 cells,
 #'   and cells with `NA`, use the reference of all cells). Without cell types the reference is the all-cell one.
 #' * `flat`: cells known to be copy-number neutral (e.g. normal cells from an orthogonal assay). Normal mode uses them
-#'   as the null cells with `null_cells = "features"`; tumour mode uses them as the reference pool. Without `flat`,
-#'   use `null_cells = "select"` (`--null-cells select`): the caller selects its own null cells.
+#'   as the null cells with `null_cells = "features"`; without `flat`, use `null_cells = "select"` (`--null-cells
+#'   select`): the caller selects its own null cells. Tumour mode fits its input depth / allelic null on them (when the
+#'   features carry no null fit); its reference pool is not taken from them but is the normal clone the caller finds
+#'   and cleans itself.
 #' * `group`: tumour mode only, pseudobulk groups of the phase-block orientation (`groups = "group"`, `--groups
 #'   group`), e.g. spatial regions or RNA clusters; NA = all-cell pseudobulk.
 #'
@@ -23,8 +27,8 @@
 #'   cells of the other inputs
 #' @param cell_types NULL, a path or table with columns `cell` and `cell_type` (else the first two columns), or a
 #'   character vector named by cell
-#' @param flat NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line or a
-#'   `cell` column)
+#' @param flat NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line, without a
+#'   header unless the first line is `cell`, or with a `cell` column)
 #' @param groups NULL, a path or table with `cell` and `group` (else the first two columns), or a vector named by cell
 #' @param qc_args named list of [cell_qc()] arguments for `qc_pass` (e.g. `list(min_frag = 10000)`)
 #' @return data.table `cell`, `cell_type`, `flat`, `group`, plus `qc_pass` ([cell_qc()] on `cells_qc`) when
@@ -34,7 +38,7 @@
 #' qc = data.table::data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = c(40000, 25000, 900))
 #' make_cell_meta(qc, cell_types = c(AAAC = "epithelial", AAAG = "immune"), flat = "AAAG")
 make_cell_meta = function(cells_qc = NULL, cell_types = NULL, flat = NULL, groups = NULL, qc_args = list()) {
-  strip = function(x) sub("-1$", "", as.character(x))
+  strip = strip_barcode
   as_map = function(x, col) {
     if (is.null(x)) return(NULL)
     if (is.character(x) && length(x) == 1 && is.null(names(x)) && file.exists(x)) x = fread(x)
@@ -58,7 +62,7 @@ make_cell_meta = function(cells_qc = NULL, cell_types = NULL, flat = NULL, group
   fl = NULL
   if (!is.null(flat)) {
     if (is.character(flat) && length(flat) == 1 && file.exists(flat)) {
-      d = fread(flat, header = "auto")
+      d = read_cell_file(flat)                    # a one-column file has no header unless its first line is "cell"
       flat = if ("cell" %in% names(d)) d$cell else d[[1]]
     }
     fl = strip(flat)

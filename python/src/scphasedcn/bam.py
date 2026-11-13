@@ -1,6 +1,7 @@
 """One pass over a chromosome of a SPLONGGET DNA BAM: record filter, fragment arrays, per-cell record counters.
 
-Filter (see vignette("scphasedcn-inputs", package = "scphasedcn")): primary, not duplicate, MAPQ >= min_mapq, CB in the whitelist; "-" (unassigned)
+Filter (see vignette("scphasedcn-inputs", package = "scphasedcn")): primary, not duplicate, MAPQ >= min_mapq, CB in the whitelist
+(a CB that is not listed but whose form without a trailing "-1" is listed counts for that cell); "-" (unassigned)
 is counted and dropped; secondaries are counted and skipped; supplementaries are counted and skipped but the primary's
 SA tag sets `has_SA`. Blacklist / TRF / centromere / peak membership is flagged after the loop (bins.py); blacklist-start
 fragments are excluded from the depth and allele layers but kept in the fragments table with the flag bit set.
@@ -28,6 +29,7 @@ FLAG_BITS = {"has_SA": F_HAS_SA, "mapq60": F_MAPQ60, "piece_multi": F_PIECE_MULT
              "trf": F_TRF, "centromere": F_CENTROMERE, "peak": F_PEAK}
 
 MAPQ_BUCKETS = ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]
+MIN_UNLISTED_MISMATCH = 1000   # records of unlisted barcodes that, with none of listed cells, mean a whitelist mismatch
 LOOP_COUNTERS = ["n_records", "n_secondary", "n_supplementary", "n_duplicate", "n_primary", "n_mapq_fail", "n_pass"]
 
 
@@ -47,8 +49,8 @@ class ChromFragments:
     strand: np.ndarray          # int8: 0 forward, 1 reverse
     mapq: np.ndarray            # uint8
     flags: np.ndarray           # uint16 bitfield (FLAG_BITS)
-    piece: np.ndarray           # int16 piece index within the raw read
-    npieces: np.ndarray         # int16
+    piece: np.ndarray           # int32 piece index within the raw read
+    npieces: np.ndarray         # int32
     read_id: np.ndarray         # uint64 (first 64 bits of the raw-read uuid)
     hap: np.ndarray             # int8: 0 none, 1 hapA, 2 hapB, 3 ambiguous
     nsnp: np.ndarray            # int16 SNP observations on the read
@@ -72,6 +74,7 @@ class LoopCounters:
     n_no_cb: int = 0
     n_unmapped: int = 0
     seconds: float = 0.0
+    unlisted_examples: list = field(default_factory=list)   # a few unlisted CB values (for the mismatch message)
 
 
 def _count(d: dict, flag: int, mq: int, min_mapq: int):
@@ -93,7 +96,8 @@ def _count(d: dict, flag: int, mq: int, min_mapq: int):
 def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, index_filename: str | None = None,
                region: tuple[int, int] | None = None, alleles=None,
                cb_tag: str = "CB") -> tuple[ChromFragments, LoopCounters]:
-    """Scan one chromosome (or a region: fragments with start in [rstart, rend)) and return fragment arrays + counters.
+    """Scan one chromosome (or a region: records with start in [rstart, rend); the counters count those only) and
+    return fragment arrays + counters.
 
     `alleles` is an AlleleAccumulator (alleles.py) or None; it is called for every passing fragment and returns
     (hap, nsnp, ps).
@@ -107,7 +111,7 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
     I_REC, I_SEC, I_SUP, I_DUP, I_PRI, I_MQF, I_PASS = range(7)
 
     a_cell, a_start, a_end, a_strand = array("i"), array("q"), array("q"), array("b")
-    a_mapq, a_flags, a_piece, a_np = array("B"), array("H"), array("h"), array("h")
+    a_mapq, a_flags, a_piece, a_np = array("B"), array("H"), array("i"), array("i")
     a_rid, a_hap, a_nsnp, a_ps = array("Q"), array("b"), array("h"), array("q")
 
     with pysam.AlignmentFile(bam_path, "rb", index_filename=index_filename) as bam:
@@ -119,6 +123,8 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
             if flag & 0x4:
                 ctr.n_unmapped += 1
                 continue
+            if region is not None and not (rstart <= r.reference_start < rend):
+                continue
             try:
                 cb = r.get_tag(cb_tag)
             except KeyError:
@@ -129,8 +135,12 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
                 _count(ctr.dash, flag, mq, min_mapq)
                 continue
             ci = cidx.get(cb)
+            if ci is None and cb.endswith("-1"):
+                ci = cidx.get(cb[:-2])
             if ci is None:
                 _count(ctr.unlisted, flag, mq, min_mapq)
+                if len(ctr.unlisted_examples) < 3 and cb not in ctr.unlisted_examples:
+                    ctr.unlisted_examples.append(cb)
                 continue
             row = cnt[ci]
             row[I_REC] += 1
@@ -149,8 +159,6 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
                 row[I_MQF] += 1
                 continue
             start = r.reference_start
-            if region is not None and not (rstart <= start < rend):
-                continue
             end = r.reference_end
             row[I_PASS] += 1
             _, rid, piece, npieces, _sign = parse_name(r.query_name)
@@ -178,14 +186,30 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
         strand=np.frombuffer(a_strand, dtype=np.int8).copy() if len(a_strand) else np.zeros(0, np.int8),
         mapq=np.frombuffer(a_mapq, dtype=np.uint8).copy() if len(a_mapq) else np.zeros(0, np.uint8),
         flags=np.frombuffer(a_flags, dtype=np.uint16).copy() if len(a_flags) else np.zeros(0, np.uint16),
-        piece=np.frombuffer(a_piece, dtype=np.int16).copy() if len(a_piece) else np.zeros(0, np.int16),
-        npieces=np.frombuffer(a_np, dtype=np.int16).copy() if len(a_np) else np.zeros(0, np.int16),
+        piece=np.frombuffer(a_piece, dtype=np.int32).copy() if len(a_piece) else np.zeros(0, np.int32),
+        npieces=np.frombuffer(a_np, dtype=np.int32).copy() if len(a_np) else np.zeros(0, np.int32),
         read_id=np.frombuffer(a_rid, dtype=np.uint64).copy() if len(a_rid) else np.zeros(0, np.uint64),
         hap=np.frombuffer(a_hap, dtype=np.int8).copy() if len(a_hap) else np.zeros(0, np.int8),
         nsnp=np.frombuffer(a_nsnp, dtype=np.int16).copy() if len(a_nsnp) else np.zeros(0, np.int16),
         ps=np.frombuffer(a_ps, dtype=np.int64).copy() if len(a_ps) else np.zeros(0, np.int64),
     )
     return fr, ctr
+
+
+def check_barcode_match(ctr: LoopCounters, cells: list[str], chrom: str) -> str | None:
+    """Whitelist / BAM barcode mismatch on one chromosome. Raises SystemExit when no record is in a listed cell while
+    at least MIN_UNLISTED_MISMATCH records are in unlisted barcodes (the output would be all zeros); returns a warning
+    when no record is in a listed cell but fewer unlisted ones exist; else None."""
+    n_listed = int(ctr.per_cell[:, 0].sum()) if len(ctr.per_cell) else 0
+    n_unl = int(ctr.unlisted["n_records"])
+    if n_listed > 0 or n_unl == 0:
+        return None
+    msg = (f"{chrom}: no record is in a whitelisted cell but {n_unl} are in unlisted barcodes (e.g. "
+           f"{', '.join(ctr.unlisted_examples)}; whitelist e.g. {', '.join(cells[:2])}): the whitelist does not match "
+           f"the BAM's CB tag (another sample, or a whitelist in RNA-barcode space: use --barcode-map)")
+    if n_unl >= MIN_UNLISTED_MISMATCH:
+        raise SystemExit(msg)
+    return msg
 
 
 def flag_fragments(fr: ChromFragments, blacklist, trf, centromere, peaks) -> None:

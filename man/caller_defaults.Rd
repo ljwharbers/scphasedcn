@@ -42,6 +42,11 @@ votes of 5 Mb tiles whose null overdispersion is an outlier are left out of the 
 \item \code{mask_min_votes} minimal mean votes per null row for a tile to be assessed (3);
 \item \code{pool_sex_thr} males: the sex chromosomes get their own pooled threshold group (class x autosome / X / Y)
 with the class threshold as fallback (TRUE; no effect in females);
+\item \code{pool_events} normal mode: call named \code{event} regions (no null rows of their own) also in pools (FALSE). Off,
+their pools are scored but get no threshold and are never called; their per-cell calls are not affected.
+On (experimental): their pools are standardised with the class-median scale of their \code{sd_class} and
+thresholded with its pooled threshold, which is not calibrated per event (the null pooled score of a region
+depends on its own vote count, which the per-region scale of \code{\link[=pool_scale]{pool_scale()}} corrects for);
 \item \code{pool_tail_q} pooled per-region tail calibration (\code{\link[=pool_scale]{pool_scale()}}): quantile of the region-standardised
 null pools compared with the class (0 = off; e.g. 0.99);
 \item \code{pool_tail_k} shrinkage pseudo-count of the pooled tail factor (30 effective pools);

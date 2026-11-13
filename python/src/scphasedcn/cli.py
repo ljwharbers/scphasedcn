@@ -16,17 +16,29 @@ from . import __version__
 from .config import (MAIN_CHROMS, load_yaml, sample_from_config, reference_paths, check_reference, read_chrom_sizes,
                      read_barcodes, translate_barcodes)
 
-LAYER_CHOICES = ("depth", "alleles", "fragments", "qc")
-DEFAULT_LAYERS = "depth,alleles,fragments,qc"
+LAYER_CHOICES = ("depth", "alleles", "fragments")
+DEFAULT_LAYERS = "depth,alleles,fragments"
 
 
 def _layers(s: str) -> set[str]:
-    """--layers value -> set of layer names (unknown names are an error)."""
+    """--layers value -> set of layer names (unknown names are an error). `qc` (a layer name of older versions) is
+    accepted and ignored: the per-cell QC tables are always written with depth (qc.tsv) and alleles (alleles_qc.tsv)."""
     on = {x for x in s.split(",") if x}
+    if "qc" in on:
+        on.discard("qc")
+        _log("note: --layers qc is not a layer of its own (ignored): the per-cell QC tables are written with depth "
+             "(qc.tsv) and alleles (alleles_qc.tsv)")
     bad = sorted(on - set(LAYER_CHOICES))
     if bad:
         raise SystemExit(f"--layers: unknown layer(s) {', '.join(bad)}; choose from {','.join(LAYER_CHOICES)}")
+    if not on:
+        raise SystemExit(f"--layers: nothing to extract; choose from {','.join(LAYER_CHOICES)}")
     return on
+
+
+def _layers_written(on: set[str]) -> list[str]:
+    """Layer names recorded in params.json: `qc` is listed when QC tables are written (with depth or alleles)."""
+    return sorted(on | ({"qc"} if on & {"depth", "alleles"} else set()))
 
 
 def _log(*a):
@@ -63,7 +75,9 @@ def resolve_inputs(a):
     cfg = load_yaml(a.config) if a.config else {}
     ref = reference_paths(cfg)
     d = {"sample": a.sample, "bam": a.bam, "barcodes": a.barcodes, "snps": a.snps, "phased": a.phased,
-         "peaks": a.peaks, "out": a.out, "chroms": None, "barcode_map": getattr(a, "barcode_map", None)}
+         "peaks": a.peaks, "out": a.out, "chroms": None, "chroms_set": False,
+         "barcode_map": getattr(a, "barcode_map", None),
+         "vcf_sample": getattr(a, "vcf_sample", None)}
     if a.config and a.sample:
         sc = sample_from_config(cfg, a.sample)
         for k in ("bam", "barcodes", "snps", "peaks", "out", "barcode_map"):
@@ -71,9 +85,11 @@ def resolve_inputs(a):
                 d[k] = getattr(sc, k)
         if not a.phased and sc.snps and d["snps"] == sc.snps:
             d["phased"] = sc.phased
-        d["chroms"] = sc.chroms
+        if d["vcf_sample"] is None and sc.snps and d["snps"] == sc.snps:
+            d["vcf_sample"] = sc.vcf_sample
+        d["chroms"] = sc.chroms; d["chroms_set"] = sc.chroms_set
     if getattr(a, "no_snps", False):
-        d["snps"] = None; d["phased"] = False
+        d["snps"] = None; d["phased"] = False; d["vcf_sample"] = None
     for k in ("fasta", "blacklist", "trf", "centromeres", "chrom_sizes"):
         v = getattr(a, k, None)
         if v:
@@ -101,13 +117,20 @@ def resolve_inputs(a):
     return d
 
 
+def _bam_references(bam, index):
+    import pysam
+    with pysam.AlignmentFile(bam, "rb", index_filename=index) as bf:
+        return dict(zip(bf.references, bf.lengths))
+
+
 def cmd_extract(a):
-    from .bam import scan_chrom, flag_fragments, F_BLACKLIST
+    from .bam import scan_chrom, flag_fragments, check_barcode_match, F_BLACKLIST
     from .bins import Tiling, annotate_tiling, read_bed_intervals, read_centromere
     from .depth import depth_layers, fraglen_hist
     from .qc import chrom_qc
-    from .writers import save_csr_dict, write_bgzf_table, fragments_frame, write_json
-    from .alleles import load_snps, AlleleAccumulator
+    from .writers import (save_csr_dict, write_bgzf_table, fragments_frame, write_json, write_done, read_done,
+                          file_fingerprint, cells_digest, LAYER_FILES, DONE_FORMAT)
+    from .alleles import check_vcf, load_snps, AlleleAccumulator, CONTIG_PS
 
     t0 = time.time()
     layers_on = _layers(a.layers)
@@ -116,26 +139,48 @@ def cmd_extract(a):
     chrom = reg[0] if reg else a.chrom
     if chrom is None:
         raise SystemExit("need --chrom or --region")
-    cells, space = translate_barcodes(read_barcodes(d["barcodes"]), d["barcode_map"])
+    cells, space = translate_barcodes(read_barcodes(d["barcodes"]), d["barcode_map"], log=_log)
     if space != "atac":
         _log(f"whitelist translated {space} via {d['barcode_map']}: {len(cells)} cells")
     sizes = read_chrom_sizes(d["ref"]["chrom_sizes"])
+    use_snps = "alleles" in layers_on and bool(d["snps"])
+    bam_refs = _bam_references(d["bam"], a.index) if (chrom not in sizes or use_snps) else None
     if chrom not in sizes:
-        import pysam
-        with pysam.AlignmentFile(d["bam"], "rb", index_filename=a.index) as bf:
-            sizes[chrom] = bf.get_reference_length(chrom)
+        if chrom not in bam_refs:
+            raise SystemExit(f"{chrom} is neither in the chromosome sizes nor a reference of the BAM")
+        sizes[chrom] = bam_refs[chrom]
     length = sizes[chrom]
-    pdir = Path(d["out"]) / "partials" / chrom
+    vcf_sample = None
+    if use_snps:   # before the BAM pass: an unusable VCF fails here, not after hours with an empty allele layer
+        vcf_sample, warns = check_vcf(d["snps"], [chrom], sample=d["vcf_sample"], reference_names=list(bam_refs))
+        for w in warns:
+            _log("warning:", w)
+    # a --region extraction has its own partial, which `merge` refuses: it never replaces the chromosome's partial
+    pdir = Path(d["out"]) / "partials" / (f"region_{chrom}_{reg[1][0]}-{reg[1][1]}" if reg else chrom)
     pdir.mkdir(parents=True, exist_ok=True)
+    old_meta = read_done(pdir)
     (pdir / "DONE").unlink(missing_ok=True)
+    produce = layers_on & {"depth", "fragments"} | ({"alleles"} if use_snps else set())
+    for layer in sorted(layers_on - produce):   # requested but not produced (alleles without --snps): drop stale files
+        for f in LAYER_FILES[layer]:
+            (pdir / f).unlink(missing_ok=True)
     _log(f"scphasedcn {__version__} extract {d['sample']} {chrom} ({length} bp) cells={len(cells)} layers={sorted(layers_on)}")
 
     # SNPs
     acc = None
-    if "alleles" in layers_on and d["snps"]:
-        snps = load_snps(d["snps"], chrom, phased=d["phased"], region=reg[1] if reg else None)
+    if use_snps:
+        snps = load_snps(d["snps"], chrom, phased=d["phased"], region=reg[1] if reg else None, sample=vcf_sample)
         acc = AlleleAccumulator(snps, min_bq=a.min_bq)
         _log(f"SNPs on {chrom}: {len(snps)} ({int((snps.hap_of_alt > 0).sum())} phased) from {d['snps']}")
+        if snps.n_phased_gt:
+            _log(f"warning: {snps.n_phased_gt} SNPs on {chrom} have a phased genotype but --phased was not given: "
+                 f"their phase is ignored (no haplotype votes)")
+        if snps.n_contig_ps:
+            _log(f"warning: {snps.n_contig_ps} phased SNPs on {chrom} have no PS: one phase set per contig is "
+                 f"assumed (PS {CONTIG_PS}, VCF specification), i.e. the whole chromosome is taken as correctly "
+                 f"phased. Population-only (statistical) phasing of one sample carries switch errors every few "
+                 f"megabases, which attenuate the allele signal over large regions; read-based phase sets (PS from "
+                 f"e.g. longphase or WhatsHap) are preferable where available")
 
     # BAM pass
     fr, ctr = scan_chrom(d["bam"], chrom, cells, min_mapq=a.min_mapq, index_filename=a.index,
@@ -143,6 +188,9 @@ def cmd_extract(a):
     _log(f"scan: {int(ctr.per_cell[:, 0].sum())} records of listed cells, {len(fr)} passing fragments, "
          f"'-' records {ctr.dash['n_records']} (pass {ctr.dash['n_pass']}), unlisted {ctr.unlisted['n_records']}, "
          f"{ctr.seconds:.0f} s")
+    bc_warn = check_barcode_match(ctr, cells, chrom)
+    if bc_warn:
+        _log("WARNING:", bc_warn)
 
     # masks
     ref = d["ref"]
@@ -158,7 +206,7 @@ def cmd_extract(a):
               "barcode_space": space, "barcode_map": d["barcode_map"], "chrom": chrom,
               "region": a.region, "binsize": a.binsize, "assign": a.assign, "min_mapq": a.min_mapq, "min_bq": a.min_bq,
               "snps": d["snps"], "phased": d["phased"], "peaks": d["peaks"],
-              "layers": sorted(layers_on), "ref": ref, "command": " ".join(sys.argv)}
+              "layers": _layers_written(layers_on), "ref": ref, "command": " ".join(sys.argv)}
 
     tiling = Tiling.regular_grid(chrom, length, a.binsize)
     with open(pdir / "cells.txt", "w") as fh:
@@ -177,9 +225,10 @@ def cmd_extract(a):
         qc = chrom_qc(fr, ctr, cells, hap_counts=False)
         qc.to_csv(pdir / "qc.tsv", sep="\t")
 
+    hap_assign = a.assign if a.assign != "overlap" else "start"
     if "alleles" in layers_on and acc is not None:
         al = acc.matrices(n_cells)
-        hl = depth_layers(fr, tiling, n_cells, assign=a.assign if a.assign != "overlap" else "start", use=clean)
+        hl = depth_layers(fr, tiling, n_cells, assign=hap_assign, use=clean)
         for k in ("hapA", "hapB", "hap_ambig"):
             al[k] = hl[k]
         save_csr_dict(pdir / "alleles.npz", al)
@@ -197,7 +246,28 @@ def cmd_extract(a):
     params["n_fragments"] = int(len(fr)); params["n_clean"] = int(clean.sum())
     params["dash"] = ctr.dash; params["unlisted"] = ctr.unlisted; params["n_no_cb"] = ctr.n_no_cb
     write_json(pdir / "params.json", params)
-    (pdir / "DONE").touch()
+
+    # DONE carries what the partial holds and the inputs of each layer; `merge` checks they agree across partials
+    cdig = cells_digest(cells)
+    common = {"cells": cdig, "bam": file_fingerprint(d["bam"]), "min_mapq": a.min_mapq}
+    masks = {k: file_fingerprint(ref.get(k)) for k in ("blacklist", "trf", "centromeres")}
+    masks["peaks"] = file_fingerprint(d["peaks"])
+    snp_in = {"snps": file_fingerprint(d["snps"]) if acc is not None else None, "phased": bool(d["phased"]) and acc is not None,
+              "vcf_sample": vcf_sample, "min_bq": a.min_bq if acc is not None else None}
+    inputs = {"depth": {**common, "binsize": a.binsize, "assign": a.assign, "fasta": file_fingerprint(ref.get("fasta")),
+                        **masks},
+              "alleles": {**common, "binsize": a.binsize, "assign": hap_assign, **snp_in},
+              "fragments": {**common, **masks, **snp_in}}
+    lmeta = {}
+    for layer, files in LAYER_FILES.items():
+        present = [f for f in files if (pdir / f).exists()]
+        if layer in produce:
+            lmeta[layer] = {"files": present, "inputs": inputs[layer]}
+        elif present:   # not requested in this run: kept from an earlier run (inputs unknown if that run was older)
+            lmeta[layer] = (old_meta["layers"][layer] if old_meta and layer in old_meta["layers"]
+                            else {"files": present, "inputs": None})
+    write_done(pdir, {"format": DONE_FORMAT, "version": __version__, "chrom": chrom, "region": a.region,
+                      "length": int(length), "binsize": a.binsize, "cells": cdig, "n_cells": n_cells, "layers": lmeta})
     _log(f"done {chrom} in {params['seconds']} s -> {pdir}")
     return 0
 
@@ -212,7 +282,7 @@ def cmd_merge(a):
         out = out or sc.out
         chroms = chroms or sc.chroms
     chroms = chroms or MAIN_CHROMS
-    s = merge_sample(out, chroms, tag=a.tag)
+    s = merge_sample(out, chroms, tag=a.tag, allow_missing=a.allow_missing, log=_log)
     _log(json.dumps({k: v for k, v in s.items() if k != "params"}, default=str))
     return 0
 
@@ -233,19 +303,22 @@ def cmd_run(a):
     cluster job per chromosome."""
     import copy
     from concurrent.futures import ProcessPoolExecutor
-    import pysam
-    _layers(a.layers)
+    from .alleles import check_vcf
+    layers_on = _layers(a.layers)
     d = resolve_inputs(a)
-    if a.chroms:
-        chroms = a.chroms.split(",")
-    elif d["chroms"]:
-        chroms = d["chroms"]
+    present = _bam_references(d["bam"], a.index)
+    if a.chroms or d["chroms_set"]:   # requested explicitly: every one must be a reference of the BAM, checked up front
+        chroms = a.chroms.split(",") if a.chroms else list(d["chroms"])
+        absent = [c for c in chroms if c not in present]
+        if absent:
+            raise SystemExit(f"run: {', '.join(absent)} not in the BAM header (requested with "
+                             f"{'--chroms' if a.chroms else 'the yaml chroms'}); leave them out")
     else:
-        with pysam.AlignmentFile(d["bam"], "rb", index_filename=a.index) as bf:
-            present = set(bf.references)
         chroms = [c for c in MAIN_CHROMS if c in present]
     if not chroms:
         raise SystemExit("run: no chromosomes (none of chr1-22, X, Y, M in the BAM header; give --chroms)")
+    if "alleles" in layers_on and d["snps"]:   # once, before any BAM pass (per-chromosome warnings come from extract)
+        check_vcf(d["snps"], [], sample=d["vcf_sample"], reference_names=list(present))
     jobs = max(1, min(a.jobs, len(chroms)))
     _log(f"run: {len(chroms)} chromosomes, {jobs} parallel jobs -> {d['out']}")
     nss = []
@@ -302,7 +375,9 @@ def build_parser():
     s.set_defaults(func=cmd_index_check)
 
     s = sub.add_parser("extract", help="one chromosome: depth, alleles, fragments, qc partials (then `merge`)")
-    s.add_argument("--chrom"); s.add_argument("--region", help="chrom:start-end (0-based half-open; fragments by start)")
+    s.add_argument("--chrom"); s.add_argument("--region", help="chrom:start-end (0-based half-open; records by start); "
+                                                              "written to partials/region_<chrom>_<start>-<end>, "
+                                                              "which `merge` does not merge (testing / inspection)")
     add_extract_args(s)
     s.set_defaults(func=cmd_extract)
 
@@ -343,6 +418,8 @@ def build_parser():
     s = sub.add_parser("merge", help="merge chromosome partials into h5ad / tsv outputs")
     s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out"); s.add_argument("--chroms")
     s.add_argument("--tag", default="100kb")
+    s.add_argument("--allow-missing", action="store_true",
+                   help="merge although some chromosomes have no finished partial (default: fail and list them)")
     s.set_defaults(func=cmd_merge)
     return p
 
@@ -362,11 +439,14 @@ def add_extract_args(s):
                    help="fragment position counted in a bin: start, midpoint, 5' end, or every bin it overlaps "
                         "(default start)")
     s.add_argument("--snps", help="VCF(.gz, indexed) of het SNPs"); s.add_argument("--phased", action="store_true")
+    s.add_argument("--vcf-sample", help="sample column of --snps to use (required when the VCF has several samples; "
+                                        "yaml: vcf_sample)")
     s.add_argument("--no-snps", action="store_true", help="ignore the yaml VCF")
     s.add_argument("--peaks", help="peak BED file for FRiP / peak_bp (optional)")
     s.add_argument("--min-mapq", type=int, default=30); s.add_argument("--min-bq", type=int, default=10)
     s.add_argument("--layers", default=DEFAULT_LAYERS,
-                   help=f"comma list of {','.join(LAYER_CHOICES)} (default {DEFAULT_LAYERS}: what the R caller reads)")
+                   help=f"comma list of {','.join(LAYER_CHOICES)} (default {DEFAULT_LAYERS}: what the R caller reads; "
+                        f"the per-cell QC tables come with depth and alleles)")
     s.add_argument("--fasta", help="reference FASTA (hg38, chr names; required: GC per bin)")
     s.add_argument("--blacklist", help="blacklist BED (default: the bundled ENCODE hg38 blacklist v2)")
     s.add_argument("--trf", help="tandem-repeat BED (optional)")

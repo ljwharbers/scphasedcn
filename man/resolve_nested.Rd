@@ -34,7 +34,8 @@ resolve_nested(
 \item{gate}{depth gate of a gain: \code{"dl"} (gain depth LLR above \code{min_dl_gain}) or \code{"z"} (z above the
 midpoint and above the \code{gate_q} quantile of the row's depth null)}
 
-\item{gate_q}{null quantile of the \code{"z"} gate (0.95: at most 5 \% of null-depth gain rows pass)}
+\item{gate_q}{null quantile of the \code{"z"} gate (0.95: about 5 \% of all null-depth rows pass; more among rows
+already called as gains and on female chrX, see Details)}
 
 \item{tpar}{\code{"z"} gate: the Student-t fits per class x stratum (\code{\link[=fit_depth_null]{fit_depth_null()}}, completed as in
 \code{\link[=caller_normal]{caller_normal()}}); NULL = the Gaussian depth null N(0, 1)}
@@ -63,9 +64,14 @@ the midpoint between neutral and the gain shift, \code{t_m + mu / 2} with
 \code{max(t_m + mu / 2, t_m + t_s * qt(gate_q, t_df))} with the Student-t
 null of the row's class x stratum (\code{tpar}, \code{\link[=match_depth_null]{match_depth_null()}}; with
 \code{tpar = NULL} the Gaussian null, \code{max(mu / 2, qnorm(gate_q))}): the
-midpoint stays as a floor and the null quantile is added on top, so
-a null-depth row passes with probability at most \code{1 - gate_q}
-whatever its \code{sd_null}. A row with NA z has no depth support.
+midpoint stays as a floor and the null quantile is added on top.
+Over all null-depth rows the gate passes about \code{1 - gate_q} of them
+whatever their \code{sd_null}; this level is unconditional. Among rows
+already called as gains (weak allelic support), and on female chrX
+(no null rows of its own), the pass rate of null-depth rows is
+higher: up to about two to three times \code{1 - gate_q} in simulation.
+The gate is opt-in and has not been benchmarked on real data as a
+default. A row with NA z has no depth support.
 \code{min_dl_gain} is not used. The gate is on z, not on \code{dl_gain}: the
 Student-t LLR falls back towards 0 for very large z
 (\code{\link[=ll_depth_shift]{ll_depth_shift()}}), so a quantile on \code{dl_gain} would reject the

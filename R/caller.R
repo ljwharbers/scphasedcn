@@ -905,9 +905,14 @@ utils::globalVariables("size_")
 #'        `max(t_m + mu / 2, t_m + t_s * qt(gate_q, t_df))` with the Student-t
 #'        null of the row's class x stratum (`tpar`, [match_depth_null()]; with
 #'        `tpar = NULL` the Gaussian null, `max(mu / 2, qnorm(gate_q))`): the
-#'        midpoint stays as a floor and the null quantile is added on top, so
-#'        a null-depth row passes with probability at most `1 - gate_q`
-#'        whatever its `sd_null`. A row with NA z has no depth support.
+#'        midpoint stays as a floor and the null quantile is added on top.
+#'        Over all null-depth rows the gate passes about `1 - gate_q` of them
+#'        whatever their `sd_null`; this level is unconditional. Among rows
+#'        already called as gains (weak allelic support), and on female chrX
+#'        (no null rows of its own), the pass rate of null-depth rows is
+#'        higher: up to about two to three times `1 - gate_q` in simulation.
+#'        The gate is opt-in and has not been benchmarked on real data as a
+#'        default. A row with NA z has no depth support.
 #'        `min_dl_gain` is not used. The gate is on z, not on `dl_gain`: the
 #'        Student-t LLR falls back towards 0 for very large z
 #'        ([ll_depth_shift()]), so a quantile on `dl_gain` would reject the
@@ -931,7 +936,8 @@ utils::globalVariables("size_")
 #' @param promote make the explaining nested call reportable
 #' @param gate depth gate of a gain: `"dl"` (gain depth LLR above `min_dl_gain`) or `"z"` (z above the
 #'   midpoint and above the `gate_q` quantile of the row's depth null)
-#' @param gate_q null quantile of the `"z"` gate (0.95: at most 5 % of null-depth gain rows pass)
+#' @param gate_q null quantile of the `"z"` gate (0.95: about 5 % of all null-depth rows pass; more among rows
+#'   already called as gains and on female chrX, see Details)
 #' @param tpar `"z"` gate: the Student-t fits per class x stratum ([fit_depth_null()], completed as in
 #'   [caller_normal()]); NULL = the Gaussian depth null N(0, 1)
 #' @param params [caller_defaults()] (`shifts`, `sd_floor`; the `"z"` gate)
@@ -1507,8 +1513,9 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' @param gain_min_dl `min_dl_gain` of [resolve_nested()] (`gain_gate = "dl"`)
 #' @param gain_gate depth gate of the per-cell gains, `gate` of [resolve_nested()]: `"dl"` (default: gain depth
 #'   LLR above `gain_min_dl`, i.e. z above the midpoint of neutral and the gain shift) or `"z"` (opt-in: z also
-#'   above the `gain_gate_q` quantile of the depth null of the row's class x stratum, so that allele-only gains of
-#'   noisy cells pass at most at rate `1 - gain_gate_q`)
+#'   above the `gain_gate_q` quantile of the depth null of the row's class x stratum. About `1 - gain_gate_q` of
+#'   all null-depth rows pass; among rows already called as gains with weak allelic support, and on female chrX,
+#'   up to about two to three times that in simulation. Not benchmarked on real data as a default)
 #' @param gain_gate_q null quantile of the `"z"` gain gate (0.95)
 #' @param pool_loo call pools on the leave-one-out robust score `s_rob` ([pool_scores()])
 #' @param pool_standardize standardise the pooled best LLR per region ([pool_scale()] of the null pools of the

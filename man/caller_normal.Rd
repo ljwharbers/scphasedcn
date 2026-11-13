@@ -58,8 +58,9 @@ chrX rule of \code{\link[=call_policy]{call_policy()}}}
 
 \item{gain_gate}{depth gate of the per-cell gains, \code{gate} of \code{\link[=resolve_nested]{resolve_nested()}}: \code{"dl"} (default: gain depth
 LLR above \code{gain_min_dl}, i.e. z above the midpoint of neutral and the gain shift) or \code{"z"} (opt-in: z also
-above the \code{gain_gate_q} quantile of the depth null of the row's class x stratum, so that allele-only gains of
-noisy cells pass at most at rate \code{1 - gain_gate_q})}
+above the \code{gain_gate_q} quantile of the depth null of the row's class x stratum. About \code{1 - gain_gate_q} of
+all null-depth rows pass; among rows already called as gains with weak allelic support, and on female chrX,
+up to about two to three times that in simulation. Not benchmarked on real data as a default)}
 
 \item{gain_gate_q}{null quantile of the \code{"z"} gain gate (0.95)}
 

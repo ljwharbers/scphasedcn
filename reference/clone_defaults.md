@@ -3,7 +3,20 @@
 Discovery: `classes`, `depth_delta`, `cap`, `min_n`, `n_pc`, `k`,
 `max_leaves`, `min_size`, `q`, `n_perm`, `max_cells`, `split_depth`
 (discovery / test halves of the window depth as well as of the votes).
-Hierarchy: trunks = average-linkage groups of
+Merge / split tests
+([`merge_clones()`](https://ljwharbers.github.io/scphasedcn/reference/merge_clones.md),
+[`discover_within()`](https://ljwharbers.github.io/scphasedcn/reference/discover_within.md),
+the split pass; `perm_decision`): `"quantile"` (default) = the observed
+contrast above the type-7 `q`-quantile of `n_perm` permutations (with
+200 permutations at `q = 0.999` this is "beats about the maximum": ~6
+false splits per 1,000 tests of one clone, not 1); `"pvalue"` =
+permutation p-value
+`(1 + #null >= observed) / (1 + permutations) <= 1 - q`, over
+`max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations (999 at
+`q = 0.999`) with an exact early stop for "same" (as soon as p can no
+longer reach `1 - q`); a "different" verdict runs every permutation. The
+run notes give the number of tests and the expected false splits
+`n_tests x (1 - q)`. Hierarchy: trunks = average-linkage groups of
 [`clone_allelic_distance()`](https://ljwharbers.github.io/scphasedcn/reference/clone_allelic_distance.md)
 cut at `trunk_dist` (bp x haplotype fraction; e.g. 100 Mb differing by
 0.3); trunk cells = trunk posterior \>= `trunk_post`;
@@ -70,7 +83,14 @@ by that clone's pseudobulk under the same two-state set as the cells;
 one threshold per hypothesis x stratum, hypothesis-wide below
 `min_null_rows`; held-out fold-CV false-confirmation rates per
 hypothesis in `null_fit$confirm_null`; the default). The refitted value
-is `null_fit$rho_confirm`.
+is `null_fit$rho_confirm`. `confirm_sided` = the allele term of the
+confirmation scores, cells and null rows alike
+([`score_cells()`](https://ljwharbers.github.io/scphasedcn/reference/score_cells.md)
+`sided`): "two" (default; a cell whose opposite homologue is imbalanced
+also scores high) or "one" (the votes are oriented by the clone's
+pseudobulk, so only the clone's major haplotype counts). The fallback
+without null rows (type-7 quantile of `cell_state_scores()`) is always
+one-sided.
 
 A key that is not one of these defaults stops
 [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)

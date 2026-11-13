@@ -8,7 +8,8 @@ assignment's clone is every cell's likelihood-best clone, confident = posterior 
 doublet-like) -&amp;gt;
 clean_reference() -&amp;gt; optional depth re-pass relative to the clean pool -&amp;gt; per-cell calls. Each cell
 inherits its clone's non-neutral segments (source = &quot;inherited&quot;) and is confirmed when its own
-score under the clone state (depth + allele LLR vs neutral) is above the threshold of the tumour null:
+score under the clone state (depth + allele LLR vs neutral; allele term two-sided, or one-sided on the clone-oriented
+votes with opts$confirm_sided = &quot;one&quot;) is above the threshold of the tumour null:
 reference-pool cells x all pieces + all cells x control pieces, scored as the best of the loss / gain /
 CN-LOH / amp states (type-7 null_q quantile per stratum, strict &amp;gt;; pooled over strata below
 min_null_rows)."><meta property="og:description" content="Full loop: split_votes() (discovery / test halves) -&amp;gt; clone feature matrix (discovery half, re-oriented by the
@@ -20,7 +21,8 @@ assignment's clone is every cell's likelihood-best clone, confident = posterior 
 doublet-like) -&amp;gt;
 clean_reference() -&amp;gt; optional depth re-pass relative to the clean pool -&amp;gt; per-cell calls. Each cell
 inherits its clone's non-neutral segments (source = &quot;inherited&quot;) and is confirmed when its own
-score under the clone state (depth + allele LLR vs neutral) is above the threshold of the tumour null:
+score under the clone state (depth + allele LLR vs neutral; allele term two-sided, or one-sided on the clone-oriented
+votes with opts$confirm_sided = &quot;one&quot;) is above the threshold of the tumour null:
 reference-pool cells x all pieces + all cells x control pieces, scored as the best of the loss / gain /
 CN-LOH / amp states (type-7 null_q quantile per stratum, strict &amp;gt;; pooled over strata below
 min_null_rows)."></head><body>
@@ -73,7 +75,8 @@ assignment's <code>clone</code> is every cell's likelihood-best clone, <code>con
 doublet-like) -&gt;
 <code><a href="clean_reference.html">clean_reference()</a></code> -&gt; optional depth re-pass relative to the clean pool -&gt; per-cell calls. Each cell
 inherits its clone's non-neutral segments (<code>source = "inherited"</code>) and is <code>confirmed</code> when its own
-score under the clone state (depth + allele LLR vs neutral) is above the threshold of the tumour null:
+score under the clone state (depth + allele LLR vs neutral; allele term two-sided, or one-sided on the clone-oriented
+votes with <code>opts$confirm_sided = "one"</code>) is above the threshold of the tumour null:
 reference-pool cells x all pieces + all cells x control pieces, scored as the best of the loss / gain /
 CN-LOH / amp states (type-7 <code>null_q</code> quantile per stratum, strict <code>&gt;</code>; pooled over strata below
 <code>min_null_rows</code>).</p>

@@ -3,13 +3,13 @@
 mu = shift / pmax(ifelse(is.na(sd_null), 1, sd_null), sd_floor) under the
 Student-t null of the row's class x stratum (match_depth_null()) or
 N(0, 1); allelic term = best of the state's rows of ll_allelic()
-(two-sided); combined = sum (missing channels contribute 0). A state whose
+(two-sided, or one-sided with sided = &quot;one&quot;); combined = sum (missing channels contribute 0). A state whose
 rows have different shifts (tumour amp) takes the best row of depth +
 alleles and reports that row's two terms."><meta property="og:description" content="Per state (vs neutral): depth term = ll_depth_shift() with
 mu = shift / pmax(ifelse(is.na(sd_null), 1, sd_null), sd_floor) under the
 Student-t null of the row's class x stratum (match_depth_null()) or
 N(0, 1); allelic term = best of the state's rows of ll_allelic()
-(two-sided); combined = sum (missing channels contribute 0). A state whose
+(two-sided, or one-sided with sided = &quot;one&quot;); combined = sum (missing channels contribute 0). A state whose
 rows have different shifts (tumour amp) takes the best row of depth +
 alleles and reports that row's two terms."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -56,7 +56,7 @@ alleles and reports that row's two terms."></head><body>
 <code>mu = shift / pmax(ifelse(is.na(sd_null), 1, sd_null), sd_floor)</code> under the
 Student-t null of the row's class x stratum (<code><a href="match_depth_null.html">match_depth_null()</a></code>) or
 N(0, 1); allelic term = best of the state's rows of <code><a href="ll_allelic.html">ll_allelic()</a></code>
-(two-sided); combined = sum (missing channels contribute 0). A state whose
+(two-sided, or one-sided with <code>sided = "one"</code>); combined = sum (missing channels contribute 0). A state whose
 rows have different shifts (tumour <code>amp</code>) takes the best row of depth +
 alleles and reports that row's two terms.</p>
     </div>
@@ -71,7 +71,8 @@ alleles and reports that row's two terms.</p>
 <span>  eps <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">eps</span>,</span>
 <span>  depth_model <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"t"</span>, <span class="st">"gauss"</span><span class="op">)</span>,</span>
 <span>  params <span class="op">=</span> <span class="fu"><a href="caller_defaults.html">caller_defaults</a></span><span class="op">(</span><span class="op">)</span>,</span>
-<span>  keep_rows <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  keep_rows <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  sided <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"two"</span>, <span class="st">"one"</span><span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -112,6 +113,13 @@ per row (e.g. per chromosome, <code><a href="rho_by_chrom.html">rho_by_chrom()</
 <dt id="arg-keep-rows">keep_rows<a class="anchor" aria-label="anchor" href="#arg-keep-rows"></a></dt>
 <dd><p>also return per-row allelic LLRs <code>ar_&lt;row_id&gt;</code> (and
 per-row depth LLRs <code>dr_&lt;row_id&gt;</code> of multi-shift states); needed by <code><a href="pool_scores.html">pool_scores()</a></code></p></dd>
+
+
+<dt id="arg-sided">sided<a class="anchor" aria-label="anchor" href="#arg-sided"></a></dt>
+<dd><p>allelic term: <code>"two"</code> (default) = the better of <code>f</code> and <code>1 - f</code> per allelic row (votes in an arbitrary
+orientation); <code>"one"</code> = <code>f</code> on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
+clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
+every allelic row, including the per-row columns of <code>keep_rows</code></p></dd>
 
 </dl></div>
     <div class="section level2">

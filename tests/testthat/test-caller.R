@@ -274,6 +274,30 @@ test_that("tumour states score attenuated losses, allele-specific gains and ampl
   expect_equal(ps[region == "chr8", state_comb], "loss")
 })
 
+test_that("score_cells(sided = \"one\"): only haplotype A counts, per-row columns too; \"two\" is the default", {
+  # oriented votes: 40 of 40 on haplotype A vs 0 of 40 (the opposite homologue), no depth evidence
+  d = data.table(cell = c("a", "b"), region = "r", class = "arm", stratum = "x", z = 0, sd_null = 0.1,
+                 nA = c(40, 0), n_hap = 40)
+  for (set in c("normal", "tumour")) {
+    st = caller_states(set)
+    s2 = score_cells(d, st, rho = 0.01, depth_model = "gauss", keep_rows = TRUE)
+    expect_identical(score_cells(d, st, rho = 0.01, depth_model = "gauss", keep_rows = TRUE, sided = "two"), s2)
+    expect_equal(s2$s_comb[1], s2$s_comb[2])                      # two-sided: symmetric in the homologue
+    expect_gt(s2$s_comb[2], 10)
+    s1 = score_cells(d, st, rho = 0.01, depth_model = "gauss", keep_rows = TRUE, sided = "one")
+    expect_equal(s1$s_comb[1], s2$s_comb[1])                      # haplotype A imbalance scores as before
+    expect_lt(s1$s_comb[2], -10)
+    expect_lt(s1$s_allelic[2], if (set == "normal") -10 else 1e-12)  # tumour: the balanced amp 2:2 row is 0
+    ar = grep("^ar_", names(s1), value = TRUE)
+    expect_gt(length(ar), 0)
+    imb = st[state != "neutral" & abs(f - 0.5) > 1e-9, paste0("ar_", row_id)]
+    expect_true(all(unlist(s1[2, ..imb]) < -10))
+    expect_true(all(unlist(s2[2, ..imb]) > 0))
+    expect_equal(unlist(s1[1, ..ar]), unlist(s2[1, ..ar]))
+  }
+  expect_error(score_cells(d, rho = 0.01, depth_model = "gauss", sided = "x"), "should be one of")
+})
+
 test_that("caller_normal runs end to end and returns a valid scphasedcn", {
   rg = fake_regions(tiles = c("5Mb" = 5e6, "10Mb" = 1e7, "20Mb" = 2e7))
   ev = data.table(cell = c(1:10, 11:20), region = rep(c("chr1p", "chr8"), each = 10), state = rep(c("loss", "gain"), each = 10))

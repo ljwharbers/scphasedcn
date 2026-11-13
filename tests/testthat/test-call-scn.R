@@ -271,6 +271,33 @@ test_that("call_scn does not apply the bias rule (mask_f0) under mirrored orient
   expect_true(is.na(features_orientation(list(long = l2))))
 })
 
+test_that("call_scn with both allelic masks on a run without any allele votes: nothing masked, depth-only with one warning", {
+  # an unphased extraction: no molecule vote and nA = nB = n_hap = 0 on every row; caller_normal warns and runs
+  # depth-only, and the mask pass (mask_allelic, mask_f0) has no tile to assess
+  f = suppressWarnings(cell_features(sim_dir("sim_norm_f"), sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins)))
+  f$long[, `:=`(nA = 0, nB = 0, n_hap = 0)]
+  if ("f" %in% names(f$long)) f$long[, f := NA_real_]
+  f$votes = f$votes[0]
+  run = function(p) {
+    ws = character()
+    r = withCallingHandlers(call_scn(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE),
+                            warning = function(w) { ws <<- c(ws, conditionMessage(w)); invokeRestart("muffleWarning") })
+    list(r = r, ws = ws)
+  }
+  x = run(modifyList(caller_defaults(), list(mask_allelic = TRUE, mask_f0 = TRUE)))
+  x0 = run(caller_defaults())
+  expect_length(grep("no allele votes", x$ws), 1)
+  expect_false(any(grepl("mask", x$ws)))
+  am = x$r$null_fit$allelic_mask
+  expect_gt(nrow(am), 0)
+  expect_false(any(am$assessed))
+  expect_false(any(am$masked))
+  expect_true(any(grepl("allelic mask: 0 of 0 assessed 5 Mb tiles masked", x$r$notes)))
+  expect_true(any(grepl("no allele votes", x$r$notes)))
+  expect_gt(nrow(x$r$calls), 0)
+  expect_identical(x$r$calls, x0$r$calls)
+})
+
 test_that("scn_embedding is reproducible (seeded truncated SVD) and named by cell", {
   res = norm_result()
   d = sim_dir("sim_norm_f")

@@ -243,6 +243,46 @@ group_key = function(d, by) {
   do.call(paste, c(lapply(by, function(b) as.character(d[[b]])), sep = "\r"))
 }
 
+# The null rows a group's threshold is trained on ([budget_thresholds()]; also the calibration rows of [event_fdr()]).
+# Levels: 1 = the `by` group, then `by` without the vote stratum (`hstratum`), then without the depth stratum
+# (`stratum`). A group with fewer than `min_null` null rows at level 1 takes the first coarser level with `min_null`
+# rows, else the coarsest (by = class x stratum: the class). `isn` = null flag per row of `d`. A class without null
+# rows whose rows have an `sd_class` with null rows (named events; when `d` has `sd_class`) borrows the null rows
+# (and the fallback levels) of that sd_class: its groups carry `borrowed_from`.
+# Returns list(levels = the `by` columns per level, groups = unique `by` rows of d (+ `borrowed_from` when a class
+#              borrows) with key_ (their level-1 key; that of the sd_class for borrowed groups), level = the level
+#              used per group, use = per group the indices (rows of d) of its null rows, borrowed = a class borrows)
+threshold_null_rows = function(d, by, isn, min_null) {
+  levs = list(by); cur = by
+  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
+  # classes without null rows (named events) borrow the null rows of their sd_class
+  src = NULL
+  if ("class" %in% by && "sd_class" %in% names(d)) {
+    cls = as.character(d$class); sdc = as.character(d$sd_class)
+    has = unique(cls[isn])
+    b = !cls %in% has & !is.na(sdc) & sdc != cls & sdc %in% has
+    if (any(b)) src = fifelse(b, sdc, NA_character_)
+  }
+  groups = if (is.null(src)) unique(d[, by, with = FALSE]) else unique(cbind(d[, by, with = FALSE], borrowed_from = src))
+  gsrc = groups
+  if (!is.null(src)) gsrc = copy(groups)[!is.na(borrowed_from), class := borrowed_from]
+  groups[, key_ := group_key(gsrc, by)]
+  ni = which(isn)
+  idx_l = lapply(levs, function(l) split(ni, group_key(d, l)[ni]))
+  key_l = lapply(levs, function(l) group_key(gsrc, l))
+  level = integer(nrow(groups)); use = vector("list", nrow(groups))
+  for (g in seq_len(nrow(groups))) {
+    l = 1L
+    u = idx_l[[1]][[key_l[[1]][g]]] %||% integer()
+    while (length(u) < min_null && l < length(levs)) {
+      l = l + 1L
+      u = idx_l[[l]][[key_l[[l]][g]]] %||% integer()
+    }
+    level[g] = l; use[[g]] = u
+  }
+  list(levels = levs, groups = groups, level = level, use = use, borrowed = !is.null(src))
+}
+
 #' Null thresholds at the false-call budget
 #'
 #' Type-7 quantile `q` of each score on the null rows ([budget_threshold()]
@@ -281,36 +321,12 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
   isn = null_flag(d, null)
   fold = if (cv && "fold" %in% names(d)) as.integer(d$fold) else rep(0L, nrow(d))
   folds = setdiff(sort(unique(fold[!is.na(fold)])), 0L)
-  gk = group_key(d, by)
-  # fallback levels for groups with fewer than min_null null rows: drop the vote stratum, then the depth stratum;
-  # the first level with min_null rows is used, else the coarsest (by = class x stratum: the class, as before)
-  levs = list(); cur = by
-  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
-  # classes without null rows (named events) borrow the null rows of their sd_class
-  src = NULL
-  if ("class" %in% by && "sd_class" %in% names(d)) {
-    cls = as.character(d$class); sdc = as.character(d$sd_class)
-    has = unique(cls[isn])
-    b = !cls %in% has & !is.na(sdc) & sdc != cls & sdc %in% has
-    if (any(b)) src = fifelse(b, sdc, NA_character_)
-  }
-  groups = if (is.null(src)) unique(d[, by, with = FALSE]) else unique(cbind(d[, by, with = FALSE], borrowed_from = src))
-  gsrc = groups
-  if (!is.null(src)) gsrc = copy(groups)[!is.na(borrowed_from), class := borrowed_from]
-  groups[, key_ := group_key(gsrc, by)]
-  ni = which(isn)
-  idx_g = split(ni, gk[ni])
-  idx_l = lapply(levs, function(l) split(ni, group_key(d, l)[ni]))
-  key_l = lapply(levs, function(l) group_key(gsrc, l))
+  tg = threshold_null_rows(d, by, isn, min_null)
+  groups = tg$groups
   out = list()
   for (g in seq_len(nrow(groups))) {
-    ig = idx_g[[groups$key_[g]]] %||% integer()
-    fb = length(ig) < min_null && length(levs) > 0
-    use = ig
-    if (fb) for (l in seq_along(levs)) {
-      use = idx_l[[l]][[key_l[[l]][g]]] %||% integer()
-      if (length(use) >= min_null) break
-    }
+    use = tg$use[[g]]
+    fb = tg$level[g] > 1L
     fu = fold[use]
     for (fo in c(0L, folds)) {
       tr = if (fo == 0L) rep(TRUE, length(use)) else !is.na(fu) & fu != fo
@@ -320,7 +336,7 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
     }
   }
   res = rbindlist(out)
-  res = cbind(groups[res$g, c(by, if (!is.null(src)) "borrowed_from"), with = FALSE], res[, !"g"])
+  res = cbind(groups[res$g, c(by, if (tg$borrowed) "borrowed_from"), with = FALSE], res[, !"g"])
   if (!"stratum" %in% by) res[, stratum := "all"]
   if (!"class" %in% by) res[, class := "all"]
   res[, `:=`(q = q, n_null = as.integer(n_null), fold = as.integer(fold))]

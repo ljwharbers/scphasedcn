@@ -89,3 +89,9 @@ pooled counts under that orientation).
 Posterior over singles (prior \code{prior}, default uniform) and mixtures (total prior \code{mix_prior}); the
 reported \code{posterior} is the best clone's posterior among the single clones.
 }
+\details{
+The hypotheses are the clones with members plus the fixed normal clone \code{N0} whenever \code{segments} has it
+(\code{\link[=caller_tumour]{caller_tumour()}} \code{normal_hypothesis}), even when no cell is labelled \code{N0} yet: its state is all-neutral, so it
+needs no orientation, and without it normal cells would be forced into a tumour clone. Its \code{c} is the median \code{c}
+of \code{par} (attenuation 1) when \code{par} has no \code{N0} row.
+}

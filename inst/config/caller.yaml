@@ -36,6 +36,9 @@ rho_chrom_k: 100            # shrinkage pseudo-count of the per-chromosome rho (
 mask_allelic: false         # normal mode: leave the votes of allelically overdispersed 5 Mb tiles (null rho outliers) out of the allele features
 mask_rho_mad: 2             # mask threshold: log tile rho above the genome median by this many MADs
 mask_min_votes: 3           # tiles with fewer mean votes per null row are not assessed
+mask_f0: false              # normal mode: leave the votes of 5 Mb tiles with a shared allelic bias (null f0 off 0.5) out of the allele features
+mask_f0_mad: 3              # bias mask threshold: |f0 - 0.5| above the median over tiles by this many MADs
+mask_f0_min: 0.03           # ... and |f0 - 0.5| above this
 pool_sex_thr: true          # males: own pooled threshold group for chrX / chrY (class threshold as fallback)
 pool_events: false          # normal mode: pooled calls of named events (experimental: sd_class median scale, not calibrated per event)
 pool_tail_q: 0.99           # pooled per-region tail calibration: quantile of the standardised null pools vs the class (0 = off)

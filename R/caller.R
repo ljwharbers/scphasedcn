@@ -548,36 +548,96 @@ utils::globalVariables("sexgrp")
 #' genome median of 0.011 over 5 Mb tiles) and that inflates the chromosome-level allelic LLRs of the cells. The votes of the
 #' atoms in masked tiles ([atoms_in_tiles()]) are then left out of the allele features
 #' ([update_allelic_features()], `call_scn(params$mask_allelic = TRUE)`).
+#'
+#' Shared allelic bias (`params$mask_f0`): per tile also the vote-weighted haplotype fraction of the null rows
+#' `f0 = sum nA / sum n_hap`, its deviation `d0 = |f0 - 0.5|` and `z_f0` = (d0 - median) / MAD of d0 over the
+#' assessed tiles. A tile is a bias outlier (`masked_f0`) when it is assessed, `z_f0 > f0_mad` and
+#' `d0 > f0_min`: a stretch whose allele fraction is off 1:1 in the null cells for reasons that are not somatic
+#' copy number (germline CNV or segmental duplication, imprinted or allele-specific accessible regions, mapping
+#' bias, false heterozygous SNPs), against which the 1:1 allele null of every cell is wrong. The rule sees only
+#' the null rows, but it cannot tell such a shared bias from a real clonal event whose carriers remain among the
+#' null cells: an event frequent enough for that looks the same and can be masked (in a simulation with a focal
+#' event in 35 % of cells, 60 of 96 carriers stayed in the null set and all four event tiles were masked). The
+#' mask is a diagnostic to be read with the list of masked tiles, not a filter to apply blindly to samples that
+#' may carry clonal events.
+#' `|f0 - 0.5|` covers two orientations of the allele features: under `loo` (block) orientation the fraction is
+#' major-oriented (a biased tile sits above 0.5), under chromosome-anchored orientation it sits at f0 or 1 - f0.
+#' Under `mirrored` orientation each block counts its major allele, so f0 is above 0.5 in every tile by an amount
+#' set by the votes per block: the statistic measures coverage, not shared bias, and `call_scn()` does not apply
+#' the bias rule (it says so in the run notes and warns).
+#' [allelic_bias_tiles()] gives the same table over all cells before calling.
+#'
+#' `rules` selects which flags make up `masked` (the tiles whose atoms are dropped): `"rho"` (the default and
+#' the behaviour of earlier versions: `masked` = `masked_rho`), `"f0"`, or both (union).
 #' @param feat_long features long table (class, region, chrom, nA, n_hap) with a null definition
 #' @param null optional logical null flag per row
 #' @param size tile class
 #' @param k_mad threshold in MADs of log rho (`params$mask_rho_mad`)
 #' @param min_votes minimal mean votes per null row of a tile for it to be assessed (`params$mask_min_votes`)
 #' @param params [caller_defaults()]
-#' @return data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked (one row per tile)
+#' @param f0_mad bias threshold in MADs of d0 (`params$mask_f0_mad`)
+#' @param f0_min minimal deviation d0 of a bias outlier (`params$mask_f0_min`)
+#' @param rules the rules that define `masked`: any of `"rho"`, `"f0"`
+#' @return data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked, f0, d0, z_f0,
+#'   masked_rho, masked_f0 (one row per tile)
 #' @export
 allelic_noisy_tiles = function(feat_long, null = NULL, size = "5Mb", k_mad = params$mask_rho_mad, min_votes = params$mask_min_votes,
-                               params = caller_defaults()) {
+                               params = caller_defaults(), f0_mad = params$mask_f0_mad, f0_min = params$mask_f0_min,
+                               rules = "rho") {
+  rules = unique(as.character(rules))
+  if (!length(rules) || !all(rules %in% c("rho", "f0"))) stop("allelic_noisy_tiles: `rules` must be \"rho\", \"f0\" or both")
+  if ("f0" %in% rules && (is.null(f0_mad) || is.null(f0_min))) stop("allelic_noisy_tiles: the f0 rule needs f0_mad and f0_min (params$mask_f0_mad, mask_f0_min)")
+  if (is.null(f0_mad)) f0_mad = 3
+  if (is.null(f0_min)) f0_min = 0.03
   d = as.data.table(feat_long)
   isn = null_flag(d, null)
   ch = if ("chrom" %in% names(d)) d$chrom else region_chrom(d$region, d$class)
   i = which(isn & d$class == size)
   x = data.table(tile = d$region[i], chrom = ch[i], a = as.numeric(d$nA[i]), n = as.numeric(d$n_hap[i]))
   x[is.na(n), `:=`(n = 0, a = 0)]
-  t = x[, .(n_rows = .N, votes = sum(n), S = sum((a - n / 2)^2), N4 = sum(n / 4), P = sum(n * (n - 1) / 4)), by = .(tile, chrom)]
+  t = x[, .(n_rows = .N, votes = sum(n), S = sum((a - n / 2)^2), N4 = sum(n / 4), P = sum(n * (n - 1) / 4), A = sum(a)), by = .(tile, chrom)]
   t[, rho := fifelse(P > 0, pmax((S - N4) / P, 1e-6), NA_real_)]
   t[, assessed := !is.na(rho) & votes / n_rows >= min_votes]
   lr = log(t$rho[t$assessed])
   m = if (length(lr)) stats::median(lr) else NA_real_
   s = if (length(lr) > 1) stats::mad(lr) else NA_real_
   t[, z_rho := (log(rho) - m) / s]
-  t[, masked := assessed & is.finite(z_rho) & z_rho > k_mad]
+  t[, masked_rho := assessed & is.finite(z_rho) & z_rho > k_mad]
+  # shared allelic bias: vote-weighted null fraction, robust z of its deviation from 1:1 over the assessed tiles
+  t[, f0 := fifelse(votes > 0, A / votes, NA_real_)]
+  t[, d0 := abs(f0 - 0.5)]
+  dv = t$d0[t$assessed]
+  m0 = if (length(dv)) stats::median(dv) else NA_real_
+  s0 = if (length(dv) > 1) stats::mad(dv) else NA_real_
+  t[, z_f0 := (d0 - m0) / s0]
+  t[, masked_f0 := assessed & !is.na(z_f0) & z_f0 > f0_mad & d0 > f0_min]
+  t[, masked := ("rho" %in% rules & masked_rho) | ("f0" %in% rules & masked_f0)]
   t[, start := suppressWarnings(as.numeric(sub("^.*:", "", tile)))]
   t[, end := start + unname(params$tile_sizes[size])]
-  t = t[, .(tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked)]
+  t = t[, .(tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked, f0, d0, z_f0, masked_rho, masked_f0)]
   t[order(match(chrom, paste0("chr", c(1:22, "X", "Y"))), start)]
 }
-utils::globalVariables(c("assessed", "masked", "z_rho", "N4", "P", "tile", "votes"))
+utils::globalVariables(c("assessed", "masked", "z_rho", "N4", "P", "tile", "votes", "A", "f0", "d0", "z_f0", "masked_rho", "masked_f0"))
+
+#' Shared allelic bias per tile over all cells (diagnostic)
+#'
+#' The per-tile table of [allelic_noisy_tiles()] computed over every cell (not only null cells) and every
+#' eligible row of a features object, before any caller run: the vote-weighted haplotype fraction `f0`, its
+#' deviation `d0 = |f0 - 0.5|`, the robust z `z_f0` and the bias flag `masked_f0` (here also `masked`), next to
+#' the overdispersion columns (`rho`, `z_rho`, `masked_rho`). Over all cells a frequent clonal event also shows up
+#' as a bias; the caller's mask (`params$mask_f0`, `call_scn()`) uses the null cells only, which does not keep
+#' an event out of the mask when its carriers remain among the null cells ([allelic_noisy_tiles()]).
+#' @param features `scn_features` ([cell_features()]) or its features long table
+#' @param size tile class
+#' @param params [caller_defaults()] (`mask_min_votes`, `mask_rho_mad`, `mask_f0_mad`, `mask_f0_min`)
+#' @return data.table as [allelic_noisy_tiles()], one row per tile, `masked` = `masked_f0`
+#' @export
+allelic_bias_tiles = function(features, size = "5Mb", params = caller_defaults()) {
+  d = if (is.data.frame(features)) as.data.table(features) else as.data.table(features$long)
+  if (is.null(d) || !nrow(d)) stop("allelic_bias_tiles: `features` must be an scn_features object or a features long table")
+  use = if ("eligible" %in% names(d)) d$eligible %in% TRUE else rep(TRUE, nrow(d))
+  allelic_noisy_tiles(d, null = use, size = size, params = params, rules = "f0")
+}
 
 #' Atoms whose start lies in the masked tiles
 #' @param atoms atoms table (atom, chrom, start, end)

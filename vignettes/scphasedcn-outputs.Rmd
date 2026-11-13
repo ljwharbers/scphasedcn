@@ -177,3 +177,34 @@ The components of the object:
 | `false_calls`, `false_events`, `expected_false`, `fdr_info`, `null_check` | null false-call rates, expected false calls / events, the q-value settings (tests, tail, calibration groups), the selection check (with `null_check = TRUE`) | NULL |
 | `params` | all parameters, including the `normal:` caller arguments | all parameters, including the `tumour:` options |
 | `features`, `feature_info`, `embedding`, `notes` | the per-cell region features and the run notes | the same |
+
+## Allelic tile mask (normal mode, opt-in)
+
+With `mask_allelic = TRUE` (overdispersion rule) and / or `mask_f0 = TRUE` (shared-bias rule) in the parameters,
+`call_scn()` selects null cells once, assesses every autosomal 5 Mb tile on their votes (`allelic_noisy_tiles()`), and
+leaves the votes of the masked tiles out of the allele features before calling (depth is untouched). The two rules can
+be used alone or together (the union is masked); the run notes give the number of tiles each rule masked.
+`null_fit$allelic_mask` holds the per-tile table:
+
+| column | meaning |
+|---|---|
+| `tile`, `chrom`, `start`, `end` | the 5 Mb tile |
+| `n_rows`, `votes` | null rows (cells) of the tile and their molecule votes |
+| `rho`, `z_rho` | method-of-moments beta-binomial overdispersion of the null votes, and its robust z of log rho over the assessed tiles |
+| `assessed` | the tile has at least `mask_min_votes` votes per null row |
+| `masked` | the tile's votes were left out (the active rules) |
+| `f0`, `d0`, `z_f0` | vote-weighted haplotype fraction of the null rows `sum(nA) / sum(n_hap)`, its deviation `abs(f0 - 0.5)`, and the robust z (median / MAD) of `d0` over the assessed tiles |
+| `masked_rho` | overdispersion rule: assessed and `z_rho > mask_rho_mad` |
+| `masked_f0` | bias rule: assessed, `z_f0 > mask_f0_mad` and `d0 > mask_f0_min` |
+
+`masked_rho` and `masked_f0` are reported whether or not their rule is on; the run notes list the masked tiles.
+The bias rule masks tiles with a shared allelic imbalance among the null cells, such as a stretch off 1:1 in every
+cell (germline copy-number variant or segmental duplication, imprinted or allele-specific accessible region, mapping
+bias, false heterozygous SNPs). A real clonal event that is frequent enough for its carriers to remain among the null
+cells looks the same and can be masked: in a simulation with a focal event in 35 % of cells, 60 of 96 carriers stayed
+in the null set and all four event tiles were masked. The mask is therefore a diagnostic to be read with the list of
+masked tiles, not a filter to apply blindly to samples that may carry clonal events. `allelic_bias_tiles(features)`
+computes the same table over all cells of a features object, without a caller run, to look at shared bias before
+calling. Under `mirrored` orientation (`phasing = "mirrored"`) the haplotype fraction is the per-block major fraction,
+which measures coverage rather than shared bias: `call_scn()` then runs without the bias rule and says so in the run
+notes.

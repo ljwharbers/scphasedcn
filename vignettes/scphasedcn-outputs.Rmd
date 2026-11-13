@@ -20,9 +20,9 @@ both). `read_scphasedcn(out)` reads a written run back.
 |---|---|
 | `cells.tsv` | one row per called cell: cell type, depth stratum, null cell flag, `n_calls`, `n_events`, and the `multiplet` flag (normal mode always; tumour mode when `multiplets` are given: the cells above its `multiplet_prob`); tumour mode adds `clone`, `posterior`, `doublet_like`, `ref_pool` |
 | `calls.tsv` | per cell x region calls (normal mode: the called rows; tumour mode: every clone row and every per-cell inherited / confirmed row) |
-| `pooled_calls.tsv` | normal mode: called rows of the cell pools |
+| `pooled_calls.tsv` | normal mode: called rows of the cell pools (named `event` regions only with `pool_events`, off by default: experimental, not calibrated per event) |
 | `events.tsv` | a cell's overlapping called regions merged into events |
-| `thresholds.tsv` | the null thresholds per score, region class and depth stratum (and cross-validation fold); named `event` regions have no null rows of their own and use the thresholds of their `sd_class` (column `borrowed_from`, present when a run has events) |
+| `thresholds.tsv` | the null thresholds per score, region class and depth stratum (and cross-validation fold); named `event` regions have no null rows of their own and use the thresholds of their `sd_class` (column `borrowed_from`, present when a run has events; the pooled ones only with `pool_events`) |
 | `regions.tsv` | the regions scored (arms, chromosomes, 5-50 Mb tiles, events; tumour mode also clone pieces) |
 | `null_fit.tsv` | the depth null (Student-t per class x stratum) and the allelic overdispersion `rho` |
 | `false_calls.tsv`, `false_events.tsv` | normal mode: the realised false-call rate on the null cells |

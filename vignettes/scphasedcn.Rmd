@@ -25,7 +25,8 @@ Two modes:
 
 - **normal tissue** (`mode = "normal"`): rare, cell-private events. Thresholds come from null cells (cells the caller
   selects as copy-number neutral, or that you give), cross-validated at 1 false call per 1,000 null cell-regions; cells
-  are also called in pools (random pools within a cell type, chromatin-kNN pools).
+  are also called in pools (random pools within a cell type, chromatin-kNN pools). Named events (`events`) are called
+  per cell; their pooled calls are off by default (`pool_events`: experimental, not calibrated per event).
 - **tumour** (`mode = "tumour"`): clones. The caller discovers clones, fits their allele-specific copy-number states,
   re-assigns every cell by likelihood and reports per-cell calls inherited from the clone or confirmed by the cell.
 

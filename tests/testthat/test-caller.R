@@ -397,6 +397,34 @@ test_that("resolve_nested gate 'z': a null quantile of z on top of the midpoint,
   expect_error(resolve_nested(ct, gate = "q"))
 })
 
+test_that("gain gate 'z' on a named event: event rows use the depth null of their sd_class", {
+  # a named event (class `event`) has no null rows and so no t fit of its own: its gain rows are gated with the fit
+  # of its sd_class in the row's stratum, inside caller_normal and with a tpar that has no `event` rows
+  rg0 = fake_regions(tiles = c("20Mb" = 2e7))
+  ev_row = copy(rg0[region == "chr8"])[, `:=`(region = "chr8_event", class = "event", sd_class = "chrom", null_region = FALSE)]
+  rg = rbind(rg0, ev_row)
+  ff = fake_features(300, rg, events = data.table(cell = 1:15, region = "chr8_event", state = "gain"), seed = 21)
+  r0 = caller_normal(ff, regions = rg, null_cells = "features", n_draws = 500, resolve_gains = FALSE, pool_classes = character())
+  rz = caller_normal(ff, regions = rg, null_cells = "features", n_draws = 500, gain_gate = "z", pool_classes = character())
+  eg = rz$calls[level == "cell" & region == "chr8_event" & state == "gain" & !is.na(gate_thr)]
+  expect_gte(nrow(eg), 5)
+  # the threshold is the one of the sd_class (chrom) fit of the row's stratum
+  tp = r0$null_fit$tpar[class == "chrom"]
+  sc = r0$scores[eg[, .(cell, region)], on = c("cell", "region")]
+  m = tp[sc[, .(stratum)], on = "stratum"]
+  p = caller_defaults()
+  mu = p$shifts[["gain"]] / pmax(sc$sd_null, p$sd_floor)
+  expect_equal(eg$gate_thr, pmax(m$t_m + mu / 2, m$t_m + m$t_s * qt(0.95, m$t_df)))
+  expect_gte(mean(eg$reportable), 0.5)
+  # a tpar without event rows (fit_depth_null on the null rows only): the event rows take their sd_class's fit
+  tp_null = r0$null_fit$tpar[class != "event"]
+  r1 = resolve_nested(r0$calls, r0$scores, gate = "z", tpar = tp_null)
+  expect_identical(r1, resolve_nested(r0$calls, r0$scores, gate = "z", tpar = r0$null_fit$tpar))
+  expect_identical(r1, rz$calls[level == "cell"])
+  # without an sd_class to fall back on, a class without a fit still stops
+  expect_error(resolve_nested(r0$calls, r0$scores[, !"sd_class"], gate = "z", tpar = tp_null), "no t fit")
+})
+
 test_that("gain gate 'z' on fake features: allele-only gains of noisy cells pass at ~1 - gate_q, true gains stay", {
   g = gate_fake()
   r0 = caller_normal(g$ff, regions = g$rg, null_cells = "features", resolve_gains = FALSE, pool_classes = character())

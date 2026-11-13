@@ -38,7 +38,8 @@ midpoint and above the \code{gate_q} quantile of the row's depth null)}
 already called as gains and on female chrX, see Details)}
 
 \item{tpar}{\code{"z"} gate: the Student-t fits per class x stratum (\code{\link[=fit_depth_null]{fit_depth_null()}}, completed as in
-\code{\link[=caller_normal]{caller_normal()}}); NULL = the Gaussian depth null N(0, 1). A gated row whose class x stratum has no fit is an
+\code{\link[=caller_normal]{caller_normal()}}); NULL = the Gaussian depth null N(0, 1). A gated row whose class x stratum has no fit (a named
+\code{event}: no null rows) takes the fit of its \code{sd_class} (a \code{scores} column) in that stratum; without one it is an
 error (\code{\link[=match_depth_null]{match_depth_null()}}); a row with NA class or stratum has no depth support}
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}} (\code{shifts}, \code{sd_floor}; the \code{"z"} gate)}

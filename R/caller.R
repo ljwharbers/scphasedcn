@@ -971,7 +971,8 @@ utils::globalVariables("size_")
 #' @param gate_q null quantile of the `"z"` gate (0.95: about 5 % of all null-depth rows pass; more among rows
 #'   already called as gains and on female chrX, see Details)
 #' @param tpar `"z"` gate: the Student-t fits per class x stratum ([fit_depth_null()], completed as in
-#'   [caller_normal()]); NULL = the Gaussian depth null N(0, 1). A gated row whose class x stratum has no fit is an
+#'   [caller_normal()]); NULL = the Gaussian depth null N(0, 1). A gated row whose class x stratum has no fit (a named
+#'   `event`: no null rows) takes the fit of its `sd_class` (a `scores` column) in that stratum; without one it is an
 #'   error ([match_depth_null()]); a row with NA class or stratum has no depth support
 #' @param params [caller_defaults()] (`shifts`, `sd_floor`; the `"z"` gate)
 #' @return `calls` with column `resolved` (NA = unchanged) and updated `reportable`; with `gate = "z"` also
@@ -1031,8 +1032,9 @@ utils::globalVariables(c("resolved", "row_", "gate_z", "gate_thr"))
 # the "z" gain gate of resolve_nested(): per gain row its z and the z threshold max(t_m + mu / 2, t_m + t_s * q) with
 # mu = shift_gain / pmax(sd_null, sd_floor) (sd_null NA -> 1, as in score_cells) and q the gate_q quantile of the row's
 # null (Student-t of its class x stratum, or N(0, 1) without tpar). NA z, or NA class / stratum with tpar, gives NA (no
-# depth support); NA sd_null counts as 1; a class x stratum that tpar has no fit for stops (match_depth_null), as in
-# score_cells
+# depth support); NA sd_null counts as 1. A class x stratum that tpar has no fit for (a named event: no null rows) takes
+# the fit of the row's sd_class in that stratum, as complete_tpar() does for score_cells; without one it stops
+# (match_depth_null)
 gain_gate_z = function(rows, scores, gate_q, tpar, params) {
   rows = as.data.table(rows)
   need = c("z", "sd_null", if (!is.null(tpar)) c("class", "stratum"))
@@ -1041,11 +1043,11 @@ gain_gate_z = function(rows, scores, gate_q, tpar, params) {
     miss = setdiff(need, names(sc))
     if (length(miss)) stop("resolve_nested: gate 'z' needs `scores` column(s) ", paste(miss, collapse = ", "))
     k = match(paste(rows$cell, rows$region, sep = "|"), paste(sc$cell, sc$region, sep = "|"))
-    sc[k, need, with = FALSE]
+    sc[k, intersect(c(need, "sd_class"), names(sc)), with = FALSE]
   } else {
     miss = setdiff(need, names(rows))
     if (length(miss)) stop("resolve_nested: gate 'z' needs `scores` or calls column(s) ", paste(miss, collapse = ", "))
-    rows[, need, with = FALSE]
+    rows[, intersect(c(need, "sd_class"), names(rows)), with = FALSE]
   }
   z = as.numeric(src$z)
   mu = params$shifts[["gain"]] / pmax(fifelse(is.na(src$sd_null), 1, as.numeric(src$sd_null)), params$sd_floor)
@@ -1054,7 +1056,14 @@ gain_gate_z = function(rows, scores, gate_q, tpar, params) {
     m[] = NA_real_; s[] = NA_real_; q[] = NA_real_
     ok = which(!is.na(src$class) & !is.na(src$stratum))
     if (length(ok)) {
-      tp = match_depth_null(src[ok], tpar)
+      key = src[ok, .(class = as.character(class), stratum)]
+      if ("sd_class" %in% names(src)) {                          # no fit of the class: the fit of its sd_class
+        tk = paste(tpar$class, tpar$stratum, sep = "\r")
+        b = !paste(key$class, key$stratum, sep = "\r") %in% tk & !is.na(src$sd_class[ok]) &
+          paste(src$sd_class[ok], key$stratum, sep = "\r") %in% tk
+        set(key, i = which(b), j = "class", value = as.character(src$sd_class[ok][b]))
+      }
+      tp = match_depth_null(key, tpar)
       m[ok] = tp$t_m; s[ok] = tp$t_s; q[ok] = stats::qt(gate_q, tp$t_df)
     }
   }

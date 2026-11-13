@@ -35,6 +35,8 @@ written run back.
 | `level` | `cell`, `pool` or `clone` |
 | `source` | `cell` (the cell’s own evidence), `inherited` (from its clone or pool) or `confirmed` (a clone call the cell’s own evidence confirms) |
 | `reportable` | the call survives the nesting rules (e.g. a chromosome gain is not reported inside a stronger nested arm loss) |
+| `resolved` | normal mode, per cell: why [`resolve_nested()`](https://ljwharbers.github.io/scphasedcn/reference/resolve_nested.md) changed the row (NA = unchanged): `no_depth` (a chromosome / event gain without depth support), `nested <region> <state>` (a gain explained by a stronger nested loss / CN-LOH), `replaces <region> gain` (the nested call made reportable in its place) |
+| `gate_z`, `gate_thr` | normal mode with `gain_gate: "z"`: on the gated chromosome / event gains, the depth z and its threshold (the larger of the midpoint between neutral and the gain shift and the `gain_gate_q` quantile of the depth null); a gain has depth support when `gate_z > gate_thr`. With the default `gain_gate: "dl"` the gate is the sign of the gain depth log-likelihood ratio (z above the midpoint) and these columns are absent |
 | `z`, `f`, `n_hap` | normal mode, cell rows: depth z, major-haplotype fraction and molecule votes of the cell in the region (not in tumour mode) |
 | `stratum` | normal mode, cell rows: the cell’s depth stratum (clean fragments; `<20k`, `20-50k`, `>=50k`; not in tumour mode) |
 | `confident` | tumour mode: the cell’s clone assignment is confident |

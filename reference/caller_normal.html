@@ -93,6 +93,8 @@ events (<code><a href="consolidate_calls.html">consolidate_calls()</a></code>). 
 <span>  sex <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  resolve_gains <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  gain_min_dl <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  gain_gate <span class="op">=</span> <span class="st">"dl"</span>,</span>
+<span>  gain_gate_q <span class="op">=</span> <span class="fl">0.95</span>,</span>
 <span>  pool_loo <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  pool_standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  null_chroms <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"chr"</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">22</span><span class="op">)</span></span>
@@ -157,7 +159,19 @@ chrX rows carry allele votes); sets the chrX rule of <code><a href="call_policy.
 
 
 <dt id="arg-gain-min-dl">gain_min_dl<a class="anchor" aria-label="anchor" href="#arg-gain-min-dl"></a></dt>
-<dd><p><code>min_dl_gain</code> of <code><a href="resolve_nested.html">resolve_nested()</a></code></p></dd>
+<dd><p><code>min_dl_gain</code> of <code><a href="resolve_nested.html">resolve_nested()</a></code> (<code>gain_gate = "dl"</code>)</p></dd>
+
+
+<dt id="arg-gain-gate">gain_gate<a class="anchor" aria-label="anchor" href="#arg-gain-gate"></a></dt>
+<dd><p>depth gate of the per-cell gains, <code>gate</code> of <code><a href="resolve_nested.html">resolve_nested()</a></code>: <code>"dl"</code> (default: gain depth
+LLR above <code>gain_min_dl</code>, i.e. z above the midpoint of neutral and the gain shift) or <code>"z"</code> (opt-in: z also
+above the <code>gain_gate_q</code> quantile of the depth null of the row's class x stratum. About <code>1 - gain_gate_q</code> of
+all null-depth rows pass; among rows already called as gains with weak allelic support, and on female chrX,
+up to about two to three times that in simulation. Not benchmarked on real data as a default)</p></dd>
+
+
+<dt id="arg-gain-gate-q">gain_gate_q<a class="anchor" aria-label="anchor" href="#arg-gain-gate-q"></a></dt>
+<dd><p>null quantile of the <code>"z"</code> gain gate (0.95)</p></dd>
 
 
 <dt id="arg-pool-loo">pool_loo<a class="anchor" aria-label="anchor" href="#arg-pool-loo"></a></dt>
@@ -178,7 +192,7 @@ same construction) before the per-class pooled thresholds</p></dd>
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p><code>scphasedcn</code> (mode normal) with <code>scores</code>, <code>thresholds</code> (column <code>level</code>:
 cell, pool_type, pool_knn), <code>calls</code> (cell and pool level; <code>resolved</code> for gains changed by
-<code><a href="resolve_nested.html">resolve_nested()</a></code>), <code>events</code>, <code>pools</code>, <code>null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)</code> (<code>vote_bins</code>: the <code><a href="vote_bins.html">vote_bins()</a></code> table with <code>params$calib = "votes"</code>; <code>rho_chrom</code>: the
+<code><a href="resolve_nested.html">resolve_nested()</a></code>; with <code>gain_gate = "z"</code> also its <code>gate_z</code>, <code>gate_thr</code>), <code>events</code>, <code>pools</code>, <code>null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)</code> (<code>vote_bins</code>: the <code><a href="vote_bins.html">vote_bins()</a></code> table with <code>params$calib = "votes"</code>; <code>rho_chrom</code>: the
 <code><a href="rho_by_chrom.html">rho_by_chrom()</a></code> table with <code>params$calib_rho = "chrom"</code>)</p>
     </div>
     <div class="section level2">
@@ -186,7 +200,8 @@ cell, pool_type, pool_knn), <code>calls</code> (cell and pool level; <code>resol
     <p>Calibration policy (defaults): null cells are selected on autosomal rows
 and null rows are autosomal (<code><a href="select_null_cells.html">select_null_cells()</a></code> <code>chroms</code>, <code>null_chroms</code>);
 per-cell chromosome gains need depth support and lose to a stronger nested
-loss / CN-LOH (<code><a href="resolve_nested.html">resolve_nested()</a></code>, <code>resolve_gains</code>); pooled state scores are
+loss / CN-LOH (<code><a href="resolve_nested.html">resolve_nested()</a></code>, <code>resolve_gains</code>; opt-in <code>gain_gate = "z"</code> gates on a null quantile of z
+instead of the sign of the gain depth LLR); pooled state scores are
 standardised per region by the median / MAD of the null pools of the same
 construction (<code><a href="pool_scale.html">pool_scale()</a></code>, <code>pool_standardize</code>), and a pooled call must
 survive dropping its most influential cell (<code>pool_loo</code>: pools are called on

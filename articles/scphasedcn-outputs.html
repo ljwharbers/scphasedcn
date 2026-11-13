@@ -234,6 +234,28 @@ cell’s own evidence confirms)</td>
 reported inside a stronger nested arm loss)</td>
 </tr>
 <tr class="even">
+<td><code>resolved</code></td>
+<td>normal mode, per cell: why <code><a href="../reference/resolve_nested.html">resolve_nested()</a></code> changed the
+row (NA = unchanged): <code>no_depth</code> (a chromosome / event gain
+without depth support), <code>nested &lt;region&gt; &lt;state&gt;</code>
+(a gain explained by a stronger nested loss / CN-LOH),
+<code>replaces &lt;region&gt; gain</code> (the nested call made
+reportable in its place)</td>
+</tr>
+<tr class="odd">
+<td>
+<code>gate_z</code>, <code>gate_thr</code>
+</td>
+<td>normal mode with <code>gain_gate: "z"</code>: on the gated
+chromosome / event gains, the depth z and its threshold (the larger of
+the midpoint between neutral and the gain shift and the
+<code>gain_gate_q</code> quantile of the depth null); a gain has depth
+support when <code>gate_z &gt; gate_thr</code>. With the default
+<code>gain_gate: "dl"</code> the gate is the sign of the gain depth
+log-likelihood ratio (z above the midpoint) and these columns are
+absent</td>
+</tr>
+<tr class="even">
 <td>
 <code>z</code>, <code>f</code>, <code>n_hap</code>
 </td>

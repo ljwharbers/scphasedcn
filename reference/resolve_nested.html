@@ -4,10 +4,29 @@ whole chromosome look like a 2:1 gain: at chromosome scale the allelic term
 of the nested event dominates while its depth contrast is diluted, and the
 gain state (f 2/3) fits a diluted haplotype fraction better than 1:0 / 2:0.
 Per cell, a reportable gain call of a classes region therefore needs
-depth support: the gain depth LLR of the row itself is positive
-(dl_gain &amp;gt; min_dl_gain; for the Student-t null, z above the midpoint
-between neutral and the gain shift), so the allelic term alone cannot
-carry a gain label; and
+depth support, so that the allelic term alone cannot carry a gain label:
+gate = &quot;dl&quot; (default): the gain depth LLR of the row itself is
+positive (dl_gain &amp;gt; min_dl_gain; for the Student-t null, z above
+the midpoint between neutral and the gain shift, t_m + mu / 2 with
+mu = shifts[&quot;gain&quot;] / pmax(sd_null, sd_floor)). For a noisy cell
+(large sd_null) mu is small and the gate is weak;
+gate = &quot;z&quot; (opt-in): the row's z exceeds
+max(t_m + mu / 2, t_m + t_s * qt(gate_q, t_df)) with the Student-t
+null of the row's class x stratum (tpar, match_depth_null(); with
+tpar = NULL the Gaussian null, max(mu / 2, qnorm(gate_q))): the
+midpoint stays as a floor and the null quantile is added on top.
+Over all null-depth rows the gate passes about 1 - gate_q of them
+whatever their sd_null; this level is unconditional. Among rows
+already called as gains (weak allelic support), and on female chrX
+(no null rows of its own), the pass rate of null-depth rows is
+higher: up to about two to three times 1 - gate_q in simulation.
+The gate is opt-in and has not been benchmarked on real data as a
+default. A row with NA z has no depth support.
+min_dl_gain is not used. The gate is on z, not on dl_gain: the
+Student-t LLR falls back towards 0 for very large z
+(ll_depth_shift()), so a quantile on dl_gain would reject the
+strongest gains; and
+
 (class chrom) no nested explanation: no called loss / CN-LOH row of
 the same cell and chromosome in nested classes (arm, 50 Mb, 20 Mb)
 with a higher score.
@@ -16,17 +35,37 @@ reportable = FALSE and resolved naming the reason (no_depth,
 nested &amp;lt;region&amp;gt; &amp;lt;state&amp;gt;). With promote, the best (highest-score) nested
 loss / CN-LOH call that explains a dropped chromosome gain is made
 reportable (resolved = &quot;replaces &amp;lt;region&amp;gt; gain&quot;; arm and 50 Mb losses are
-reportable anyway, a 20 Mb one is promoted).
+reportable anyway, a 20 Mb one is promoted). Losses are not gated: the
+loss vs CN-LOH label is decided by the scores (score_cells()).
 
 "><meta property="og:description" content="A diluted sub-chromosomal imbalance (a 1p loss, a distal CN-LOH) makes the
 whole chromosome look like a 2:1 gain: at chromosome scale the allelic term
 of the nested event dominates while its depth contrast is diluted, and the
 gain state (f 2/3) fits a diluted haplotype fraction better than 1:0 / 2:0.
 Per cell, a reportable gain call of a classes region therefore needs
-depth support: the gain depth LLR of the row itself is positive
-(dl_gain &amp;gt; min_dl_gain; for the Student-t null, z above the midpoint
-between neutral and the gain shift), so the allelic term alone cannot
-carry a gain label; and
+depth support, so that the allelic term alone cannot carry a gain label:
+gate = &quot;dl&quot; (default): the gain depth LLR of the row itself is
+positive (dl_gain &amp;gt; min_dl_gain; for the Student-t null, z above
+the midpoint between neutral and the gain shift, t_m + mu / 2 with
+mu = shifts[&quot;gain&quot;] / pmax(sd_null, sd_floor)). For a noisy cell
+(large sd_null) mu is small and the gate is weak;
+gate = &quot;z&quot; (opt-in): the row's z exceeds
+max(t_m + mu / 2, t_m + t_s * qt(gate_q, t_df)) with the Student-t
+null of the row's class x stratum (tpar, match_depth_null(); with
+tpar = NULL the Gaussian null, max(mu / 2, qnorm(gate_q))): the
+midpoint stays as a floor and the null quantile is added on top.
+Over all null-depth rows the gate passes about 1 - gate_q of them
+whatever their sd_null; this level is unconditional. Among rows
+already called as gains (weak allelic support), and on female chrX
+(no null rows of its own), the pass rate of null-depth rows is
+higher: up to about two to three times 1 - gate_q in simulation.
+The gate is opt-in and has not been benchmarked on real data as a
+default. A row with NA z has no depth support.
+min_dl_gain is not used. The gate is on z, not on dl_gain: the
+Student-t LLR falls back towards 0 for very large z
+(ll_depth_shift()), so a quantile on dl_gain would reject the
+strongest gains; and
+
 (class chrom) no nested explanation: no called loss / CN-LOH row of
 the same cell and chromosome in nested classes (arm, 50 Mb, 20 Mb)
 with a higher score.
@@ -35,7 +74,8 @@ reportable = FALSE and resolved naming the reason (no_depth,
 nested &amp;lt;region&amp;gt; &amp;lt;state&amp;gt;). With promote, the best (highest-score) nested
 loss / CN-LOH call that explains a dropped chromosome gain is made
 reportable (resolved = &quot;replaces &amp;lt;region&amp;gt; gain&quot;; arm and 50 Mb losses are
-reportable anyway, a 20 Mb one is promoted).
+reportable anyway, a 20 Mb one is promoted). Losses are not gated: the
+loss vs CN-LOH label is decided by the scores (score_cells()).
 
 "></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -82,10 +122,28 @@ reportable anyway, a 20 Mb one is promoted).
 whole chromosome look like a 2:1 gain: at chromosome scale the allelic term
 of the nested event dominates while its depth contrast is diluted, and the
 gain state (f 2/3) fits a diluted haplotype fraction better than 1:0 / 2:0.
-Per cell, a reportable <code>gain</code> call of a <code>classes</code> region therefore needs</p><ol><li><p>depth support: the gain depth LLR of the row itself is positive
-(<code>dl_gain &gt; min_dl_gain</code>; for the Student-t null, z above the midpoint
-between neutral and the gain shift), so the allelic term alone cannot
-carry a gain label; and</p></li>
+Per cell, a reportable <code>gain</code> call of a <code>classes</code> region therefore needs</p><ol><li><p>depth support, so that the allelic term alone cannot carry a gain label:</p><ul><li><p><code>gate = "dl"</code> (default): the gain depth LLR of the row itself is
+positive (<code>dl_gain &gt; min_dl_gain</code>; for the Student-t null, z above
+the midpoint between neutral and the gain shift, <code>t_m + mu / 2</code> with
+<code>mu = shifts["gain"] / pmax(sd_null, sd_floor)</code>). For a noisy cell
+(large <code>sd_null</code>) <code>mu</code> is small and the gate is weak;</p></li>
+<li><p><code>gate = "z"</code> (opt-in): the row's z exceeds
+<code>max(t_m + mu / 2, t_m + t_s * qt(gate_q, t_df))</code> with the Student-t
+null of the row's class x stratum (<code>tpar</code>, <code><a href="match_depth_null.html">match_depth_null()</a></code>; with
+<code>tpar = NULL</code> the Gaussian null, <code>max(mu / 2, qnorm(gate_q))</code>): the
+midpoint stays as a floor and the null quantile is added on top.
+Over all null-depth rows the gate passes about <code>1 - gate_q</code> of them
+whatever their <code>sd_null</code>; this level is unconditional. Among rows
+already called as gains (weak allelic support), and on female chrX
+(no null rows of its own), the pass rate of null-depth rows is
+higher: up to about two to three times <code>1 - gate_q</code> in simulation.
+The gate is opt-in and has not been benchmarked on real data as a
+default. A row with NA z has no depth support.
+<code>min_dl_gain</code> is not used. The gate is on z, not on <code>dl_gain</code>: the
+Student-t LLR falls back towards 0 for very large z
+(<code><a href="ll_depth_shift.html">ll_depth_shift()</a></code>), so a quantile on <code>dl_gain</code> would reject the
+strongest gains; and</p></li>
+</ul></li>
 <li><p>(class <code>chrom</code>) no nested explanation: no called loss / CN-LOH row of
 the same cell and chromosome in <code>nested</code> classes (arm, 50 Mb, 20 Mb)
 with a higher score.
@@ -94,7 +152,8 @@ A gain failing either rule stays in the table with <code>called = TRUE</code> bu
 <code>nested &lt;region&gt; &lt;state&gt;</code>). With <code>promote</code>, the best (highest-score) nested
 loss / CN-LOH call that explains a dropped chromosome gain is made
 reportable (<code>resolved = "replaces &lt;region&gt; gain"</code>; arm and 50 Mb losses are
-reportable anyway, a 20 Mb one is promoted).</p></li>
+reportable anyway, a 20 Mb one is promoted). Losses are not gated: the
+loss vs CN-LOH label is decided by the scores (<code><a href="score_cells.html">score_cells()</a></code>).</p></li>
 </ol></div>
 
     <div class="section level2">
@@ -105,7 +164,11 @@ reportable anyway, a 20 Mb one is promoted).</p></li>
 <span>  min_dl_gain <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>  classes <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"chrom"</span>, <span class="st">"event"</span><span class="op">)</span>,</span>
 <span>  nested <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"arm"</span>, <span class="st">"50Mb"</span>, <span class="st">"20Mb"</span><span class="op">)</span>,</span>
-<span>  promote <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>  promote <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  gate <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"dl"</span>, <span class="st">"z"</span><span class="op">)</span>,</span>
+<span>  gate_q <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>  tpar <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  params <span class="op">=</span> <span class="fu"><a href="caller_defaults.html">caller_defaults</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -118,11 +181,12 @@ reportable anyway, a 20 Mb one is promoted).</p></li>
 
 
 <dt id="arg-scores">scores<a class="anchor" aria-label="anchor" href="#arg-scores"></a></dt>
-<dd><p>scored rows (<code>cell</code>, <code>region</code>, <code>dl_gain</code>); NULL when <code>calls</code> has <code>dl_gain</code></p></dd>
+<dd><p>scored rows (<code>cell</code>, <code>region</code>, <code>dl_gain</code>; with <code>gate = "z"</code> also <code>z</code>, <code>sd_null</code> and, with
+<code>tpar</code>, <code>class</code>, <code>stratum</code>); NULL when <code>calls</code> has these columns</p></dd>
 
 
 <dt id="arg-min-dl-gain">min_dl_gain<a class="anchor" aria-label="anchor" href="#arg-min-dl-gain"></a></dt>
-<dd><p>minimal gain depth LLR of a reportable gain</p></dd>
+<dd><p>minimal gain depth LLR of a reportable gain (<code>gate = "dl"</code>)</p></dd>
 
 
 <dt id="arg-classes">classes<a class="anchor" aria-label="anchor" href="#arg-classes"></a></dt>
@@ -136,10 +200,32 @@ reportable anyway, a 20 Mb one is promoted).</p></li>
 <dt id="arg-promote">promote<a class="anchor" aria-label="anchor" href="#arg-promote"></a></dt>
 <dd><p>make the explaining nested call reportable</p></dd>
 
+
+<dt id="arg-gate">gate<a class="anchor" aria-label="anchor" href="#arg-gate"></a></dt>
+<dd><p>depth gate of a gain: <code>"dl"</code> (gain depth LLR above <code>min_dl_gain</code>) or <code>"z"</code> (z above the
+midpoint and above the <code>gate_q</code> quantile of the row's depth null)</p></dd>
+
+
+<dt id="arg-gate-q">gate_q<a class="anchor" aria-label="anchor" href="#arg-gate-q"></a></dt>
+<dd><p>null quantile of the <code>"z"</code> gate (0.95: about 5 % of all null-depth rows pass; more among rows
+already called as gains and on female chrX, see Details)</p></dd>
+
+
+<dt id="arg-tpar">tpar<a class="anchor" aria-label="anchor" href="#arg-tpar"></a></dt>
+<dd><p><code>"z"</code> gate: the Student-t fits per class x stratum (<code><a href="fit_depth_null.html">fit_depth_null()</a></code>, completed as in
+<code><a href="caller_normal.html">caller_normal()</a></code>); NULL = the Gaussian depth null N(0, 1). A gated row whose class x stratum has no fit (a named
+<code>event</code>: no null rows) takes the fit of its <code>sd_class</code> (a <code>scores</code> column) in that stratum; without one it is an
+error (<code><a href="match_depth_null.html">match_depth_null()</a></code>); a row with NA class or stratum has no depth support</p></dd>
+
+
+<dt id="arg-params">params<a class="anchor" aria-label="anchor" href="#arg-params"></a></dt>
+<dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code> (<code>shifts</code>, <code>sd_floor</code>; the <code>"z"</code> gate)</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p><code>calls</code> with column <code>resolved</code> (NA = unchanged) and updated <code>reportable</code></p>
+    <p><code>calls</code> with column <code>resolved</code> (NA = unchanged) and updated <code>reportable</code>; with <code>gate = "z"</code> also
+<code>gate_z</code> (the z the gate used) and <code>gate_thr</code> (its z threshold), set on the gated gain rows and NA elsewhere</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

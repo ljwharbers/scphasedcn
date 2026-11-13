@@ -673,3 +673,34 @@ test_that("precomputed features: unused feature-step inputs warn; tumour-mode nu
   expect_warning(try(call_scn(tempdir(), "tumour", features = fe, null_cells = "select", verbose = FALSE), silent = TRUE),
                  "tumour mode fits its input null")
 })
+
+test_that("call_scn: normal_states 'auto' picks the state set from the features' phasing regime; the yaml keys switch it on", {
+  res = norm_result()
+  fe = list(long = copy(res$features), regions = res$regions, cells = res$feature_info$cells, use = res$feature_info$use,
+            phasing = res$feature_info$phasing, phasing_chrom = res$feature_info$phasing_chrom, notes = character())
+  expect_equal(unname(fe$phasing[["detected"]]), "chromosome")
+  # the run's default: the normal set, named in the run notes
+  expect_equal(res$null_fit$state_set, "normal")
+  expect_true(any(grepl("state set normal (normal_states = \"normal\")", res$notes, fixed = TRUE)))
+  # the yaml keys: normal_states and f_att_normal
+  f = tempfile(fileext = ".yaml")
+  writeLines(c("normal_states: \"auto\"", "f_att_normal: [0.75, 0.9, 0.98]"), f)
+  prm = caller_params(f)
+  expect_identical(prm$normal_states, "auto")
+  expect_identical(prm$f_att_normal, c(0.75, 0.9, 0.98))
+  run = function(fe, prm) call_scn(sim_dir("sim_norm_f"), "normal", features = fe, embedding = FALSE, verbose = FALSE,
+                                   keep_scores = TRUE, params = prm, caller_args = list(n_draws = 1000))
+  r1 = run(fe, prm)                                                      # chromosome-scale phase sets -> normal_att
+  expect_equal(r1$null_fit$state_set, "normal_att")
+  expect_true(any(grepl("state set normal_att (normal_states = \"auto\": phasing regime chromosome); loss and CN-LOH rows over f 0.75, 0.9, 0.98",
+                        r1$notes, fixed = TRUE)))
+  expect_true(all(paste0("ar_loss_", 1:3) %in% names(r1$scores)))
+  expect_true("f_state" %in% names(r1$calls))
+  expect_identical(r1$params$normal_states, "auto")
+  expect_false("phasing" %in% names(r1$params$normal))
+  fb = fe; fb$phasing = c(detected = "block", orientation = "loo"); fb$phasing_chrom = NULL
+  r2 = suppressWarnings(run(fb, prm))                                    # block phasing -> normal (and the block warning)
+  expect_equal(r2$null_fit$state_set, "normal")
+  expect_true(any(grepl("state set normal (normal_states = \"auto\": phasing regime block)", r2$notes, fixed = TRUE)))
+  expect_false("f_state" %in% names(r2$calls))
+})

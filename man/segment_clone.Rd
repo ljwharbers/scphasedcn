@@ -14,7 +14,7 @@ segment_clone(
   bal_frac = 0.75,
   min_bal_len = 2e+07,
   max_contra = 0.1,
-  gain_support = 0
+  gain_support = 0.3
 )
 }
 \arguments{
@@ -41,7 +41,7 @@ of its expected shift by more than this takes the best supported copy-neutral st
 
 \item{gain_support}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: an imbalanced gain (diploid window, copy number above the
 window's base) needs a mean log2 of at least this share of its expected shift \code{c * log2(cn / base)}, measured
-against the region's depth offset (per window, the median log2 of the other clones that are 1:1 there with= 50 cells). A run that fails takes the best CN-LOH state if its pooled oriented fraction supports one (asmin_excess); otherwise it keeps its state with label "imbalance" and depth_ok FALSE (allelic imbalancewithout the extra copy: a clone mixing LOH and heterozygous cells, or a genome whose baseline is not 2). 0 = off(no depth_ok column).}
+against the region's depth offset (per window, the median log2 of the other clones that are 1:1 there with= 50 cells). A run that fails takes the best CN-LOH state if its pooled oriented fraction supports one (asmin_excess); otherwise it keeps its state with label "imbalance" and depth_ok FALSE (allelic imbalancewithout the extra copy: a clone mixing LOH and heterozygous cells, or a genome whose baseline is not 2). 0 = off(no depth_ok column; the behaviour up to 0.1.1). Only applies to a fit_clone_states() input.}
 }
 \value{
 segments table (\code{\link[=check_segments]{check_segments()}}) plus \code{label}, \code{ploidy} (and \code{depth_ok} when \code{gain_support} > 0)

@@ -213,7 +213,7 @@ test_that("gain_support: a clone mixing LOH and heterozygous cells on a region w
   p = rbind(pn, pt, pm)
   p[chrom == "chr2" & start >= 20e6, log2 := log2 + 0.12]
   fit = fit_clone_states(p)
-  s0 = segment_clone(fit)
+  s0 = segment_clone(fit, gain_support = 0)
   s1 = segment_clone(fit, gain_support = 0.3)
   expect_false("depth_ok" %in% names(s0))                       # off: the table of earlier versions
   expect_true("depth_ok" %in% names(s1))
@@ -1076,18 +1076,21 @@ test_that("assign_cells(same_groups): two clones with the same states no longer 
   expect_false("post_clone" %in% names(a0))
 })
 
-test_that("caller_tumour: disc_allele, test_allele, same_post, drift_test at their defaults are today's code paths; checked", {
+test_that("caller_tumour: coarse-clone defaults; the 0.1.1 values remain the old code paths; checked", {
   d = clone_defaults()
-  expect_identical(d[c("disc_allele", "test_allele", "same_post", "drift_test")],
-                   list(disc_allele = "z", test_allele = "z", same_post = "clone", drift_test = "none"))
+  expect_identical(d[c("disc_allele", "test_allele", "same_post", "drift_test", "gain_support")],
+                   list(disc_allele = "fraction", test_allele = "centred", same_post = "group", drift_test = "modes_event",
+                        gain_support = 0.3))
   r0 = tum2_result()
-  r1 = caller_tumour(tum2_input(), opts = list(disc_allele = "z", test_allele = "z", same_post = "clone", drift_test = "none"),
-                     verbose = FALSE)
-  # (data.table auto-indices that other tests' queries leave on the cached result are not part of the result)
-  strip = function(x) if (is.data.table(x)) setattr(copy(x), "index", NULL) else if (is.list(x) && !is.data.frame(x)) lapply(x, strip) else x
-  for (nm in c("assignments", "segments", "calls", "clones", "thresholds", "profiles", "events", "null_fit", "notes"))
-    expect_identical(strip(r1[[nm]]), strip(r0[[nm]]))
-  expect_false(any(c("discrete", "post_clone") %in% c(names(r0$null_fit$clones$tests), names(r0$assignments))))
+  r1 = caller_tumour(tum2_input(), opts = list(disc_allele = "z", test_allele = "z", same_post = "clone", drift_test = "none",
+                                               gain_support = 0), verbose = FALSE)
+  # the defaults run the drift test, the group posterior and the gain-support rule; the 0.1.1 values none of them
+  expect_true("discrete" %in% names(r0$null_fit$clones$tests))
+  expect_true("post_clone" %in% names(r0$assignments))
+  expect_true("depth_ok" %in% names(r0$segments))
+  expect_false(any(c("discrete", "post_clone") %in% c(names(r1$null_fit$clones$tests), names(r1$assignments))))
+  expect_false("depth_ok" %in% names(r1$segments))
+  check_segments(r1$segments)
   inp = tum2_input()
   for (k in c("disc_allele", "test_allele", "same_post", "drift_test"))
     expect_error(caller_tumour(inp, opts = stats::setNames(list("x"), k), verbose = FALSE), "should be one of")

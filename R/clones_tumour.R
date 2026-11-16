@@ -42,21 +42,21 @@ utils::globalVariables(c(
 #' verdict runs every permutation. The run notes give the number of tests and the expected false splits
 #' `n_tests x (1 - q)`.
 #'
-#' Allele scale of discovery and tests (opt-in, coverage-free): `disc_allele` = the allelic columns of the discovery
+#' Allele scale of discovery and tests (coverage-free by default since the development version): `disc_allele` = the allelic columns of the discovery
 #' feature matrices ([clone_feature_matrix()], [discover_within()]); `test_allele` = the per-cell allele values of the
-#' merge / split contrast. `"z"` (default) = the standardised count `(nA - n / 2) / sd(n)`, whose expectation in an
+#' merge / split contrast. `"z"` (the default up to 0.1.1) = the standardised count `(nA - n / 2) / sd(n)`, whose expectation in an
 #' imbalanced region grows like `(f - 0.5) sqrt(n)`: deep and shallow cells of one clone form separate leaves and test
-#' different. `"fraction"` = the cell's oriented fraction `nA / n`, whose expectation does not depend on the cell's
+#' different. `"fraction"` (default of `disc_allele`) = the cell's oriented fraction `nA / n`, whose expectation does not depend on the cell's
 #' depth (discovery: in units of the null SD at the region's median vote count, the same scale as `"z"` for a typical
 #' cell; a cell below `min_n` votes gets the region's mean instead of 0; the regions of [discover_within()] are still
-#' selected on `"z"`); `test_allele = "centred"` = the standardised count about the compared cells' pooled fraction
+#' selected on `"z"`); `test_allele = "centred"` (default) = the standardised count about the compared cells' pooled fraction
 #' instead of 1 / 2 (mean 0 at any depth when the two sets share the fraction; weights the cells like `"z"`). The
 #' imbalance term of the contrast (depth support) always uses `"z"`.
 #'
-#' Drift-aware split test (`drift_test`, opt-in): the discovery and test halves of the votes are thinned from the same
+#' Drift-aware split test (`drift_test`, default `"modes_event"`): the discovery and test halves of the votes are thinned from the same
 #' molecules, so a cell-level drift of the haplotype share beyond binomial noise is in both: leaves that discovery cut
 #' along the drift of one clone differ on the test half too, and the permutation null of random splits does not model
-#' that selection. `"none"` (default) = the permutation contrast decides. `"modes"` = a pair the contrast calls
+#' that selection. `"none"` (the default up to 0.1.1) = the permutation contrast decides. `"modes"` = a pair the contrast calls
 #' different stays different when a depth term alone beats the null threshold (the drift is allelic); an allele-driven
 #' difference must in addition be discrete on at least one of the (up to 3) regions whose allele term alone beats the
 #' threshold: the per-cell oriented fractions there of the population under discovery (all leaf cells of the merge: the
@@ -67,7 +67,7 @@ utils::globalVariables(c(
 #' 0.5). The population, not the union of the two clones, is tested because two leaves cut from one continuum can make a
 #' union with two modes. A subclone whose allelic difference is smaller than the drift has no mode of its own and is
 #' merged. The tests tables gain `differ_contrast` (the contrast's verdict), `by_depth`, `discrete`, `mode_p`, `mode_sep`.
-#' `"modes_event"` = `"modes"`, and a pair also stays different when the events of one set are absent from the other:
+#' `"modes_event"` (default) = `"modes"`, and a pair also stays different when the events of one set are absent from the other:
 #' the other set is allelically balanced (oriented by its own other half, |t| <= 2) on at least 75 % of the chromosomes, and on
 #' at least 2 of them, where the first set is imbalanced beyond the null threshold (two lineages), or the other set has no
 #' imbalanced region at all and is balanced on one of them (normal cells against cells with an event; column `by_event`).
@@ -89,13 +89,13 @@ utils::globalVariables(c(
 #' segment rules of [segment_clone()] (all segmentations of the run, including the split pass): `min_excess` (pooled
 #' allelic excess of imbalanced runs), `max_contra` (gains / losses contradicted by depth become copy-neutral), `bal_frac`
 #' and `min_bal_len` (support of balanced 2:2 runs), `gain_support` (an imbalanced gain needs this share of its expected
-#' depth shift against the region's offset, else CN-LOH or label "imbalance" with `depth_ok` FALSE; 0 = off).
+#' depth shift against the region's offset, else CN-LOH or label "imbalance" with `depth_ok` FALSE; default 0.3, 0 = off).
 #' Assignment: `mix_prior`, `mix_w`, `mix_margin`, `mix_rel`,
 #' `mix_min_dist` (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 #' `max_mix_prior`, `min_post` (confident), `member_post` (pseudobulk members), `em_rounds`, `same_dist` (clones whose
 #' states differ on < this many bp within a trunk are merged after each round). `same_post` = the membership posterior
-#' of [assign_cells()] that `min_post` and `member_post` cut: `"clone"` (default) = the best clone's posterior;
-#' `"group"` (opt-in) = summed over the clones of the best clone's trunk whose states differ on < `same_dist` bp (the
+#' of [assign_cells()] that `min_post` and `member_post` cut: `"clone"` (the default up to 0.1.1) = the best clone's
+#' posterior; `"group"` (default) = summed over the clones of the best clone's trunk whose states differ on < `same_dist` bp (the
 #' clones the same-state merge joins; `assignments` gains `post_clone`, the single clone's posterior). Two clones with
 #' the same states otherwise share each cell's posterior, few cells reach `member_post`, both can fall below
 #' `min_size` and be dropped before the merge, and their cells end in another clone (e.g. the normal clone).
@@ -131,15 +131,15 @@ utils::globalVariables(c(
 #' @return named list (see [caller_tumour()])
 #' @export
 clone_defaults = function() {
-  list(classes = c("arm", "20Mb"), depth_delta = 0.2, cap = 6, min_n = 5, disc_allele = "z", test_allele = "z", n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
-       q = 0.999, n_perm = 200, perm_decision = "quantile", drift_test = "none", max_cells = 250, size_small = 5e6, small_clone = 50,
+  list(classes = c("arm", "20Mb"), depth_delta = 0.2, cap = 6, min_n = 5, disc_allele = "fraction", test_allele = "centred", n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
+       q = 0.999, n_perm = 200, perm_decision = "quantile", drift_test = "modes_event", max_cells = 250, size_small = 5e6, small_clone = 50,
        split_depth = TRUE,
        trunk_dist = 3e7, trunk_post = 0.9, disp_min = 1.5, imb_min = 1, deep_q = 0.5, depth_w = 1,
        max_leaves_trunk = 20, n_nb_trunk = Inf, split_pass = FALSE, split_sep = 2, split_max = 4, split_cand = 3,
        split_min_len = 1e7, split_min_df = 0.15, split_min_excess = 0.05,
-       p_switch = 1e-3, min_win = 3, min_llr = 10, min_excess = 0.5, max_contra = 0.1, bal_frac = 0.75, min_bal_len = 2e7, gain_support = 0,
+       p_switch = 1e-3, min_win = 3, min_llr = 10, min_excess = 0.5, max_contra = 0.1, bal_frac = 0.75, min_bal_len = 2e7, gain_support = 0.3,
        mix_prior = 0.05, mix_w = c(1 / 3, 1 / 2, 2 / 3), mix_margin = 10,
-       mix_rel = 0.1, mix_min_dist = 3e7, max_mix_prior = 0.5, min_post = 0.9, member_post = 0.9, same_post = "clone", em_rounds = 2, same_dist = 5e6,
+       mix_rel = 0.1, mix_min_dist = 3e7, max_mix_prior = 0.5, min_post = 0.9, member_post = 0.9, same_post = "group", em_rounds = 2, same_dist = 5e6,
        ref_post = 0.9, min_ref = 30, doublet_delta = 10, multiplet_prob = 0.9, control_min_len = 2e7,
        repass = TRUE, allelic_exclude = c("chrX", "chrY"), checkpoint = "", normal_hypothesis = TRUE,
        normal_min_event = 1e7, ref_null = "none", confirm_null = "matched", confirm_sided = "two")

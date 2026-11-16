@@ -22,21 +22,21 @@ verdict runs every permutation. The run notes give the number of tests and the e
 \verb{n_tests x (1 - q)}.
 }
 \details{
-Allele scale of discovery and tests (opt-in, coverage-free): \code{disc_allele} = the allelic columns of the discovery
+Allele scale of discovery and tests (coverage-free by default since the development version): \code{disc_allele} = the allelic columns of the discovery
 feature matrices (\code{\link[=clone_feature_matrix]{clone_feature_matrix()}}, \code{\link[=discover_within]{discover_within()}}); \code{test_allele} = the per-cell allele values of the
-merge / split contrast. \code{"z"} (default) = the standardised count \code{(nA - n / 2) / sd(n)}, whose expectation in an
+merge / split contrast. \code{"z"} (the default up to 0.1.1) = the standardised count \code{(nA - n / 2) / sd(n)}, whose expectation in an
 imbalanced region grows like \verb{(f - 0.5) sqrt(n)}: deep and shallow cells of one clone form separate leaves and test
-different. \code{"fraction"} = the cell's oriented fraction \code{nA / n}, whose expectation does not depend on the cell's
+different. \code{"fraction"} (default of \code{disc_allele}) = the cell's oriented fraction \code{nA / n}, whose expectation does not depend on the cell's
 depth (discovery: in units of the null SD at the region's median vote count, the same scale as \code{"z"} for a typical
 cell; a cell below \code{min_n} votes gets the region's mean instead of 0; the regions of \code{\link[=discover_within]{discover_within()}} are still
-selected on \code{"z"}); \code{test_allele = "centred"} = the standardised count about the compared cells' pooled fraction
+selected on \code{"z"}); \code{test_allele = "centred"} (default) = the standardised count about the compared cells' pooled fraction
 instead of 1 / 2 (mean 0 at any depth when the two sets share the fraction; weights the cells like \code{"z"}). The
 imbalance term of the contrast (depth support) always uses \code{"z"}.
 
-Drift-aware split test (\code{drift_test}, opt-in): the discovery and test halves of the votes are thinned from the same
+Drift-aware split test (\code{drift_test}, default \code{"modes_event"}): the discovery and test halves of the votes are thinned from the same
 molecules, so a cell-level drift of the haplotype share beyond binomial noise is in both: leaves that discovery cut
 along the drift of one clone differ on the test half too, and the permutation null of random splits does not model
-that selection. \code{"none"} (default) = the permutation contrast decides. \code{"modes"} = a pair the contrast calls
+that selection. \code{"none"} (the default up to 0.1.1) = the permutation contrast decides. \code{"modes"} = a pair the contrast calls
 different stays different when a depth term alone beats the null threshold (the drift is allelic); an allele-driven
 difference must in addition be discrete on at least one of the (up to 3) regions whose allele term alone beats the
 threshold: the per-cell oriented fractions there of the population under discovery (all leaf cells of the merge: the
@@ -47,7 +47,7 @@ subclone adds one), and the two clones lie on different sides of the antimode (t
 0.5). The population, not the union of the two clones, is tested because two leaves cut from one continuum can make a
 union with two modes. A subclone whose allelic difference is smaller than the drift has no mode of its own and is
 merged. The tests tables gain \code{differ_contrast} (the contrast's verdict), \code{by_depth}, \code{discrete}, \code{mode_p}, \code{mode_sep}.
-\code{"modes_event"} = \code{"modes"}, and a pair also stays different when the events of one set are absent from the other:
+\code{"modes_event"} (default) = \code{"modes"}, and a pair also stays different when the events of one set are absent from the other:
 the other set is allelically balanced (oriented by its own other half, |t| <= 2) on at least 75 \% of the chromosomes, and on
 at least 2 of them, where the first set is imbalanced beyond the null threshold (two lineages), or the other set has no
 imbalanced region at all and is balanced on one of them (normal cells against cells with an event; column \code{by_event}).
@@ -69,13 +69,13 @@ non-neutral segment >= \code{normal_min_event} bp in each round. States: \code{s
 segment rules of \code{\link[=segment_clone]{segment_clone()}} (all segmentations of the run, including the split pass): \code{min_excess} (pooled
 allelic excess of imbalanced runs), \code{max_contra} (gains / losses contradicted by depth become copy-neutral), \code{bal_frac}
 and \code{min_bal_len} (support of balanced 2:2 runs), \code{gain_support} (an imbalanced gain needs this share of its expected
-depth shift against the region's offset, else CN-LOH or label "imbalance" with \code{depth_ok} FALSE; 0 = off).
+depth shift against the region's offset, else CN-LOH or label "imbalance" with \code{depth_ok} FALSE; default 0.3, 0 = off).
 Assignment: \code{mix_prior}, \code{mix_w}, \code{mix_margin}, \code{mix_rel},
 \code{mix_min_dist} (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 \code{max_mix_prior}, \code{min_post} (confident), \code{member_post} (pseudobulk members), \code{em_rounds}, \code{same_dist} (clones whose
 states differ on < this many bp within a trunk are merged after each round). \code{same_post} = the membership posterior
-of \code{\link[=assign_cells]{assign_cells()}} that \code{min_post} and \code{member_post} cut: \code{"clone"} (default) = the best clone's posterior;
-\code{"group"} (opt-in) = summed over the clones of the best clone's trunk whose states differ on < \code{same_dist} bp (the
+of \code{\link[=assign_cells]{assign_cells()}} that \code{min_post} and \code{member_post} cut: \code{"clone"} (the default up to 0.1.1) = the best clone's
+posterior; \code{"group"} (default) = summed over the clones of the best clone's trunk whose states differ on < \code{same_dist} bp (the
 clones the same-state merge joins; \code{assignments} gains \code{post_clone}, the single clone's posterior). Two clones with
 the same states otherwise share each cell's posterior, few cells reach \code{member_post}, both can fall below
 \code{min_size} and be dropped before the merge, and their cells end in another clone (e.g. the normal clone).

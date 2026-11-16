@@ -378,11 +378,11 @@ seg_path = function(E, p_switch, lw, min_win) {
 #'   >= 50 cells). A run that fails takes the best CN-LOH state if its pooled oriented fraction supports one (as
 #'   `min_excess`); otherwise it keeps its state with `label` "imbalance" and `depth_ok` FALSE (allelic imbalance
 #'   without the extra copy: a clone mixing LOH and heterozygous cells, or a genome whose baseline is not 2). 0 = off
-#'   (no `depth_ok` column).
+#'   (no `depth_ok` column; the behaviour up to 0.1.1). Only applies to a [fit_clone_states()] input.
 #' @return segments table ([check_segments()]) plus `label`, `ploidy` (and `depth_ok` when `gain_support` > 0)
 #' @export
 segment_clone = function(ll, p_switch = 1e-3, min_win = 3, grid = NULL, min_llr = 10, min_excess = 0.5, bal_frac = 0.75,
-                         min_bal_len = 2e7, max_contra = 0.1, gain_support = 0) {
+                         min_bal_len = 2e7, max_contra = 0.1, gain_support = 0.3) {
   win = NULL; par = NULL
   if (inherits(ll, "clone_states")) { win = ll$windows; par = ll$par; grid = grid %||% ll$grid; ll = ll$ll }
   grid = grid %||% cn_grid()

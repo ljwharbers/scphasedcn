@@ -86,7 +86,7 @@ if (isTRUE(a$save_tracks) && !nzchar(a$tracks)) saveRDS(tr, file.path(out, "trac
 # groups: clone (tumour) or stratum (normal); cells by decreasing fragment count
 m = copy(tr$meta)
 m[, grp := if (res$mode == "tumour") fifelse(is.na(clone), "noclone", clone) else fifelse(is.na(stratum), "all", stratum)]
-m[, grp := gsub("[^A-Za-z0-9_.-]", "_", grp)]
+m[, grp := gsub("[^A-Za-z0-9_.-]", "_", sub("^>=", "ge", sub("^<", "lt", grp)))]   # strata "<20k" -> lt20k, ">=50k" -> ge50k
 m = m[order(grp, -n_frag)]
 m[, k := (seq_len(.N) - 1L) %/% a$chunk + 1L, by = grp]
 m[, n_k := max(k), by = grp]

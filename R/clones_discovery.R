@@ -1109,7 +1109,7 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
                           size = size, seed = seed, cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms,
                           haploid = inp$haploid, min_ref = opts$min_ref)
     segment_clone(fit_states(prof, grid), opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac,
-                  opts$min_bal_len, opts$max_contra)
+                  opts$min_bal_len, opts$max_contra, opts$gain_support %||% 0)
   }
   done = character(); n_tested = list(); moved = list()
   for (ii in ord) {

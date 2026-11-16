@@ -45,4 +45,6 @@ than \code{min_len} are then absorbed into an adjacent piece of the same chromos
 whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
 the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
 not merged here: merging needs the common haplotype orientation and is done by \code{\link[=medicc2_table]{medicc2_table()}}.
+Segments labelled \code{imbalance} (allelic imbalance without depth support, \code{segment_clone(gain_support = )}) enter as
+1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.
 }

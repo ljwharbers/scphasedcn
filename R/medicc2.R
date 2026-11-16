@@ -18,6 +18,8 @@
 #' whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
 #' the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
 #' not merged here: merging needs the common haplotype orientation and is done by [medicc2_table()].
+#' Segments labelled `imbalance` (allelic imbalance without depth support, `segment_clone(gain_support = )`) enter as
+#' 1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.
 #' @param segments segments table (`clone, chrom, start, end, state, cn, label, ploidy`; `nA, nB, f` optional)
 #' @param clones clones table (`clone`, `doublet`, `n_assigned`); NULL keeps every clone of `segments`
 #' @param min_len pieces shorter than this (bp) are absorbed into a neighbour
@@ -53,6 +55,9 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = Inf,
   for (v in c("nA", "nB", "f")) if (!v %in% names(sg)) sg[, (v) := NA_real_]
   if (!"label" %in% names(sg)) sg[, label := state_label(major, minor, ploidy)]
   if (!"cn" %in% names(sg)) sg[, cn := major + minor]
+  # imbalanced runs without depth support (segment_clone(gain_support = )): copy-neutral for the tree (no extra copy)
+  if (any(sg$label == "imbalance"))
+    sg[label == "imbalance", `:=`(state = "1:1", major = nA_of("1:1"), minor = nB_of("1:1"), cn = 2 + 0 * cn, label = "neutral")]
   pcs = segment_pieces(sg)[, .(region, chrom, start, end)]
   n_raw = nrow(pcs)
   st = sg[pcs[, .(region, chrom, mid = (start + end) / 2)], on = .(chrom, start <= mid, end > mid),

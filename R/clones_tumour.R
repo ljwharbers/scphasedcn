@@ -88,7 +88,8 @@ utils::globalVariables(c(
 #' non-neutral segment >= `normal_min_event` bp in each round. States: `size_small`, `small_clone`, `p_switch`, `min_win`, `min_llr`;
 #' segment rules of [segment_clone()] (all segmentations of the run, including the split pass): `min_excess` (pooled
 #' allelic excess of imbalanced runs), `max_contra` (gains / losses contradicted by depth become copy-neutral), `bal_frac`
-#' and `min_bal_len` (support of balanced 2:2 runs).
+#' and `min_bal_len` (support of balanced 2:2 runs), `gain_support` (an imbalanced gain needs this share of its expected
+#' depth shift against the region's offset, else CN-LOH or label "imbalance" with `depth_ok` FALSE; 0 = off).
 #' Assignment: `mix_prior`, `mix_w`, `mix_margin`, `mix_rel`,
 #' `mix_min_dist` (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 #' `max_mix_prior`, `min_post` (confident), `member_post` (pseudobulk members), `em_rounds`, `same_dist` (clones whose
@@ -136,7 +137,7 @@ clone_defaults = function() {
        trunk_dist = 3e7, trunk_post = 0.9, disp_min = 1.5, imb_min = 1, deep_q = 0.5, depth_w = 1,
        max_leaves_trunk = 20, n_nb_trunk = Inf, split_pass = FALSE, split_sep = 2, split_max = 4, split_cand = 3,
        split_min_len = 1e7, split_min_df = 0.15, split_min_excess = 0.05,
-       p_switch = 1e-3, min_win = 3, min_llr = 10, min_excess = 0.5, max_contra = 0.1, bal_frac = 0.75, min_bal_len = 2e7,
+       p_switch = 1e-3, min_win = 3, min_llr = 10, min_excess = 0.5, max_contra = 0.1, bal_frac = 0.75, min_bal_len = 2e7, gain_support = 0,
        mix_prior = 0.05, mix_w = c(1 / 3, 1 / 2, 2 / 3), mix_margin = 10,
        mix_rel = 0.1, mix_min_dist = 3e7, max_mix_prior = 0.5, min_post = 0.9, member_post = 0.9, same_post = "clone", em_rounds = 2, same_dist = 5e6,
        ref_post = 0.9, min_ref = 30, doublet_delta = 10, multiplet_prob = 0.9, control_min_len = 2e7,
@@ -166,7 +167,7 @@ check_clone_opts = function(opts) {
   opts$test_allele = match.arg(as.character(opts$test_allele)[1], c("z", "fraction", "centred"))
   opts$same_post = match.arg(as.character(opts$same_post)[1], c("clone", "group"))
   opts$drift_test = match.arg(as.character(opts$drift_test)[1], c("none", "modes", "modes_event"))
-  for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len")) {
+  for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len", "gain_support")) {
     v = opts[[k]]
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
       stop("caller_tumour: opts$", k, " (segment_clone() rule) must be one number >= 0, not ", paste(format(v), collapse = ", "), call. = FALSE)
@@ -475,7 +476,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                           rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid)
       f0 = fit_states(p0, grid)
       s0 = segment_clone(f0, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
-                        opts$max_contra)
+                        opts$max_contra, opts$gain_support)
       dirty = s0[label != "neutral" & nA_of(state) != nB_of(state) & (end - start) >= 1e7, unique(clone)]
       bal = p0[n_hap > 0 & ploidy == 2, .(imb = mean((nA - n_hap / 2)^2 / (n_hap / 4))), by = clone]
       bal = bal[clone %in% sz[N >= opts$min_ref, clone] & !clone %in% dirty]
@@ -492,7 +493,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                           cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid, min_ref = opts$min_ref)
     fit = fit_states(prof, grid)
     seg = segment_clone(fit, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
-                       opts$max_contra)
+                       opts$max_contra, opts$gain_support)
     list(profiles = prof, fit = fit, segments = seg, ref = if (length(ref_cells) >= opts$min_ref) ref_cells else character())
   }
   doublet_clones = character()

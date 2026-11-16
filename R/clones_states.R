@@ -372,10 +372,17 @@ seg_path = function(E, p_switch, lw, min_win) {
 #'   (0 = off)
 #' @param max_contra with a [fit_clone_states()] input: an imbalanced gain / loss whose mean log2 has the opposite sign
 #'   of its expected shift by more than this takes the best supported copy-neutral state (CN-LOH or 1:1; Inf = off)
-#' @return segments table ([check_segments()]) plus `label`, `ploidy`
+#' @param gain_support with a [fit_clone_states()] input: an imbalanced gain (diploid window, copy number above the
+#'   window's base) needs a mean log2 of at least this share of its expected shift `c * log2(cn / base)`, measured
+#'   against the region's depth offset (per window, the median log2 of the other clones that are 1:1 there with
+#'   >= 50 cells). A run that fails takes the best CN-LOH state if its pooled oriented fraction supports one (as
+#'   `min_excess`); otherwise it keeps its state with `label` "imbalance" and `depth_ok` FALSE (allelic imbalance
+#'   without the extra copy: a clone mixing LOH and heterozygous cells, or a genome whose baseline is not 2). 0 = off
+#'   (no `depth_ok` column).
+#' @return segments table ([check_segments()]) plus `label`, `ploidy` (and `depth_ok` when `gain_support` > 0)
 #' @export
 segment_clone = function(ll, p_switch = 1e-3, min_win = 3, grid = NULL, min_llr = 10, min_excess = 0.5, bal_frac = 0.75,
-                         min_bal_len = 2e7, max_contra = 0.1) {
+                         min_bal_len = 2e7, max_contra = 0.1, gain_support = 0) {
   win = NULL; par = NULL
   if (inherits(ll, "clone_states")) { win = ll$windows; par = ll$par; grid = grid %||% ll$grid; ll = ll$ll }
   grid = grid %||% cn_grid()
@@ -386,7 +393,9 @@ segment_clone = function(ll, p_switch = 1e-3, min_win = 3, grid = NULL, min_llr 
   g = grid[match(st, state)]
   lw = g$prior - max(g$prior)
   out = list()
+  keep = list()   # per clone x chromosome: windows, emissions, final path (the gain-support pass needs every clone's path)
   for (k in unique(ll$clone)) for (ch in unique(ll[clone == k, chrom])) {
+    wk = NULL; pk = NULL
     d = ll[clone == k & chrom == ch]
     wn = unique(d[, .(window, start, end, ploidy)])[order(start)]
     E = matrix(-Inf, nrow(wn), length(st))
@@ -450,15 +459,25 @@ segment_clone = function(ll, p_switch = 1e-3, min_win = 3, grid = NULL, min_llr 
         }
       }
     }
-    r = rle(path); ends = cumsum(r$lengths); sts = ends - r$lengths + 1
+    keep[[length(keep) + 1]] = list(k = k, ch = ch, wn = wn, E = E, path = path, wk = wk, pk = pk,
+                                    nodepth = logical(nrow(wn)))
+  }
+  gs_on = is.finite(gain_support) && gain_support > 0 && !is.null(win) && !is.null(par)
+  if (gs_on) keep = gain_support_pass(keep, st, g, gain_support, min_excess)
+  for (it in keep) {
+    k = it$k; ch = it$ch; wn = it$wn; E = it$E; path = it$path
+    # a flagged run is its own segment even when a neighbour has the same state with depth support
+    key = paste(path, it$nodepth)
+    r = rle(key); ends = cumsum(r$lengths); sts = ends - r$lengths + 1
     for (j in seq_along(r$values)) {
       rows = sts[j]:ends[j]
-      s_ = r$values[j]
+      s_ = path[rows[1]]
       pl = wn$ploidy[rows[1]]
       n0 = if (pl == 1) which(st == "1:0") else which(st == "1:1")
       llr = sum(E[rows, s_]) - sum(E[rows, n0])
       out[[length(out) + 1]] = data.table(clone = k, chrom = ch, start = wn$start[rows[1]], end = wn$end[rows[length(rows)]],
                                           n_win = length(rows), state = st[s_], ploidy = pl, llr = llr,
+                                          depth_ok = !it$nodepth[rows[1]],
                                           w_from = wn$window[rows[1]], w_ids = list(wn$window[rows]))
     }
   }
@@ -466,6 +485,7 @@ segment_clone = function(ll, p_switch = 1e-3, min_win = 3, grid = NULL, min_llr 
   seg[, `:=`(nA_s = g$nA[match(state, g$state)], nB_s = g$nB[match(state, g$state)])]
   seg[, cn := as.integer(nA_s + nB_s)]
   seg[, label := state_label(nA_s, nB_s, ploidy, grid)]
+  if (gs_on) seg[depth_ok == FALSE, label := "imbalance"] else seg[, depth_ok := NULL]
   if (!is.null(win)) {
     sm = rbindlist(lapply(seq_len(nrow(seg)), function(i) {
       wv = win[clone == seg$clone[i] & window %in% seg$w_ids[[i]]]
@@ -477,9 +497,55 @@ segment_clone = function(ll, p_switch = 1e-3, min_win = 3, grid = NULL, min_llr 
   seg[, confident := label == "neutral" | llr > min_llr]
   seg[, c("w_from", "w_ids", "nA_s", "nB_s") := NULL]
   seg[, n_win := as.integer(n_win)]
-  setcolorder(seg, c("clone", "chrom", "start", "end", "n_win", "nA", "nB", "cn", "state", "log2", "f", "llr", "confident", "label", "ploidy"))
+  setcolorder(seg, intersect(c("clone", "chrom", "start", "end", "n_win", "nA", "nB", "cn", "state", "log2", "f", "llr", "confident",
+                               "label", "ploidy", "depth_ok"), names(seg)))
   seg = seg[order(clone, chrom_rank(chrom), start)]
   check_segments(seg)
   seg[]
 }
-utils::globalVariables(c("w_ids", "w_from"))
+utils::globalVariables(c("w_ids", "w_from", "depth_ok"))
+
+# gain-support pass of segment_clone(): `keep` holds per clone x chromosome the windows (wn), emissions (E), final path,
+# the clone's profile windows (wk) and parameters (pk). The regional depth offset of a window is the median log2 of the
+# clones that are 1:1 there (diploid window, >= 50 cells); a clone's own window never enters its offset because only
+# non-1:1 runs are tested. An imbalanced gain whose run log2 minus the run's mean offset is below gain_support x its
+# expected shift takes the best CN-LOH state when its pooled oriented fraction supports one (as min_excess), else it is
+# flagged (nodepth = TRUE) and keeps its state.
+gain_support_pass = function(keep, st, g, gain_support, min_excess) {
+  n11 = which(st == "1:1")
+  if (!length(n11)) return(keep)
+  ref = rbindlist(lapply(keep, function(it) {
+    if (is.null(it$wk) || !all(c("log2", "n_cells") %in% names(it$wk))) return(NULL)
+    ok = it$path == n11 & it$wn$ploidy == 2 & it$wk$n_cells >= 50 & is.finite(it$wk$log2)
+    if (!any(ok)) return(NULL)
+    data.table(window = it$wn$window[ok], log2 = it$wk$log2[ok])
+  }))
+  off = if (nrow(ref)) ref[, .(off = stats::median(log2)), by = window] else data.table(window = character(), off = numeric())
+  for (i in seq_along(keep)) {
+    it = keep[[i]]
+    wk = it$wk; pk = it$pk
+    if (is.null(wk) || is.null(pk) || nrow(pk) != 1) next
+    path = it$path
+    r = rle(path); ends = cumsum(r$lengths); sts = ends - r$lengths + 1
+    for (j in seq_along(r$values)) {
+      rows = sts[j]:ends[j]
+      s_ = r$values[j]
+      base_ = wk$base[rows[1]] %||% 2
+      if (it$wn$ploidy[rows[1]] != 2 || g$nA[s_] == g$nB[s_] || g$cn[s_] <= base_) next
+      exp_ = pk$c * log2(g$cn[s_] / base_)
+      obs_ = mean(wk$log2[rows], na.rm = TRUE)
+      o_ = off$off[match(it$wn$window[rows], off$window)]
+      o_ = if (any(is.finite(o_))) mean(o_, na.rm = TRUE) else 0
+      if (!is.finite(obs_) || !is.finite(exp_) || exp_ <= 0 || obs_ - o_ >= gain_support * exp_) next
+      nh = sum(wk$n_hap[rows], na.rm = TRUE)
+      fo = if (nh > 0) sum(wk$nA[rows], na.rm = TRUE) / nh else 0.5
+      cn2 = which(g$cn == 2 & g$nA != g$nB)
+      if (is.finite(min_excess) && min_excess > 0) cn2 = cn2[(fo - 0.5) >= min_excess * pk$a * (g$f[cn2] - 0.5)]
+      if (length(cn2)) path[rows] = cn2[which.max(colSums(it$E[rows, cn2, drop = FALSE]))]
+      else it$nodepth[rows] = TRUE
+    }
+    it$path = path
+    keep[[i]] = it
+  }
+  keep
+}

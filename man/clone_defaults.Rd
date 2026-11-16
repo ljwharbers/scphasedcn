@@ -68,7 +68,8 @@ Normal hypothesis (\code{normal_hypothesis}): a fixed all-neutral clone \code{N0
 non-neutral segment >= \code{normal_min_event} bp in each round. States: \code{size_small}, \code{small_clone}, \code{p_switch}, \code{min_win}, \code{min_llr};
 segment rules of \code{\link[=segment_clone]{segment_clone()}} (all segmentations of the run, including the split pass): \code{min_excess} (pooled
 allelic excess of imbalanced runs), \code{max_contra} (gains / losses contradicted by depth become copy-neutral), \code{bal_frac}
-and \code{min_bal_len} (support of balanced 2:2 runs).
+and \code{min_bal_len} (support of balanced 2:2 runs), \code{gain_support} (an imbalanced gain needs this share of its expected
+depth shift against the region's offset, else CN-LOH or label "imbalance" with \code{depth_ok} FALSE; 0 = off).
 Assignment: \code{mix_prior}, \code{mix_w}, \code{mix_margin}, \code{mix_rel},
 \code{mix_min_dist} (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 \code{max_mix_prior}, \code{min_post} (confident), \code{member_post} (pseudobulk members), \code{em_rounds}, \code{same_dist} (clones whose

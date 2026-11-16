@@ -202,6 +202,65 @@ test_that("segment_clone reproduces a hand-made 3-segment chromosome", {
   expect_equal(seg$cn, c(2L, 1L, 3L))
 })
 
+test_that("gain_support: a clone mixing LOH and heterozygous cells on a region with a depth offset gets no gain", {
+  # issue #4: a regional depth offset shared by all clones (+0.12 log2 on chr2 20-40 Mb) and a clone whose cells are
+  # half 2:0 there (oriented fraction between the pure states) -> without the rule a gain state can win
+  s = fake_states()
+  pn = fake_clone_profile(rep("1:1", 120), clone = "N", seed = 2)
+  pt = fake_clone_profile(s, clone = "T", seed = 3)
+  sm = rep("1:1", 120); sm[40 + 21:40] = "2:0"
+  pm = fake_clone_profile(NULL, clone = "M", seed = 6, mix = list(rep("1:1", 120), sm))
+  p = rbind(pn, pt, pm)
+  p[chrom == "chr2" & start >= 20e6, log2 := log2 + 0.12]
+  fit = fit_clone_states(p)
+  s0 = segment_clone(fit)
+  s1 = segment_clone(fit, gain_support = 0.3)
+  expect_false("depth_ok" %in% names(s0))                       # off: the table of earlier versions
+  expect_true("depth_ok" %in% names(s1))
+  at = function(seg, k) seg[clone == k & chrom == "chr2" & start <= 30e6 & end > 30e6]
+  m0 = s0[clone == "M" & chrom == "chr2" & state != "1:1"]
+  expect_true(any(m0$label %in% c("gain", "gain_as", "amp")))     # the failure: a gain at a depth ~ the offset
+  # the true gain keeps its state and depth support
+  expect_equal(at(s1, "T")$state, "2:1"); expect_true(at(s1, "T")$depth_ok)
+  expect_equal(at(s1, "N")$state, "1:1")
+  # the mixture clone: CN-LOH, or its imbalanced state flagged without depth support; never a supported gain
+  m1 = s1[clone == "M" & chrom == "chr2" & state != "1:1"]
+  expect_true(nrow(m1) > 0)
+  expect_true(all(m1$state == "2:0" | (m1$label == "imbalance" & !m1$depth_ok)))
+  expect_false(any(m1$label %in% c("gain", "gain_as", "amp") & m1$depth_ok))
+  # everything outside the tested runs is unchanged
+  key = c("clone", "chrom", "start", "end", "state")
+  expect_equal(s1[!(clone == "M" & chrom == "chr2"), ..key], s0[!(clone == "M" & chrom == "chr2"), ..key])
+})
+
+test_that("gain_support flags an imbalanced gain without depth when CN-LOH is not supported", {
+  # hand-made windows: one clone with a 2:1 run at f ~ 0.6 and no depth shift, a 1:1 reference clone
+  g = cn_grid()
+  mk = function(k, st_true, lg, fo) {
+    w = data.table(clone = k, chrom = "chr4", start = (0:29) * 1e6)
+    w[, `:=`(end = start + 1e6, window = paste0("chr4:", format(start, scientific = FALSE, trim = TRUE)), ploidy = 2L,
+             base = 2L, n_cells = 200L, log2 = lg, n_hap = 400L)]
+    w[, nA := as.integer(round(fo * n_hap))]
+    w
+  }
+  wa = mk("A", "2:1", 0.01, 0.6); wb = mk("B", "1:1", 0, 0.5)
+  ll = rbind(CJ(clone = "A", w = 1:30, state = g$state), CJ(clone = "B", w = 1:30, state = g$state))
+  ll[, `:=`(chrom = "chr4", start = (w - 1) * 1e6, end = w * 1e6)]
+  ll[, ll := fifelse(clone == "A", fifelse(state == "2:1", 0, -5), fifelse(state == "1:1", 0, -5))]
+  ll[, ll_a := ll]                            # the allele channel supports the 2:1 run of A
+  cs = structure(list(ll = ll[, !"w"], windows = rbind(wa, wb), par = data.table(clone = c("A", "B"), c = 0.8, a = 0.9),
+                      grid = g), class = "clone_states")
+  s1 = segment_clone(cs, min_excess = 0.5, gain_support = 0.3)
+  a = s1[clone == "A"]
+  expect_equal(a$state, "2:1")
+  expect_equal(a$label, "imbalance")
+  expect_false(a$depth_ok)
+  expect_true(s1[clone == "B", depth_ok])
+  # with depth support the same run is a gain
+  cs$windows[clone == "A", log2 := 0.45]
+  expect_equal(segment_clone(cs, min_excess = 0.5, gain_support = 0.3)[clone == "A", label], "gain")
+})
+
 test_that("cl_orient (orient_blocks) orients blocks by the group pseudobulk with the cell left out", {
   atoms = fake_atoms()
   cl = rep(c("A", "B"), each = 30)
@@ -319,10 +378,11 @@ test_that("caller_tumour stops on unknown or invalid tumour options before any w
   expect_identical(scphasedcn:::check_clone_opts(list()), clone_defaults())
   expect_identical(scphasedcn:::check_clone_opts(list(split_pass = "disagree"))$split_pass, "disagree")
   # segment_clone() rules: clone_defaults() keys with segment_clone()'s defaults, checked as numbers >= 0
-  rules = c("min_excess", "max_contra", "bal_frac", "min_bal_len")
+  rules = c("min_excess", "max_contra", "bal_frac", "min_bal_len", "gain_support")
   expect_equal(clone_defaults()[rules], lapply(formals(segment_clone)[rules], eval))
-  expect_identical(scphasedcn:::check_clone_opts(list(max_contra = Inf, min_excess = 0))[rules],
-                   list(min_excess = 0, max_contra = Inf, bal_frac = 0.75, min_bal_len = 2e7))
+  expect_identical(scphasedcn:::check_clone_opts(list(max_contra = Inf, min_excess = 0, gain_support = 0.5))[rules],
+                   list(min_excess = 0, max_contra = Inf, bal_frac = 0.75, min_bal_len = 2e7, gain_support = 0.5))
+  expect_error(caller_tumour(inp, opts = list(gain_support = -0.1), verbose = FALSE), "gain_support")
   expect_error(caller_tumour(inp, opts = list(bal_frac = -1), verbose = FALSE), "bal_frac")
   expect_error(caller_tumour(inp, opts = list(min_bal_len = "x"), verbose = FALSE), "min_bal_len")
 })

@@ -1,3 +1,17 @@
+# scphasedcn (development version)
+
+* Tumour mode, `gain_support` (`segment_clone()`, `clone_defaults()`): an imbalanced gain state needs depth
+  support against the region's offset in the other clones. A run without it becomes CN-LOH when its allelic excess
+  supports that, otherwise it keeps its state with `label` `imbalance` and a new `depth_ok` column FALSE. MEDICC2
+  input treats such runs as 1:1. It addresses clones that mix LOH and heterozygous cells being fitted with false
+  gain states (issue #4).
+* **Tumour-mode defaults changed to coarse, reproducible clones.** `disc_allele = "fraction"`, `test_allele = "centred"`,
+  `drift_test = "modes_event"`, `same_post = "group"` and `gain_support = 0.3` are now the defaults of
+  `clone_defaults()` and `caller.yaml`. On the lab's tumour benchmarks this gives fewer clones and doublet clones and
+  much better seed agreement. Allele-only subclones smaller than the cell-level haplotype drift are merged.
+  Set the five options back to `"z"`, `"z"`, `"none"`, `"clone"` and 0 for the behaviour of 0.1.1. Normal mode is
+  unchanged.
+
 # scphasedcn 0.1.1
 
 * Extractor (Python): the `read_id` of a read whose name does not follow the SPLONGGET convention

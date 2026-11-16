@@ -25,7 +25,8 @@ segment_clone(
   min_excess = 0.5,
   bal_frac = 0.75,
   min_bal_len = 2e+07,
-  max_contra = 0.1
+  max_contra = 0.1,
+  gain_support = 0.3
 )
 ```
 
@@ -80,8 +81,24 @@ segment_clone(
   of its expected shift by more than this takes the best supported
   copy-neutral state (CN-LOH or 1:1; Inf = off)
 
+- gain_support:
+
+  with a
+  [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
+  input: an imbalanced gain (diploid window, copy number above the
+  window's base) needs a mean log2 of at least this share of its
+  expected shift `c * log2(cn / base)`, measured against the region's
+  depth offset (per window, the median log2 of the other clones that are
+  1:1 there with= 50 cells). A run that fails takes the best CN-LOH
+  state if its pooled oriented fraction supports one (asmin_excess);
+  otherwise it keeps its state with label "imbalance" and depth_ok FALSE
+  (allelic imbalancewithout the extra copy: a clone mixing LOH and
+  heterozygous cells, or a genome whose baseline is not 2). 0 = off(no
+  depth_ok column; the behaviour up to 0.1.1). Only applies to a
+  fit_clone_states() input.
+
 ## Value
 
 segments table
 ([`check_segments()`](https://ljwharbers.github.io/scphasedcn/reference/check_tables.md))
-plus `label`, `ploidy`
+plus `label`, `ploidy` (and `depth_ok` when `gain_support` \> 0)

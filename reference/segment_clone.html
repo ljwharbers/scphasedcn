@@ -69,7 +69,8 @@ expected on the 5 Mb tile grid (<code><a href="caller_tumour.html">caller_tumour
 <span>  min_excess <span class="op">=</span> <span class="fl">0.5</span>,</span>
 <span>  bal_frac <span class="op">=</span> <span class="fl">0.75</span>,</span>
 <span>  min_bal_len <span class="op">=</span> <span class="fl">2e+07</span>,</span>
-<span>  max_contra <span class="op">=</span> <span class="fl">0.1</span></span>
+<span>  max_contra <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>  gain_support <span class="op">=</span> <span class="fl">0.3</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -113,10 +114,16 @@ a mean log2 of at least <code>bal_frac</code> of its expected shift <code>c * lo
 <dd><p>with a <code><a href="fit_clone_states.html">fit_clone_states()</a></code> input: an imbalanced gain / loss whose mean log2 has the opposite sign
 of its expected shift by more than this takes the best supported copy-neutral state (CN-LOH or 1:1; Inf = off)</p></dd>
 
+
+<dt id="arg-gain-support">gain_support<a class="anchor" aria-label="anchor" href="#arg-gain-support"></a></dt>
+<dd><p>with a <code><a href="fit_clone_states.html">fit_clone_states()</a></code> input: an imbalanced gain (diploid window, copy number above the
+window's base) needs a mean log2 of at least this share of its expected shift <code>c * log2(cn / base)</code>, measured
+against the region's depth offset (per window, the median log2 of the other clones that are 1:1 there with= 50 cells). A run that fails takes the best CN-LOH state if its pooled oriented fraction supports one (asmin_excess); otherwise it keeps its state with label "imbalance" and depth_ok FALSE (allelic imbalancewithout the extra copy: a clone mixing LOH and heterozygous cells, or a genome whose baseline is not 2). 0 = off(no depth_ok column; the behaviour up to 0.1.1). Only applies to a fit_clone_states() input.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>segments table (<code><a href="check_tables.html">check_segments()</a></code>) plus <code>label</code>, <code>ploidy</code></p>
+    <p>segments table (<code><a href="check_tables.html">check_segments()</a></code>) plus <code>label</code>, <code>ploidy</code> (and <code>depth_ok</code> when <code>gain_support</code> &gt; 0)</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

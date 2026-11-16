@@ -85,7 +85,8 @@ reported <code>posterior</code> is the best clone's posterior among the single c
 <span>  mix_pairs <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  mult_prior <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  trunks <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  max_mix_prior <span class="op">=</span> <span class="fl">0.5</span></span>
+<span>  max_mix_prior <span class="op">=</span> <span class="fl">0.5</span>,</span>
+<span>  same_groups <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -176,6 +177,13 @@ over the clones of the best clone's trunk)</p></dd>
 
 <dt id="arg-max-mix-prior">max_mix_prior<a class="anchor" aria-label="anchor" href="#arg-max-mix-prior"></a></dt>
 <dd><p>cap of the per-cell mixture prior</p></dd>
+
+
+<dt id="arg-same-groups">same_groups<a class="anchor" aria-label="anchor" href="#arg-same-groups"></a></dt>
+<dd><p>optional named clone -&gt; group vector (e.g. the caller's same-state groups): <code>posterior</code> (and so
+<code>assigned</code> / <code>confident</code>) is then summed over the clones of the best clone's group, and the single best clone's
+posterior is kept as <code>post_clone</code>. Two clones with the same states otherwise share each cell's posterior and
+neither reaches <code>min_post</code></p></dd>
 
 </dl></div>
     <div class="section level2">

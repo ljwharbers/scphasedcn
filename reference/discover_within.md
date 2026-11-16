@@ -12,7 +12,13 @@ beyond the null (variance \> `disp_min`; unit variance expected) or is
 imbalanced on average (\|mean\| \> `imb_min`): allelic features select
 the regions, depth is used only where the allele channel shows a
 clone-level event (a loss vs a gain of the same haplotype differ only in
-depth there). Discovery
+depth there). With `opts$disc_allele = "fraction"` the allelic features
+are the coverage-free oriented fractions of
+[`clone_feature_matrix()`](https://ljwharbers.github.io/scphasedcn/reference/clone_feature_matrix.md)
+(regions still selected on z); `opts$test_allele` and `opts$drift_test`
+set the merge tests
+([`merge_clones()`](https://ljwharbers.github.io/scphasedcn/reference/merge_clones.md)).
+Discovery
 ([`discover_clones()`](https://ljwharbers.github.io/scphasedcn/reference/discover_clones.md))
 runs on the trunk's deeper cells (`n_frag` \>= the `deep_q` quantile, at
 least `4 * min_size` cells), whose per-cell profiles separate subclones;

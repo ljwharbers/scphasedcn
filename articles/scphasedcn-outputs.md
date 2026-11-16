@@ -167,7 +167,13 @@ copy number `cn`, the allele-specific state (`1:1`, `1:0`, `2:1`, `2:0`,
 `3:1`, …), `log2` (depth relative to the clone baseline), `f`
 (major-haplotype fraction), `llr`, `confident`, `label` (neutral, loss,
 cnloh, gain, gain_as, amp, del) and `ploidy` (1 on a male’s chrX /
-chrY). The clone `N0` is the fixed normal clone.
+chrY). The clone `N0` is the fixed normal clone. With `gain_support` \>
+0 a column `depth_ok` is added: an imbalanced gain whose depth, measured
+against the region’s offset in the other clones, does not show the extra
+copy keeps its allelic state with `label` `imbalance` and `depth_ok`
+FALSE. This is either a clone that mixes cells with LOH and heterozygous
+cells, or a genome whose baseline is not two copies (for example after a
+whole-genome doubling). MEDICC2 input treats it as 1:1.
 
 `assignments.tsv`: per cell the likelihood-best clone, its `posterior`,
 the margin to the second clone, whether the cell looks like a doublet of

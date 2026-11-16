@@ -39,6 +39,12 @@
     </div>
 
     <div class="section level2">
+<h2 class="pkg-version" data-toc-text="development version" id="scphasedcn-development-version">scphasedcn (development version)<a class="anchor" aria-label="anchor" href="#scphasedcn-development-version"></a></h2>
+<ul><li>Tumour mode, <code>gain_support</code> (<code><a href="../reference/segment_clone.html">segment_clone()</a></code>, <code><a href="../reference/clone_defaults.html">clone_defaults()</a></code>): an imbalanced gain state needs depth support against the region’s offset in the other clones. A run without it becomes CN-LOH when its allelic excess supports that, otherwise it keeps its state with <code>label</code> <code>imbalance</code> and a new <code>depth_ok</code> column FALSE. MEDICC2 input treats such runs as 1:1. It addresses clones that mix LOH and heterozygous cells being fitted with false gain states (issue <a href="https://github.com/ljwharbers/scphasedcn/issues/4" class="external-link">#4</a>).</li>
+<li>
+<strong>Tumour-mode defaults changed to coarse, reproducible clones.</strong> <code>disc_allele = "fraction"</code>, <code>test_allele = "centred"</code>, <code>drift_test = "modes_event"</code>, <code>same_post = "group"</code> and <code>gain_support = 0.3</code> are now the defaults of <code><a href="../reference/clone_defaults.html">clone_defaults()</a></code> and <code>caller.yaml</code>. On the lab’s tumour benchmarks this gives fewer clones and doublet clones and much better seed agreement. Allele-only subclones smaller than the cell-level haplotype drift are merged. Set the five options back to <code>"z"</code>, <code>"z"</code>, <code>"none"</code>, <code>"clone"</code> and 0 for the behaviour of 0.1.1. Normal mode is unchanged.</li>
+</ul></div>
+    <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.1.1" id="scphasedcn-011">scphasedcn 0.1.1<a class="anchor" aria-label="anchor" href="#scphasedcn-011"></a></h2>
 <ul><li>Extractor (Python): the <code>read_id</code> of a read whose name does not follow the SPLONGGET convention (<code>&lt;CB&gt;_#&lt;uuid&gt;_&lt;sign&gt;&lt;piece&gt;of&lt;npieces&gt;</code>) is now a stable 64-bit blake2b digest of the name. It was Python’s <code>hash()</code>, which is salted per process, so for BAMs from other pipelines the <code>read_id</code> column of <code>fragments.tsv.gz</code> changed from run to run. Reads named in the SPLONGGET convention are unaffected, and so are depth, alleles and the caller.</li>
 <li>No changes to the R package.</li>

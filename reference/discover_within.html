@@ -6,6 +6,8 @@ Features: per region (classes of feat_disc) the signed allelic z and the depth z
 allelic z varies across the trunk's cells beyond the null (variance &amp;gt; disp_min; unit variance expected) or is
 imbalanced on average (|mean| &amp;gt; imb_min): allelic features select the regions, depth is used only where the
 allele channel shows a clone-level event (a loss vs a gain of the same haplotype differ only in depth there).
+With opts$disc_allele = &quot;fraction&quot; the allelic features are the coverage-free oriented fractions of clone_feature_matrix()
+(regions still selected on z); opts$test_allele and opts$drift_test set the merge tests (merge_clones()).
 Discovery (discover_clones()) runs on the trunk's deeper cells (n_frag &amp;gt;= the deep_q quantile, at least
 4 * min_size cells), whose per-cell profiles separate subclones; merge_clones() then tests every pair of leaves
 (n_nb = Inf) on the test halves (cdata). Shallow cells are left to the likelihood assignment."><meta property="og:description" content="Second level of the hierarchical discovery of caller_tumour(). The phase blocks are oriented by the pseudobulk
@@ -15,6 +17,8 @@ Features: per region (classes of feat_disc) the signed allelic z and the depth z
 allelic z varies across the trunk's cells beyond the null (variance &amp;gt; disp_min; unit variance expected) or is
 imbalanced on average (|mean| &amp;gt; imb_min): allelic features select the regions, depth is used only where the
 allele channel shows a clone-level event (a loss vs a gain of the same haplotype differ only in depth there).
+With opts$disc_allele = &quot;fraction&quot; the allelic features are the coverage-free oriented fractions of clone_feature_matrix()
+(regions still selected on z); opts$test_allele and opts$drift_test set the merge tests (merge_clones()).
 Discovery (discover_clones()) runs on the trunk's deeper cells (n_frag &amp;gt;= the deep_q quantile, at least
 4 * min_size cells), whose per-cell profiles separate subclones; merge_clones() then tests every pair of leaves
 (n_nb = Inf) on the test halves (cdata). Shallow cells are left to the likelihood assignment."></head><body>
@@ -65,6 +69,8 @@ Features: per region (classes of <code>feat_disc</code>) the signed allelic z an
 allelic z varies across the trunk's cells beyond the null (variance &gt; <code>disp_min</code>; unit variance expected) or is
 imbalanced on average (|mean| &gt; <code>imb_min</code>): allelic features select the regions, depth is used only where the
 allele channel shows a clone-level event (a loss vs a gain of the same haplotype differ only in depth there).
+With <code>opts$disc_allele = "fraction"</code> the allelic features are the coverage-free oriented fractions of <code><a href="clone_feature_matrix.html">clone_feature_matrix()</a></code>
+(regions still selected on z); <code>opts$test_allele</code> and <code>opts$drift_test</code> set the merge tests (<code><a href="merge_clones.html">merge_clones()</a></code>).
 Discovery (<code><a href="discover_clones.html">discover_clones()</a></code>) runs on the trunk's deeper cells (<code>n_frag</code> &gt;= the <code>deep_q</code> quantile, at least
 <code>4 * min_size</code> cells), whose per-cell profiles separate subclones; <code><a href="merge_clones.html">merge_clones()</a></code> then tests every pair of leaves
 (<code>n_nb = Inf</code>) on the test halves (<code>cdata</code>). Shallow cells are left to the likelihood assignment.</p>

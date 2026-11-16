@@ -16,6 +16,9 @@ neighbour is dropped. Adjacent pieces with identical states are not
 merged here: merging needs the common haplotype orientation and is done
 by
 [`medicc2_table()`](https://ljwharbers.github.io/scphasedcn/reference/medicc2_table.md).
+Segments labelled `imbalance` (allelic imbalance without depth support,
+`segment_clone(gain_support = )`) enter as 1:1: MEDICC2 sees no extra
+copy where the clone's depth does not show one.
 
 ## Usage
 

@@ -6,14 +6,18 @@ clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome st
 than min_len are then absorbed into an adjacent piece of the same chromosome (gap &amp;lt;= max_gap): the neighbour
 whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
 the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
-not merged here: merging needs the common haplotype orientation and is done by medicc2_table()."><meta property="og:description" content="Drops doublet clones, clones with fewer than min_assigned assigned cells and clones without segments; builds the
+not merged here: merging needs the common haplotype orientation and is done by medicc2_table().
+Segments labelled imbalance (allelic imbalance without depth support, segment_clone(gain_support = )) enter as
+1:1: MEDICC2 sees no extra copy where the clone's depth does not show one."><meta property="og:description" content="Drops doublet clones, clones with fewer than min_assigned assigned cells and clones without segments; builds the
 union of the remaining clones' segment breakpoints (segment_pieces()) on chroms, maps every clone's state to
 every piece (segment containing the piece midpoint, as piece_states()) and keeps the pieces covered by every kept
 clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome start, are dropped). Pieces shorter
 than min_len are then absorbed into an adjacent piece of the same chromosome (gap &amp;lt;= max_gap): the neighbour
 whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
 the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
-not merged here: merging needs the common haplotype orientation and is done by medicc2_table()."></head><body>
+not merged here: merging needs the common haplotype orientation and is done by medicc2_table().
+Segments labelled imbalance (allelic imbalance without depth support, segment_clone(gain_support = )) enter as
+1:1: MEDICC2 sees no extra copy where the clone's depth does not show one."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -61,7 +65,9 @@ clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome st
 than <code>min_len</code> are then absorbed into an adjacent piece of the same chromosome (gap &lt;= <code>max_gap</code>): the neighbour
 whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
 the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
-not merged here: merging needs the common haplotype orientation and is done by <code><a href="medicc2_table.html">medicc2_table()</a></code>.</p>
+not merged here: merging needs the common haplotype orientation and is done by <code><a href="medicc2_table.html">medicc2_table()</a></code>.
+Segments labelled <code>imbalance</code> (allelic imbalance without depth support, <code>segment_clone(gain_support = )</code>) enter as
+1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.</p>
     </div>
 
     <div class="section level2">

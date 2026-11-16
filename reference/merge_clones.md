@@ -35,7 +35,9 @@ merge_clones(
   cdata = NULL,
   depth_delta = 0.2,
   n_nb = 3,
-  perm_decision = c("quantile", "pvalue")
+  perm_decision = c("quantile", "pvalue"),
+  allele = c("z", "fraction", "centred"),
+  drift_test = "none"
 )
 ```
 
@@ -111,11 +113,32 @@ merge_clones(
   `max(n_perm, ceiling(1 / (1 - q)) - 1)` permutations, exact early stop
   for "same" (the `tests` table then has `p`)
 
+- allele:
+
+  per-cell allele values of the contrast: `"z"` (default; standardised
+  count, grows with the cell's depth in an imbalanced region),
+  `"fraction"` (coverage-free oriented fraction) or `"centred"`
+  (standardised count about the compared cells' pooled fraction); see
+  [`clone_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/clone_defaults.md)
+  `test_allele`
+
+- drift_test:
+
+  `"none"` (default), `"modes"` or `"modes_event"`: an allele-driven
+  difference must also be discrete (the per-cell shares of all leaf
+  cells are multimodal on a region where the pair differs, and the two
+  clones lie on different sides of the antimode), or (`"modes_event"`)
+  the events of one clone be absent from the other; see
+  [`clone_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/clone_defaults.md)
+  `drift_test`
+
 ## Value
 
 list(clones = named integer labels, tests = data.table of all tests:
 stat, thr (the `q`-quantile of the permutations run; with
 `perm_decision = "pvalue"` for information only, `differ` is decided by
 `p`), n_perm (permutations run), differ, n_a, n_b, top_region,
-top_depth, top_allelic (`p` with `perm_decision = "pvalue"`), key, l1,
+top_depth, top_allelic (`p` with `perm_decision = "pvalue"`; `by_depth`,
+`mode_p`, `mode_sep`, `discrete`, `differ_contrast` with
+`drift_test = "modes"`, plus `by_event` with `"modes_event"`), key, l1,
 l2)

@@ -27,7 +27,8 @@ clone_feature_matrix(
   atoms = NULL,
   regions = NULL,
   cells = NULL,
-  keep_orient = c("anchored", "pseudobulk")
+  keep_orient = c("anchored", "pseudobulk"),
+  allele = c("z", "fraction")
 )
 ```
 
@@ -63,6 +64,18 @@ clone_feature_matrix(
 
   `orient` labels used as given (chromosome-wide anchored phase,
   all-cell pseudobulk)
+
+- allele:
+
+  scale of the allelic columns: `"z"` (default) = the standardised count
+  above, whose expectation in an imbalanced region grows like
+  `(f - 0.5) sqrt(n)`, so deep and shallow cells of one clone separate;
+  `"fraction"` = coverage-free: the cell's oriented fraction `nA / n`
+  minus 0.5, in units of the null SD at the region's median molecule
+  count `n0` (`sqrt(0.25 (1 + (n0 - 1) rho) / n0)`; same scale as `"z"`
+  for a typical cell, expectation independent of the cell's depth), and
+  cells below `min_n` molecules get the region's mean (no information)
+  instead of 0 (balanced)
 
 ## Value
 

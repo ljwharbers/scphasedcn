@@ -83,7 +83,9 @@ compares either of them with any other clone.</p>
 <span>  cdata <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  depth_delta <span class="op">=</span> <span class="fl">0.2</span>,</span>
 <span>  n_nb <span class="op">=</span> <span class="fl">3</span>,</span>
-<span>  perm_decision <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"quantile"</span>, <span class="st">"pvalue"</span><span class="op">)</span></span>
+<span>  perm_decision <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"quantile"</span>, <span class="st">"pvalue"</span><span class="op">)</span>,</span>
+<span>  allele <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"z"</span>, <span class="st">"fraction"</span>, <span class="st">"centred"</span><span class="op">)</span>,</span>
+<span>  drift_test <span class="op">=</span> <span class="st">"none"</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -153,13 +155,27 @@ compares either of them with any other clone.</p>
 ~6 false splits per 1,000 tests, not 1); <code>"pvalue"</code> = permutation p-value <code>(1 + #null &gt;= observed) / (1 + permutations) &lt;= 1 - q</code> over <code>max(n_perm, ceiling(1 / (1 - q)) - 1)</code> permutations, exact early stop for "same"
 (the <code>tests</code> table then has <code>p</code>)</p></dd>
 
+
+<dt id="arg-allele">allele<a class="anchor" aria-label="anchor" href="#arg-allele"></a></dt>
+<dd><p>per-cell allele values of the contrast: <code>"z"</code> (default; standardised count, grows with the cell's depth
+in an imbalanced region), <code>"fraction"</code> (coverage-free oriented fraction) or <code>"centred"</code> (standardised count about the
+compared cells' pooled fraction); see <code><a href="clone_defaults.html">clone_defaults()</a></code> <code>test_allele</code></p></dd>
+
+
+<dt id="arg-drift-test">drift_test<a class="anchor" aria-label="anchor" href="#arg-drift-test"></a></dt>
+<dd><p><code>"none"</code> (default), <code>"modes"</code> or <code>"modes_event"</code>: an allele-driven difference must also be discrete
+(the per-cell shares of all leaf cells are multimodal on a region where the pair differs, and the two clones lie on
+different sides of the antimode), or (<code>"modes_event"</code>) the events of one clone be absent from the other; see
+<code><a href="clone_defaults.html">clone_defaults()</a></code> <code>drift_test</code></p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>list(clones = named integer labels, tests = data.table of all tests: stat, thr (the <code>q</code>-quantile of the
 permutations run; with <code>perm_decision = "pvalue"</code> for information only, <code>differ</code> is decided by <code>p</code>), n_perm
-(permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (<code>p</code> with <code>perm_decision = "pvalue"</code>),
-key, l1, l2)</p>
+(permutations run), differ, n_a, n_b, top_region, top_depth, top_allelic (<code>p</code> with <code>perm_decision = "pvalue"</code>;
+<code>by_depth</code>, <code>mode_p</code>, <code>mode_sep</code>, <code>discrete</code>, <code>differ_contrast</code> with <code>drift_test = "modes"</code>, plus <code>by_event</code> with
+<code>"modes_event"</code>), key, l1, l2)</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

@@ -492,17 +492,29 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     # 3. normal-tissue caller
     mcells = if (is.null(mult)) NULL else mult[prob > 0.5, cell]
     ctm = if (!is.null(cm) && "cell_type" %in% names(cm)) cm[, .(cell, cell_type = as.character(cell_type))] else NULL
-    # 2b. optional allelic tile mask: null cells of a first selection pass -> overdispersed 5 Mb tiles -> allele
-    #     features re-aggregated without their votes (depth untouched); caller_normal then runs as usual
+    # 2b. optional allelic tile mask: null cells of a first selection pass -> overdispersed 5 Mb tiles (mask_allelic)
+    #     and / or tiles with a shared allelic bias (mask_f0) -> allele features re-aggregated without their votes
+    #     (depth untouched); caller_normal then runs as usual
     amask = NULL; mask_note = NULL
-    if (isTRUE(params$mask_allelic)) {
+    rules = c(if (isTRUE(params$mask_allelic)) "rho", if (isTRUE(params$mask_f0)) "f0")
+    # the bias rule needs a haplotype fraction that is 0.5 without bias: under mirrored orientation the per-block
+    # major fraction sits above 0.5 by an amount set by the votes per block (coverage), so the rule is skipped
+    f0_note = NULL
+    if ("f0" %in% rules && identical(features_orientation(features), "mirrored")) {
+      rules = setdiff(rules, "f0")
+      f0_note = "allelic mask: bias rule (mask_f0) not applied: under mirrored orientation the null haplotype fraction measures coverage, not shared bias"
+      warning("call_scn: ", f0_note, call. = FALSE)
+      say(f0_note)
+    }
+    if (length(rules)) {
       t_m = Sys.time()
       if (is.null(features$votes) || is.null(features$atoms)) {
-        warning("call_scn: mask_allelic needs features$votes and features$atoms; no mask applied", call. = FALSE)
+        warning(sprintf("call_scn: %s needs features$votes and features$atoms; no mask applied",
+                        paste(c("rho" = "mask_allelic", "f0" = "mask_f0")[rules], collapse = " / ")), call. = FALSE)
       } else {
         sel0 = select_null_cells(long[eligible %in% TRUE], params = params, exclude = mcells)
         isn0 = long$cell %in% sel0$null_cells & long$null_region %in% TRUE & long$eligible %in% TRUE & long$chrom %in% AUTOSOMES_CALLER
-        amask = allelic_noisy_tiles(long, null = isn0, params = params)
+        amask = allelic_noisy_tiles(long, null = isn0, params = params, rules = rules)
         nm = sum(amask$masked)
         if (nm) {
           ex = atoms_in_tiles(features$atoms, amask)
@@ -510,8 +522,12 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
           long = features$long
           if (!is.null(nc_cells)) { long = copy(long); long[, null_cell := cell %in% nc_cells] }
         }
-        mask_note = sprintf("allelic mask: %d of %d assessed 5 Mb tiles masked (%s MADs of log rho; %s) from %d first-pass null cells; %.1f min",
-                            nm, sum(amask$assessed), format(params$mask_rho_mad), if (nm) paste(amask[masked == TRUE, tile], collapse = ", ") else "none",
+        rule_txt = if (identical(rules, "rho")) sprintf("%s MADs of log rho", format(params$mask_rho_mad)) else
+          paste(c(if ("rho" %in% rules) sprintf("overdispersion rule (%s MADs of log rho): %d", format(params$mask_rho_mad), sum(amask$masked_rho)),
+                  sprintf("bias rule (|f0 - 0.5| > %s and %s MADs): %d", format(params$mask_f0_min), format(params$mask_f0_mad), sum(amask$masked_f0))),
+                collapse = "; ")
+        mask_note = sprintf("allelic mask: %d of %d assessed 5 Mb tiles masked (%s; %s) from %d first-pass null cells; %.1f min",
+                            nm, sum(amask$assessed), rule_txt, if (nm) paste(amask[masked == TRUE, tile], collapse = ", ") else "none",
                             length(sel0$null_cells), as.numeric(difftime(Sys.time(), t_m, units = "mins")))
         say(mask_note)
       }
@@ -523,6 +539,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       res$null_fit$allelic_mask = amask
       res$notes = c(res$notes, mask_note)
     }
+    if (!is.null(f0_note)) res$notes = c(res$notes, f0_note)
     fc = null_false_calls(res$scores)
     res$false_calls = fc$rates
     res$false_events = fc$events
@@ -693,6 +710,19 @@ phasing_ok = function(phasing) !is.null(phasing) && all(c("detected", "orientati
 # ---- output ------------------------------------------------------------------------------------------------
 
 # null fit as one table: t rows (class, stratum, t_m, t_s, t_df, n) + a rho row
+# orientation of the allele features: features$phasing["orientation"] (cell_features()), else "mirrored" when every
+# allelic_ok row of the long table is unoriented ("none"), else NA
+features_orientation = function(features) {
+  ph = features$phasing
+  if (!is.null(ph) && "orientation" %in% names(ph)) return(unname(as.character(ph[["orientation"]])))
+  l = features$long
+  if (!is.null(l) && all(c("orient", "allelic_ok") %in% names(l))) {
+    o = unique(l$orient[l$allelic_ok %in% TRUE])
+    if (identical(o, "none")) return("mirrored")
+  }
+  NA_character_
+}
+
 null_fit_table = function(nf) {
   if (is.null(nf)) return(data.table(kind = character()))
   t = if (!is.null(nf$tpar)) copy(as.data.table(nf$tpar))[, kind := "depth_t"] else NULL

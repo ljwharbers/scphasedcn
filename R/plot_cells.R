@@ -184,7 +184,7 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
             orient = orient, mode = mode, class = c("cell_tracks", "list"))
 }
 utils::globalVariables(c("src", "i.src", "c_", "a_", "log2_exp", "f_exp", "n_confirmed", "n_inherited", "baf", "se",
-                         "shade", "offset", "len", "mid", "gx", "gx0", "gx1", "lo", "hi", "y0", "cn_obs", "lt"))
+                         "shade", "offset", "len", "mid", "gx", "gx0", "gx1", "lt", "size"))
 
 # one neutral segment per chromosome and cell
 neutral_baseline = function(cells, windows, haploid) {

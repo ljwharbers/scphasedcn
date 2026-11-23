@@ -4,10 +4,14 @@
 \alias{cn_grid}
 \title{Allele-specific copy-number state grid}
 \usage{
-cn_grid(max_cn = 5)
+cn_grid(max_cn = 5, baseline = NULL, lam = 1)
 }
 \arguments{
 \item{max_cn}{maximal total copy number}
+
+\item{baseline}{NULL (the diploid grid above) or the clone baseline the prior is centred on}
+
+\item{lam}{prior fall-off per copy away from the baseline (with \code{baseline})}
 }
 \value{
 data.table state, nA, nB, cn, f, label, prior
@@ -17,4 +21,10 @@ nA:nB states relative to a diploid clone baseline: neutral 1:1, loss 1:0, cnloh 
 gain_as 3:0 (allele-specific gain), amp 3:1 / 2:2 / 4:1 / 4:0, del 0:0. \code{f} is the major-haplotype
 fraction, \code{prior} a log weight used by \code{\link[=fit_clone_states]{fit_clone_states()}} (mixture over states) and by the Viterbi
 transitions of \code{\link[=segment_clone]{segment_clone()}}.
+}
+\details{
+With \code{baseline} (the copy number of the clone's median depth, e.g. 3 for a near-triploid clone) the grid holds
+every state nA >= nB with nA + nB <= \code{max_cn}, and the prior falls off with the distance of the total copy number
+from the baseline: log weight \verb{-lam * |cn - baseline|}, normalised over the grid (so grids of different baselines
+compare on one likelihood scale). Labels stay relative to the diploid normal (see \code{state_label()}).
 }

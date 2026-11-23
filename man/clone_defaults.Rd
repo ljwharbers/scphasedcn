@@ -70,6 +70,13 @@ segment rules of \code{\link[=segment_clone]{segment_clone()}} (all segmentation
 allelic excess of imbalanced runs), \code{max_contra} (gains / losses contradicted by depth become copy-neutral), \code{bal_frac}
 and \code{min_bal_len} (support of balanced 2:2 runs), \code{gain_support} (an imbalanced gain needs this share of its expected
 depth shift against the region's offset, else CN-LOH or label "imbalance" with \code{depth_ok} FALSE; default 0.3, 0 = off).
+Clone baseline (\code{ploidy}): \code{"fit"} (default) fits per clone the copy number of its median depth (the baseline B:
+3 for a near-triploid clone) from depth and alleles together (\code{\link[=fit_clone_states]{fit_clone_states()}} \code{baseline = "fit"}), so the
+states are absolute copy numbers; a number fixes B for every clone; \code{2} is the diploid baseline of 0.1.x (a
+near-triploid or whole-genome-doubled clone is then fitted on a compressed scale: 2:2 as 1:1, 2:0 as 1:0).
+\code{ploidy_tol} (log-likelihood per window) is the tolerance within which a baseline of half the best one (a
+whole-genome doubling of the same profile) is preferred. Labels stay relative to the diploid normal (2:1 is a gain
+at any baseline, 1:1 neutral); \code{clones} reports \code{baseline} and \code{ploidy} (the mean autosomal copy number).
 Assignment: \code{mix_prior}, \code{mix_w}, \code{mix_margin}, \code{mix_rel},
 \code{mix_min_dist} (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 \code{max_mix_prior}, \code{min_post} (confident), \code{member_post} (pseudobulk members), \code{em_rounds}, \code{same_dist} (clones whose

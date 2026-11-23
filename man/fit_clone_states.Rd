@@ -14,7 +14,12 @@ fit_clone_states(
   eps = 0.02,
   refine = TRUE,
   p_switch = 0.001,
-  min_win = 3
+  min_win = 3,
+  baseline = 2,
+  baselines = c(1.5, 2, 2.5, 3, 3.25, 3.5, 4, 4.5, 5),
+  lam = 1,
+  min_df = 0.1,
+  ploidy_tol = 0.01
 )
 }
 \arguments{
@@ -37,21 +42,42 @@ fit_clone_states(
 precision-weighted segment mean, alleles summed over its windows); two passes}
 
 \item{p_switch, min_win}{segmentation parameters of the refinement (as \code{\link[=segment_clone]{segment_clone()}})}
+
+\item{baseline}{the clone baseline B: one number for every clone (2 = diploid), or "fit"}
+
+\item{baselines}{candidate baselines of \code{baseline = "fit"}}
+
+\item{lam}{prior fall-off per copy away from the baseline (\code{\link[=cn_grid]{cn_grid()}}) of the baseline grids}
+
+\item{min_df}{imbalanced states of the baseline grids need |f - 0.5| >= this}
+
+\item{ploidy_tol}{log-likelihood tolerance per window within which half the best baseline is preferred}
 }
 \value{
 list(ll = data.table clone, window, chrom, start, end, ploidy, state, label, ll (emission
-log-likelihood at the chosen parameters), windows = the profile with \code{se_eff}, par = data.table clone,
-c, a, rho, s_sys, loglik, grid)
+log-likelihood at the chosen parameters), windows = the profile with \code{se_eff} and \code{base}, par = data.table clone,
+c, a, rho, s_sys, loglik, n_win, base (the baseline B), grid (the B = 2 grid), grids (per clone), baseline_scan
+(with "fit": clone, B, ll, c, a per candidate), baseline_sample)
 }
 \description{
 Per clone, a grid search over the depth contrast \code{c} (state mean \code{c * log2(cn / base)}, \code{base} = the
-profile's copy-number baseline: the reference ploidy for pool-relative profiles, else 2; haploid
-windows (male chrX / chrY, \code{ploidy} 1) allow only nB = 0 states and their labels are relative to one
-copy; \code{c} >= 0.6 because absolute ploidy is unidentifiable: states are relative to the clone baseline),
+copy number of the clone's median depth: the clone baseline B, times the reference ploidy / 2 for pool-relative
+profiles; haploid windows (male chrX / chrY, \code{ploidy} 1) allow only nB = 0 states and their labels are relative
+to one copy),
 the orientation attenuation \code{a} (expected major fraction \code{0.5 + a * (f_state - 0.5)}) and the
 window-level overdispersion \code{rho}. Emissions: Student-t (\code{df}) on the window log2 with scale = the
 window SE combined with the clone's systematic window noise and inflated for its autocorrelation
 (see \code{clone_noise}), and a two-sided robust beta-binomial on (nA, n_hap) (a 5 \% component with 10x the
 overdispersion). The objective is the per-window mixture likelihood over the states with the grid
 \code{prior} weights.
+}
+\details{
+The baseline B is 2 by default (the diploid baseline of 0.1.x: a near-triploid clone is then fitted on a
+compressed scale). With \code{baseline = "fit"} every clone is fitted at each of \code{baselines} on the grid
+\code{baseline_grid(B)} (all states up to 2 B + 1 copies without the near-balanced imbalanced ones, prior centred on
+B and normalised, so the baselines compare on one likelihood scale; a coarse (c, a) grid, no refinement). A clone
+whose best attenuation \code{a} is above the floor of \code{atten} has allelic information on the scale and takes its best
+baseline, or half of it when that is within \code{ploidy_tol} x windows (a whole-genome doubling of the same profile
+fits as well); the sample baseline is the cell-weighted median of these clones; the other clones take the better
+of 2 and the sample baseline. Each clone is then fitted at its baseline (B = 2: \code{grid}, exactly as before).
 }

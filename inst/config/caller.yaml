@@ -69,3 +69,5 @@ tumour:                     # tumour mode: clone_defaults() options (CLI --confi
   bal_frac: 0.75            # clone segments: a balanced non-neutral run (2:2) needs this share of its expected log2 shift (0 = off) ...
   min_bal_len: 20000000     # ... and at least this length (bp), else 1:1
   gain_support: 0.3         # clone segments: an imbalanced gain needs this share of its expected log2 shift against the region's depth offset (other clones' 1:1 windows), else CN-LOH or label "imbalance" with depth_ok FALSE (0 = off)
+  ploidy: "fit"             # clone baseline (copy number of the median depth): "fit" (per clone, from depth and alleles; absolute states) or a number for every clone (2 = the diploid baseline of 0.1.x)
+  ploidy_tol: 0.01          # log-likelihood per window within which half the best baseline (a whole-genome doubling of the same profile) is preferred

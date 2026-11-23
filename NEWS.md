@@ -1,5 +1,23 @@
 # scphasedcn (development version)
 
+* **Tumour mode fits the clone baseline (ploidy) by default** (`clone_defaults()` `ploidy = "fit"`). Up to now the
+  median depth of every clone was taken to be 2 copies, so a near-triploid or whole-genome-doubled clone got
+  states on a compressed scale: 2:2 as 1:1, 2:0 as 1:0, 3:0 as 2:0, and depth-neutral 2:1 often as 1:1.
+  `fit_clone_states(baseline = "fit")` now fits per clone the copy number of its median depth (the baseline:
+  1.5 to 5) from depth and alleles together, so states are absolute copy numbers.
+  * The fit compares baselines on one likelihood scale. Above a baseline of 2 the state grid drops the near-balanced
+    states such as 4:3, which would only absorb orientation bias.
+  * A clone whose allele attenuation is at the grid floor carries no allelic information on the scale. It takes 2 or
+    the sample baseline (the cell-weighted median of the informative clones).
+  * Half the best baseline is preferred within `ploidy_tol`, because a whole-genome doubling of the same profile
+    fits equally well.
+  * Labels stay relative to the diploid normal: 2:1 is a gain at any baseline, 1:1 neutral.
+  * `clones` gains `baseline` and `ploidy` (the mean autosomal copy number), and the run notes list the baselines.
+  * A clone fitted at baseline 2 has exactly the states of 0.1.x. `ploidy = 2` restores the old behaviour for every
+    clone; a number fixes the baseline.
+  * On COLO829 (bulk ploidy 3.1) the clones fit baseline 3, and on CCS15M (bulk 3.46) 3 to 3.5. Near-diploid tumours
+    stay at 2.
+
 * Tumour mode, `gain_support` (`segment_clone()`, `clone_defaults()`): an imbalanced gain state needs depth
   support against the region's offset in the other clones. A run without it becomes CN-LOH when its allelic excess
   supports that, otherwise it keeps its state with `label` `imbalance` and a new `depth_ok` column FALSE. MEDICC2

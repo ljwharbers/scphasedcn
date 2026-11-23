@@ -1130,3 +1130,162 @@ test_that("caller_tumour with the coverage-free / drift-aware opt-ins finds sim_
   expect_identical(r1$params$tumour[c("disc_allele", "test_allele", "same_post", "drift_test")],
                    list(disc_allele = "fraction", test_allele = "centred", same_post = "group", drift_test = "modes"))
 })
+
+# ---- clone baseline (ploidy) fit: fit_clone_states(baseline = "fit"), the baseline grid, sim_tri ------------------
+
+# fake clone profile with a clone baseline B: windows of 1 Mb on chr1-chr4 (40 each), log2 = c log2(cn / B) + noise
+# (the profile is centred on its median window, whose copy number is B), votes Binomial(n_hap, 0.5 + a (f - 0.5))
+fake_profile_b = function(states, B, clone = "K1", c_ = 0.8, a_ = 0.9, sd = 0.05, n_hap = 400, seed = 1) {
+  set.seed(seed)
+  n = length(states)
+  w = data.table(chrom = rep(paste0("chr", 1:4), each = 40)[seq_len(n)], start = rep((0:39) * 1e6, 4)[seq_len(n)])
+  w[, end := start + 1e6]
+  w[, window := paste0(chrom, ":", format(start, scientific = FALSE, trim = TRUE))]
+  nA_ = as.integer(sub(":.*", "", states)); nB_ = as.integer(sub(".*:", "", states))
+  cn = nA_ + nB_; fs = ifelse(cn > 0, nA_ / cn, 0.5)
+  w[, `:=`(clone = clone, ploidy = 2L, base = 2L, n_cells = 100L, log2 = c_ * log2(pmax(cn, 0.2) / B) + rnorm(.N, 0, sd),
+           log2_se = sd)]
+  x = rbinom(n, n_hap, 0.5 + a_ * (fs - 0.5))
+  w[, `:=`(nA = x, n_hap = n_hap)]
+  w[, `:=`(nB = n_hap - nA, f = nA / n_hap, f_se = sqrt(0.25 / n_hap), n_blocks = 20, ref = "median", size = 1e6)]
+  w[]
+}
+# near-triploid genome: baseline 2:1, with 2:2, 1:1, 2:0, 3:0 and 4:0 stretches (median window: 3 copies)
+tri_states = function() {
+  s = rep("2:1", 160)
+  s[11:30] = "2:2"          # chr1 10-30 Mb
+  s[40 + 1:15] = "1:1"      # chr2 0-15 Mb
+  s[40 + 26:40] = "2:0"     # chr2 25-40 Mb
+  s[80 + 1:20] = "3:0"      # chr3 0-20 Mb
+  s[120 + 31:40] = "4:0"    # chr4 30-40 Mb
+  s
+}
+seg_at = function(seg, ch, pos) seg[chrom == ch & start <= pos & end > pos]
+
+test_that("cn_grid(baseline): every allelic state up to max_cn, prior centred on the baseline and normalised; diploid labels", {
+  g = cn_grid(7, baseline = 3)
+  expect_true(all(c("1:1", "2:1", "2:2", "3:0", "3:3", "4:2", "5:0") %in% g$state))
+  expect_true(all(g$nA >= g$nB & g$cn <= 7))
+  expect_equal(sum(exp(g$prior)), 1, tolerance = 1e-9)
+  expect_equal(g$state[1], "1:1")
+  expect_equal(g[state == "2:1", prior], max(g$prior))
+  # labels stay relative to the diploid normal
+  expect_equal(g[state == "1:1", label], "neutral")
+  expect_equal(g[state == "2:1", label], "gain")
+  expect_equal(g[state == "3:0", label], "gain_as")
+  expect_equal(g[state == "2:0", label], "cnloh")
+  expect_equal(g[state == "3:3", label], "amp")
+  # the diploid grid is unchanged, and state_label() gives its labels
+  g2 = cn_grid()
+  expect_equal(g2$label, state_label(g2$nA, g2$nB, 2L))
+  # baseline_grid() drops the near-balanced imbalanced states
+  bg = scphasedcn:::baseline_grid(4)
+  expect_false(any(c("4:3", "5:4") %in% bg$state))
+  expect_true(all(c("3:2", "2:2", "3:1") %in% bg$state))
+})
+
+test_that("fit_clone_states(baseline = \"fit\") finds the baseline of a near-triploid clone and its absolute states", {
+  p = fake_profile_b(tri_states(), B = 3)
+  fit = fit_clone_states(p, baseline = "fit")
+  expect_equal(fit$par$base, 3)
+  expect_equal(fit$baseline_sample, 3)
+  expect_lte(abs(fit$par$c - 0.8), 0.15)
+  seg = segment_clone(fit)
+  check_segments(seg)
+  expect_equal(seg_at(seg, "chr1", 5e6)$state, "2:1")
+  expect_equal(seg_at(seg, "chr1", 20e6)$state, "2:2")
+  expect_equal(seg_at(seg, "chr2", 7e6)$state, "1:1")
+  expect_equal(seg_at(seg, "chr2", 32e6)$state, "2:0")
+  expect_equal(seg_at(seg, "chr3", 10e6)$state, "3:0")
+  expect_equal(seg_at(seg, "chr4", 35e6)$state, "4:0")
+  # labels relative to the diploid normal: the 2:1 baseline is a gain, the 1:1 stretch is neutral
+  expect_equal(seg_at(seg, "chr1", 5e6)$label, "gain")
+  expect_equal(seg_at(seg, "chr2", 7e6)$label, "neutral")
+  # the diploid fit of the same profile compresses the scale (the 0.1.x behaviour this replaces)
+  seg2 = segment_clone(fit_clone_states(p, baseline = 2))
+  expect_false(identical(seg_at(seg2, "chr1", 20e6)$state, "2:2") && identical(seg_at(seg2, "chr3", 10e6)$state, "3:0"))
+})
+
+test_that("fit_clone_states(baseline = \"fit\") keeps a diploid clone at 2, identical to the diploid fit", {
+  p = fake_clone_profile(fake_states(), c_ = 0.8, a_ = 0.85)
+  f2 = fit_clone_states(p)
+  ff = fit_clone_states(p, baseline = "fit")
+  expect_equal(ff$par$base, 2)
+  expect_equal(ff$par[, .(c, a, rho, loglik)], f2$par[, .(c, a, rho, loglik)])
+  expect_equal(ff$ll, f2$ll)
+  expect_equal(segment_clone(ff), segment_clone(f2))
+})
+
+test_that("a whole-genome doubling of a diploid profile resolves to the smaller baseline", {
+  # every state doubled (1:1 -> 2:2, 2:1 -> 4:2, ...) with log2 = c log2(cn / 4): the same data as the diploid profile
+  s = fake_states()
+  d = function(x) paste0(2L * as.integer(sub(":.*", "", x)), ":", 2L * as.integer(sub(".*:", "", x)))
+  p4 = fake_profile_b(d(s)[seq_len(120)], B = 4, a_ = 0.85)
+  fit = fit_clone_states(p4, baseline = "fit")
+  expect_equal(fit$par$base, 2)
+})
+
+test_that("fit_clone_states(baseline = <number>) fixes the baseline; bad values stop", {
+  p = fake_profile_b(tri_states(), B = 3)
+  fit = fit_clone_states(p, baseline = 3)
+  expect_equal(fit$par$base, 3)
+  expect_null(fit$baseline_scan)
+  expect_equal(seg_at(segment_clone(fit), "chr3", 10e6)$state, "3:0")
+  expect_error(fit_clone_states(p, baseline = "auto"), "baseline")
+  expect_error(fit_clone_states(p, baseline = -1), "baseline")
+})
+
+test_that("check_clone_opts: ploidy is \"fit\" (default) or a positive number", {
+  expect_identical(check_clone_opts(list())$ploidy, "fit")
+  expect_equal(check_clone_opts(list(ploidy = 2))$ploidy, 2)
+  expect_error(check_clone_opts(list(ploidy = "auto")), "ploidy")
+  expect_error(check_clone_opts(list(ploidy = 0)), "ploidy")
+  expect_error(check_clone_opts(list(ploidy_tol = -1)), "ploidy_tol")
+})
+
+# ---- sim_tri: a near-triploid tumour with normal cells --------------------------------------------------------------
+# One tumour clone whose genome is near-triploid (median 3 copies: 2:1 on chr1, chr2, chr22 and chr8 0-15 Mb), with
+# 2:2 (chr3), 1:1 (chr4), 2:0 (chr5), 4:0 (chr8 15 Mb-end) and 3:0 (chr21) stretches; 30 % normal cells. Male.
+sim_tri_events = function() {
+  data.table(chrom = c("chr1", "chr2", "chr3", "chr5", "chr8", "chr8", "chr21", "chr22"),
+             start = c(0, 0, 0, 0, 0, 15e6, 0, 0), end = c(NA, NA, NA, NA, 15e6, NA, NA, NA),
+             cnA = c(2L, 2L, 2L, 2L, 2L, 4L, 3L, 2L), cnB = c(1L, 1L, 2L, 0L, 1L, 0L, 0L, 1L), type = "tri")
+}
+lazy_cached("sim_tri", function() simulate_scn(
+  n_cells = 240, sex = "male",
+  genome = sim_genome(c(chr1 = 60e6, chr2 = 40e6, chr3 = 40e6, chr4 = 40e6, chr5 = 40e6, chr8 = 30e6, chr21 = 20e6,
+                        chr22 = 20e6, chrX = 40e6)),
+  cell_types = c(normal = 0.3, tri = 0.7), depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tri_events(),
+  multiplet_rate = 0.03, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 105))
+
+test_that("caller_tumour on a near-triploid tumour: baseline 3, absolute states, diploid labels, the normal clone at 2", {
+  inp = clone_cached("clones_tri_input", function() clone_sim_input(sim_tri))
+  res = clone_cached("clones_tri_result", function() caller_tumour(inp, verbose = FALSE))
+  tr = sim_truth(sim_tri)
+  a = merge(res$assignments, tr, by = "cell")[mult == FALSE]
+  map = a[, .N, by = .(clone, type)][order(-N)][!duplicated(clone)]
+  kt = map[type == "tri", clone][1]
+  expect_false(is.na(kt))
+  expect_equal(res$clones[clone == kt, baseline], 3)
+  expect_lte(abs(res$clones[clone == kt, ploidy] - 2.9), 0.3)
+  sg = res$segments
+  expect_equal(seg_at(sg[clone == kt], "chr1", 30e6)$state, "2:1")
+  expect_equal(seg_at(sg[clone == kt], "chr3", 20e6)$state, "2:2")
+  expect_equal(seg_at(sg[clone == kt], "chr4", 20e6)$state, "1:1")
+  expect_equal(seg_at(sg[clone == kt], "chr5", 20e6)$state, "2:0")
+  expect_equal(seg_at(sg[clone == kt], "chr21", 10e6)$state, "3:0")
+  expect_equal(seg_at(sg[clone == kt], "chr8", 25e6)$state, "4:0")
+  expect_equal(seg_at(sg[clone == kt], "chr4", 20e6)$label, "neutral")
+  expect_equal(seg_at(sg[clone == kt], "chr1", 30e6)$label, "gain")
+  # the normal cells: a clone at the diploid baseline with only neutral segments
+  kn = map[type == "normal", clone][1]
+  expect_equal(res$clones[clone == kn, baseline], 2)
+  expect_true(all(sg[clone == kn, label] == "neutral"))
+  expect_gte(a[, mean(map$type[match(clone, map$clone)] == type)], 0.9)
+  # per-cell calls: the clone's diploid events are confirmed in its cells (chr21 3:0, chr5 2:0)
+  cc = res$calls[level == "cell" & cell %in% a[type == "tri", cell]]
+  expect_gt(cc[chrom == "chr21", mean(called)], 0.7)
+  expect_true(any(grepl("clone baselines", res$notes)))
+  check_segments(sg)
+  check_calls(res$calls)
+})

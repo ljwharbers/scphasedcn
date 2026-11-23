@@ -310,9 +310,13 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
   K = sort(unique(clones$clone))
   # the fixed normal clone is a hypothesis whenever the segments have it, with or without members
   if ("N0" %in% as.character(as.data.table(segments)$clone) && !"N0" %in% K) K = sort(c(K, "N0"))
-  par = if (is.null(par)) data.table(clone = K, c = 1, a = 1) else as.data.table(par)[, .(clone = as.character(clone), c, a)]
+  par = if (is.null(par)) data.table(clone = K, c = 1, a = 1, base = 2) else {
+    pp = as.data.table(par)
+    pp[, .(clone = as.character(clone), c, a, base = if ("base" %in% names(pp)) as.numeric(base) else 2)]
+  }
+  par[is.na(base), base := 2]
   if ("N0" %in% K && !"N0" %in% par$clone)
-    par = rbind(par, data.table(clone = "N0", c = if (nrow(par)) stats::median(par$c) else 1, a = 1))
+    par = rbind(par, data.table(clone = "N0", c = if (nrow(par)) stats::median(par$c) else 1, a = 1, base = 2))
   ps_ = piece_states(pieces, segments)
   ps_ = ps_[clone %in% K]
   # depth
@@ -324,8 +328,10 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
   tp = cl_match_tpar(d, tpar)
   sc = unique(d$cell)
   ci_d = match(d$cell, sc)
-  depth_ll = function(cnv, plv, cc_) {
-    base = if (length(ref_cells) >= 10) plv else 2
+  # B_ = the clone baseline (copy number of the cell's median depth; 2 = diploid), scaled by the reference ploidy / 2
+  # when the depth is relative to a reference pool
+  depth_ll = function(cnv, plv, cc_, B_ = 2) {
+    base = B_ * (if (length(ref_cells) >= 10) plv / 2 else 1)
     mu = cc_ * log2(pmax(cnv, 0.2) / base) / pmax(d$sd_null, params$sd_floor)
     l = ll_depth_shift(d$z, mu, tp)
     l[!is.finite(l)] = 0
@@ -336,7 +342,7 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
   for (k in K) {
     cnv = st_mat(k, "cn"); plv = st_mat(k, "ploidy")
     cnv[is.na(cnv)] = 2; plv[is.na(plv)] = 2
-    LL[, k] = depth_ll(cnv, plv, par[clone == k, c])
+    LL[, k] = depth_ll(cnv, plv, par[clone == k, c], par[clone == k, base])
   }
   # alleles
   tv = trip_votes(fp$votes, fp$atoms, pieces, length(cells))
@@ -380,7 +386,7 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
     col = 0L
     for (j in seq_len(ncol(pr))) {
       k = pr[1, j]; l = pr[2, j]
-      ck = par[clone == k, c]; cl_ = par[clone == l, c]
+      ck = par[clone == k, c]; cl_ = par[clone == l, c]; bk = par[clone == k, base]; bl = par[clone == l, base]
       cnk = st_mat(k, "cn"); cnl = st_mat(l, "cn"); cnk[is.na(cnk)] = 2; cnl[is.na(cnl)] = 2
       plv = st_mat(k, "ploidy"); plv[is.na(plv)] = 2
       if (nrow(tv$trip)) {
@@ -407,7 +413,7 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
       }
       for (w in mix_w) {
         col = col + 1L
-        LM[, col] = depth_ll(w * cnk + (1 - w) * cnl, plv, w * ck + (1 - w) * cl_)
+        LM[, col] = depth_ll(w * cnk + (1 - w) * cnl, plv, w * ck + (1 - w) * cl_, w * bk + (1 - w) * bl)
         if (nrow(tv$trip)) {
           den = w * ck_ + (1 - w) * cl2
           fm_k = ifelse(den > 0, (w * ck_ * fk0 + (1 - w) * cl2 * fl_k) / pmax(den, 1e-9), 0.5)
@@ -672,6 +678,7 @@ add_normal_clone = function(st, min_event = 1e7) {
   par = as.data.table(st$fit$par)
   p0 = data.table(clone = "N0", c = if (nrow(par)) stats::median(par$c) else 1, a = 1,
                   rho = if (nrow(par)) stats::median(par$rho) else 0.01, s_sys = 0)
+  if ("base" %in% names(par)) p0[, base := 2]
   st$fit$par = rbind(par[!clone %in% c(repl, "N0")], p0, fill = TRUE)
   # the profile of the replaced clones (pooled) is kept under N0 for reporting
   if (!is.null(st$profiles) && length(repl)) {

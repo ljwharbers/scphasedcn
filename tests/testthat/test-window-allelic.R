@@ -41,6 +41,7 @@ test_that("mirrored_llr equals the direct mixture formula, is 0 at n = 1 and has
   expect_equal(win_col(c(0.98, 2 / 3)), c("wal_f980", "wal_f667"))
   expect_equal(win_f_grid(), 0.98)
   expect_equal(win_f_grid(modifyList(caller_defaults(), list(win_f = c(0.9, 0.98)))), c(0.9, 0.98))
+  expect_equal(win_f_grid(modifyList(caller_defaults(), list(eps = 0.01))), c(0.98, 0.99))   # 1 - eps always in
 })
 
 test_that("window_units cuts the window grid at region boundaries and sums votes per cell x subwindow x phase set", {
@@ -140,14 +141,13 @@ test_that("select_null_cells: the windowed guard keeps cells with a private LOH 
   sel0 = select_null_cells(d, params = modifyList(p, list(null_win_guard = FALSE)), n_sim = 2e4)
   expect_true("c007" %in% sel0$null_cells)
   expect_false(any(sel0$calls$win_guard))
+  # columns of another fraction grid: warned, no guard
+  dx = copy(d); setnames(dx, "wal_f980", "wal_f970")
+  expect_warning(sx <- select_null_cells(dx, params = p, n_sim = 2e4), "no windowed null-cell guard")
+  expect_true("c007" %in% sx$null_cells)
   # below the bound (log 1e4 = 9.2): not guarded
   d[cell == "c007" & chrom == "chr3", wal_f980 := 8]
   expect_true("c007" %in% select_null_cells(d, params = p, n_sim = 2e4)$null_cells)
-  # depth-spread guard (opt-in)
-  d[cell == "c009", sd_null := 0.9]
-  sg = select_null_cells(d, params = modifyList(p, list(null_sd_guard = TRUE)), n_sim = 2e4)
-  expect_false("c009" %in% sg$null_cells)
-  expect_true(sg$calls[cell == "c009", sd_guard])
 })
 
 test_that("call_scn on sim_norm_aneu: cells with private whole-chromosome LOH are called and are not null cells", {
@@ -183,26 +183,34 @@ test_that("call_scn on sim_norm_aneu: cells with private whole-chromosome LOH ar
   clean = setdiff(cells, c(carr, aneu))
   nc = function(r) r$calls[level == "cell" & called & reportable & cell %in% clean & chrom != "chrX", .N]
   expect_lte(nc(r1), nc(r0) + 1L)
-  # event_sd (experimental): only cells with a reportable autosomal chromosome / arm call are rescored
-  r2 = run(modifyList(caller_defaults(), list(event_sd = TRUE)))
-  called1 = unique(r1$calls[level == "cell" & called & reportable & class %in% c("chrom", "arm") & chrom != "chrX", cell])
-  k = function(r) r$calls[level == "cell" & !cell %in% called1][order(cell, region), .(cell, region, state, score, called)]
-  expect_equal(k(r2), k(r1))
-  expect_true(any(grepl("^event-masked depth scale", r2$notes)))
-  expect_false(any(r2$cells[cell %in% aneu, null_cell]))
+  # window columns that match no allelic row fraction (features of another eps): warned, noted, oriented scores
+  fe2 = copy(fe$long); setnames(fe2, "wal_f980", "wal_f990")
+  ng = modifyList(caller_defaults(), list(null_win_guard = FALSE))
+  expect_warning(r3 <- caller_normal(fe2, params = ng, regions = fe$regions, pool_classes = character()),
+                 "match no allelic row fraction")
+  expect_true(any(grepl("oriented only \\(window columns wal_f990", r3$notes)))
+  r0n = caller_normal(fe$long, params = modifyList(ng, list(win_score = "none")), regions = fe$regions,
+                      pool_classes = character())
+  expect_equal(r3$scores$s_comb, r0n$scores$s_comb)
 })
 
-test_that("event_masked_sd recomputes the scale without the called chromosomes and never for null cells", {
-  d = CJ(cell = c("a", "b"), region = c(paste0("chr", 1:8, "p"), paste0("chr", 1:8, "q")))
-  d[, `:=`(class = "arm", sd_class = "arm", chrom = sub("[pq]$", "", region), null_region = TRUE)]
-  d[, log2ratio := rep(c(-0.7, -0.7, 0.05, -0.05, 0.02, -0.02, 0.04, -0.03), 4)]
-  d[, null_cell := cell == "b"]
-  d[, sd_null := 1.4826 * mad(log2ratio, constant = 1), by = cell]
-  calls = data.table(cell = c("a", "b"), region = "chr1", class = "chrom", chrom = "chr1", state = "loss", called = TRUE, reportable = TRUE)
-  e = event_masked_sd(d, calls)
-  expect_equal(e$cells, "a")
-  expect_lt(e$sd$sd_new, d[cell == "a", sd_null[1]])
-  expect_null(event_masked_sd(d, calls[cell == "b"]))
+test_that("update_allelic_features recomputes the window columns without the masked atoms", {
+  skip_on_cran()
+  cen = wa_centromeres(sim_norm_aneu$scn$bins)
+  fe = suppressWarnings(cell_features(wa_dir("sim_norm_aneu"), cells = sim_norm_aneu$scn$cells$cell, centromeres = cen,
+                                      sex = "female", method = "celltype"))
+  ex = fe$atoms[chrom == "chr22" & start < 10e6, atom]                  # mask the first half of chr22
+  fm = update_allelic_features(fe, ex)
+  k = c("cell", "region")
+  a = fe$long[class == "chrom" & chrom == "chr22", c(k, "n_win", "wal_f980"), with = FALSE]
+  b = fm$long[class == "chrom" & chrom == "chr22", c(k, "n_win", "wal_f980"), with = FALSE]
+  expect_true(all(b$n_win <= a$n_win) && any(b$n_win < a$n_win))
+  aneu = unique(sim_norm_aneu$scn$cells$cell[sim_norm_aneu$truth$nuclei[nucleus %in% sim_norm_aneu_nuclei, cell]])
+  expect_true(all(b[cell %in% aneu, wal_f980] < a[cell %in% aneu, wal_f980]))   # less LOH evidence left
+  # other chromosomes: same units, only rho is refitted
+  expect_gt(stats::cor(fm$long[class == "chrom" & chrom == "chr21", wal_f980], fe$long[class == "chrom" & chrom == "chr21", wal_f980]), 0.999)
+  expect_equal(fm$long[class == "chrom" & chrom == "chr21", n_win], fe$long[class == "chrom" & chrom == "chr21", n_win])
+  expect_true(is.list(fm$win_allelic) && fm$win_allelic$rho > 0)
 })
 
 test_that("block-only phasing: no window columns, a note, and the oriented scores", {

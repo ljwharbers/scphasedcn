@@ -13,8 +13,6 @@
   * On a COLO829BL (lymphoblastoid) sample with hybrid phasing, a cell with monosomies 1/3/9/12/21 and CN-LOH 8/18
     now gets exactly those calls, and 89 % of the LOH calls lie on ASCAT.sc-HP LOH segments. On a normal thyroid
     sample the calls are practically unchanged (133 vs 132 rows). The null false-call rates are unchanged in both.
-  * `event_sd` (experimental, off): rescores already-called cells with a depth scale computed without their called
-    chromosomes.
   * `select_null_cells()` never takes a cell whose windowed LLR exceeds the `exp(-t)` bound at the selection quantile
     (`null_win_guard`).
   * Under block-only phasing the term is not computed (noted), and features computed before this version run as

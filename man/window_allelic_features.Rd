@@ -48,6 +48,8 @@ but not at gain fractions, see \code{\link[=win_f_grid]{win_f_grid()}}).
 Needs phase sets that are reliable over a window: on block-only phasing a window holds many short unoriented
 blocks and the units are blocks of one or two molecules (the per-block mirrored statistic, which has no power).
 Subwindows whose votes over all cells have a shared allelic bias (\verb{|f - 0.5| > params$win_bias_max} on at least
-\code{params$win_bias_min_n} votes; germline CNV, mapping bias, imprinting) are left out. Only autosomes are scored
+\code{params$win_bias_min_n} votes; germline CNV, mapping bias, imprinting) are left out. The same mask hides a clonal
+LOH that more than about \verb{2 x win_bias_max} (20 \%) of the cells carry in one orientation of the population phase:
+acceptable in normal mode, whose window term is for events of single cells (shared events are the pools' job). Only autosomes are scored
 unless \code{params$win_chrx} (female chrX carries X-inactivation driven imbalance).
 }

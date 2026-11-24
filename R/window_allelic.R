@@ -13,8 +13,9 @@ utils::globalVariables(c("sw", "masked", "i.nA", "i.n", "n_win"))
 
 #' Haplotype fractions of the windowed allele term
 #'
-#' The fractions at which [window_allelic_features()] evaluates its windowed LLR: `params$win_f` (default 0.98, the
-#' loss / CN-LOH rows of the normal state set, `1 - eps`). Only near-complete LOH is specific at window level: cells
+#' The fractions at which [window_allelic_features()] evaluates its windowed LLR: `1 - eps` (the loss / CN-LOH rows of
+#' the normal state set, always included, so that the scorer finds their column whatever `eps`) and `params$win_f`
+#' (default 0.98). Only near-complete LOH is specific at window level: cells
 #' of normal tissue show a mild chromosome-scale allelic skew (best window fraction 0.67-0.80 on many chromosomes in
 #' the deepest cells of a normal thyroid sample), which a window term at gain fractions would call; at 0.98 no cell of
 #' that sample has a chromosome with W > 10, while 99 % of the COLO829BL rows with W > 20 lie on ASCAT.sc-HP LOH
@@ -22,7 +23,7 @@ utils::globalVariables(c("sw", "masked", "i.nA", "i.n", "n_win"))
 #' @param params [caller_defaults()] (`win_f`, `eps`)
 #' @return sorted numeric vector
 #' @export
-win_f_grid = function(params = caller_defaults()) sort(unique(round(params$win_f %||% (1 - params$eps), 6)))
+win_f_grid = function(params = caller_defaults()) sort(unique(round(c(1 - params$eps, params$win_f), 6)))
 
 #' Column name of the windowed allele LLR at fraction f
 #' @param f haplotype fraction(s)
@@ -102,7 +103,9 @@ window_units = function(votes, atoms, regions, size = 1e6) {
 #' Needs phase sets that are reliable over a window: on block-only phasing a window holds many short unoriented
 #' blocks and the units are blocks of one or two molecules (the per-block mirrored statistic, which has no power).
 #' Subwindows whose votes over all cells have a shared allelic bias (`|f - 0.5| > params$win_bias_max` on at least
-#' `params$win_bias_min_n` votes; germline CNV, mapping bias, imprinting) are left out. Only autosomes are scored
+#' `params$win_bias_min_n` votes; germline CNV, mapping bias, imprinting) are left out. The same mask hides a clonal
+#' LOH that more than about `2 x win_bias_max` (20 %) of the cells carry in one orientation of the population phase:
+#' acceptable in normal mode, whose window term is for events of single cells (shared events are the pools' job). Only autosomes are scored
 #' unless `params$win_chrx` (female chrX carries X-inactivation driven imbalance).
 #' @param votes votes table
 #' @param atoms atoms table

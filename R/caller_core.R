@@ -80,8 +80,8 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `win_allelic` windowed, orientation-free allele term of [cell_features()] ([window_allelic_features()]):
 #'     `"auto"` (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never);
 #'   * `win_size` window size of that term (1e6 bp): the phase is trusted only inside one window x phase set;
-#'   * `win_f` fractions of the windowed term (0.98: the loss / CN-LOH rows; gain fractions are not specific at window
-#'     level, [win_f_grid()]);
+#'   * `win_f` fractions of the windowed term in addition to `1 - eps` (the loss / CN-LOH rows, always included); 0.98
+#'     by default (= `1 - eps`); gain fractions are not specific at window level ([win_f_grid()]);
 #'   * `win_bias_max`, `win_bias_min_n` windows whose haplotype fraction pooled over all cells is off 0.5 by more than
 #'     `win_bias_max` (0.1) on at least `win_bias_min_n` (50) votes are left out (shared allelic bias);
 #'   * `win_chrx` also score chrX with the windowed term (FALSE: female X-inactivation gives per-cell imbalance);
@@ -92,12 +92,12 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'     the null model `P(W > 15) <= 3e-7` per row): weak window values of normal cells (W 5-11 on balanced rows of
 #'     shallow cells of a normal thyroid sample) otherwise displace the per-row null budget, while LOH gives W in the tens to hundreds;
 #'   * `null_win_guard` null-cell selection ([select_null_cells()]): cells with a windowed allele LLR above the
-#'     `exp(-t)` bound at the selection quantile are never null cells (TRUE);
-#'   * `null_sd_guard`, `null_sd_k` null-cell selection: cells whose arm `sd_null` is above their stratum's median +
-#'     `null_sd_k` (4) MADs are never null cells (FALSE);
-#'   * `event_sd` normal mode, experimental: cells with a reportable autosomal chromosome / arm call get their depth
-#'     scale `sd_null` recomputed without their called chromosomes (never larger) and are rescored with the same
-#'     thresholds, for the depth-only events of an aneuploid cell whose own events inflate its scale (FALSE).
+#'     `exp(-t)` bound at the selection quantile on a chromosome or arm row are never null cells (TRUE).
+#'
+#' The guard bound (about 9.2) is below `win_min` (15), so the windowed term never raises a selected null cell's
+#' chromosome or arm row: the per-row null false-call rates are those of the oriented scores, and the windowed calls are
+#' controlled by `win_min` and the model bound `P(W > t) <= exp(-t)`, not by the empirical null budget. The
+#' selection-free null check ([null_selection_check()], `call_scn(null_check = TRUE)`) does count them.
 #' @export
 caller_defaults = function() {
   list(
@@ -143,10 +143,7 @@ caller_defaults = function() {
     win_chrx = FALSE,
     win_score = "max",
     win_min = 15,
-    null_win_guard = TRUE,
-    null_sd_guard = FALSE,
-    null_sd_k = 4,
-    event_sd = FALSE
+    null_win_guard = TRUE
   )
 }
 

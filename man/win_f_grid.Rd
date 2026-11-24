@@ -13,8 +13,9 @@ win_f_grid(params = caller_defaults())
 sorted numeric vector
 }
 \description{
-The fractions at which \code{\link[=window_allelic_features]{window_allelic_features()}} evaluates its windowed LLR: \code{params$win_f} (default 0.98, the
-loss / CN-LOH rows of the normal state set, \code{1 - eps}). Only near-complete LOH is specific at window level: cells
+The fractions at which \code{\link[=window_allelic_features]{window_allelic_features()}} evaluates its windowed LLR: \code{1 - eps} (the loss / CN-LOH rows of
+the normal state set, always included, so that the scorer finds their column whatever \code{eps}) and \code{params$win_f}
+(default 0.98). Only near-complete LOH is specific at window level: cells
 of normal tissue show a mild chromosome-scale allelic skew (best window fraction 0.67-0.80 on many chromosomes in
 the deepest cells of a normal thyroid sample), which a window term at gain fractions would call; at 0.98 no cell of
 that sample has a chromosome with W > 10, while 99 \% of the COLO829BL rows with W > 20 lie on ASCAT.sc-HP LOH

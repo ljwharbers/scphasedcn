@@ -68,6 +68,12 @@ block-only phasing. On the per-cell loss and CN-LOH rows, `caller_normal()` uses
 windowed LLR (`win_score`), where the windowed LLR is above `win_min` (15). Below that value, a weak window value of a
 normal cell would only take up the per-row null budget. Pooled scores (`ar_*` columns) stay oriented.
 
+The guard below keeps every selected null cell under about 9.2 on its chromosome and arm rows, so the windowed term
+never raises a null row of those classes. The null false-call rates in `false_calls.tsv` are therefore those of the
+oriented scores, and they cannot show false calls of the windowed term. Those calls are controlled by `win_min` and by
+the model bound `P(W > 15) <= 3e-7` per row. The selection-free null check (`call_scn(null_check = TRUE)`) does count
+them, as an upper bound.
+
 The null-cell selection excludes cells whose windowed LLR exceeds the selection's `exp(-t)` bound on any autosomal
 chromosome or arm (`null_win_guard`). The run notes give how many cells this guard took out, and the overdispersion
 and masked windows of the term.

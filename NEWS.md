@@ -10,11 +10,23 @@
   * `caller_normal()` scores the per-cell loss / CN-LOH rows with the better of the oriented and the windowed LLR
     where the windowed LLR is above `win_min` (15) (`win_score = "max"`, under the same cross-validated thresholds).
     Gains and pooled scores are unchanged.
+  * `select_null_cells()` never takes a cell whose windowed LLR on a chromosome or arm row exceeds the `exp(-t)` bound
+    at the selection quantile (about 9.2; `null_win_guard`).
+  * **How the windowed calls are controlled.** The guard bound is below `win_min`. The windowed term therefore never
+    raises a chromosome or arm row of a selected null cell, and the null false-call rates per 1,000 are those of the
+    oriented scores: they cannot show false calls of the windowed term. Those calls are controlled by `win_min` and the
+    model bound `P(W > 15) <= 3e-7` per row. The selection-free null check (`call_scn(null_check = TRUE)`) counts them.
+  * On a normal thyroid sample (4,105 cells), 2 of 4.0 million cell-region rows have W > 15 (two 5-10 Mb tiles, none
+    on a chromosome or arm; 5 and 10 Mb tiles are not called per cell). The cell calls number 132 rows, as without the
+    term, and the null rates and the null check stay where they were (1.62 / 1.78 per 1,000, chromosome / arm rows).
   * On a COLO829BL (lymphoblastoid) sample with hybrid phasing, a cell with monosomies 1/3/9/12/21 and CN-LOH 8/18
-    now gets exactly those calls, and 89 % of the LOH calls lie on ASCAT.sc-HP LOH segments. On a normal thyroid
-    sample the calls are practically unchanged (133 vs 132 rows). The null false-call rates are unchanged in both.
-  * `select_null_cells()` never takes a cell whose windowed LLR exceeds the `exp(-t)` bound at the selection quantile
-    (`null_win_guard`).
+    now gets exactly those calls. Of 484 LOH calls, 429 (89 %) lie on ASCAT.sc-HP LOH segments.
+    * The null false-call rates stay at about 1 per 1,000.
+    * The selection-free null check rises from 2.16 to 2.77 (chromosome rows) and from 2.88 to 3.30 (arm rows). This
+      comes from window-supported LOH rows of cells selected on the other half of the autosomes (85 of 112 on
+      ASCAT.sc-HP LOH segments). Exceedances without window support do not rise (230 -> 221).
+    * The guard takes 111 cells out of the null set, which also makes the depth null tighter: +39 depth-only rows,
+      mostly male chrX (69 -> 105 chrX rows).
   * Under block-only phasing the term is not computed (noted), and features computed before this version run as
     before.
   * New simulator event type `"nucleus:<i>"`, which puts several events in one nucleus.

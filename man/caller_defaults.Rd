@@ -64,7 +64,28 @@ depends on its own vote count, which the per-region scale of \code{\link[=pool_s
 null pools compared with the class (0 = off; e.g. 0.99);
 \item \code{pool_tail_k} shrinkage pseudo-count of the pooled tail factor (30 effective pools);
 \item \code{pool_tail_xfit} cross-fit the pooled tail (\code{\link[=pooled_thresholds]{pooled_thresholds()}}): the region scale and the
-threshold are estimated on pools of two disjoint halves of the null cells (TRUE).
+threshold are estimated on pools of two disjoint halves of the null cells (TRUE);
+\item \code{win_allelic} windowed, orientation-free allele term of \code{\link[=cell_features]{cell_features()}} (\code{\link[=window_allelic_features]{window_allelic_features()}}):
+\code{"auto"} (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never);
+\item \code{win_size} window size of that term (1e6 bp): the phase is trusted only inside one window x phase set;
+\item \code{win_f} fractions of the windowed term (0.98: the loss / CN-LOH rows; gain fractions are not specific at window
+level, \code{\link[=win_f_grid]{win_f_grid()}});
+\item \code{win_bias_max}, \code{win_bias_min_n} windows whose haplotype fraction pooled over all cells is off 0.5 by more than
+\code{win_bias_max} (0.1) on at least \code{win_bias_min_n} (50) votes are left out (shared allelic bias);
+\item \code{win_chrx} also score chrX with the windowed term (FALSE: female X-inactivation gives per-cell imbalance);
+\item \code{win_score} per-cell allele term of normal mode (\code{\link[=score_cells]{score_cells()}} \code{window}): \code{"none"} (oriented), \code{"max"} (the
+better of the oriented and the windowed LLR) or \code{"only"} (windowed); without window columns in the features the
+oriented term is used ("max");
+\item \code{win_min} with \code{win_score = "max"}, the windowed LLR replaces the oriented one only above this value (15; under
+the null model \code{P(W > 15) <= 3e-7} per row): weak window values of normal cells (W 5-11 on balanced rows of
+shallow cells of a normal thyroid sample) otherwise displace the per-row null budget, while LOH gives W in the tens to hundreds;
+\item \code{null_win_guard} null-cell selection (\code{\link[=select_null_cells]{select_null_cells()}}): cells with a windowed allele LLR above the
+\code{exp(-t)} bound at the selection quantile are never null cells (TRUE);
+\item \code{null_sd_guard}, \code{null_sd_k} null-cell selection: cells whose arm \code{sd_null} is above their stratum's median +
+\code{null_sd_k} (4) MADs are never null cells (FALSE);
+\item \code{event_sd} normal mode, experimental: cells with a reportable autosomal chromosome / arm call get their depth
+scale \code{sd_null} recomputed without their called chromosomes (never larger) and are rescored with the same
+thresholds, for the depth-only events of an aneuploid cell whose own events inflate its scale (FALSE).
 }
 }
 \description{

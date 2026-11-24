@@ -1,5 +1,25 @@
 # scphasedcn (development version)
 
+* **Normal mode: windowed, orientation-free allele term** (`window_allelic_features()`, `caller_defaults()` `win_*`).
+  With chromosome-scale (hybrid) phasing the per-cell allele term summed oriented votes over the whole region, so an
+  LOH carried by one cell only was cancelled at population-phase switches: a cell with several whole-chromosome
+  losses and CN-LOH could go uncalled and even become a null cell. `cell_features()` now also sums, per cell and
+  region, the mirrored beta-binomial LLR of near-complete LOH (f = 0.98) over 1 Mb windows x phase sets, with the
+  phase trusted only inside a window. These are the new feature columns `wal_f980` and `n_win`. Windows with a shared
+  allelic bias over all cells are left out, and only autosomes are scored.
+  * `caller_normal()` scores the per-cell loss / CN-LOH rows with the better of the oriented and the windowed LLR
+    where the windowed LLR is above `win_min` (15) (`win_score = "max"`, under the same cross-validated thresholds).
+    Gains and pooled scores are unchanged.
+  * On a COLO829BL (lymphoblastoid) sample with hybrid phasing, a cell with monosomies 1/3/9/12/21 and CN-LOH 8/18
+    now gets exactly those calls, and 89 % of the LOH calls lie on ASCAT.sc-HP LOH segments. On a normal thyroid
+    sample the calls are practically unchanged (133 vs 132 rows). The null false-call rates are unchanged in both.
+  * `event_sd` (experimental, off): rescores already-called cells with a depth scale computed without their called
+    chromosomes.
+  * `select_null_cells()` never takes a cell whose windowed LLR exceeds the `exp(-t)` bound at the selection quantile
+    (`null_win_guard`).
+  * Under block-only phasing the term is not computed (noted), and features computed before this version run as
+    before.
+  * New simulator event type `"nucleus:<i>"`, which puts several events in one nucleus.
 * Tumour mode, `gain_support` (`segment_clone()`, `clone_defaults()`): an imbalanced gain state needs depth
   support against the region's offset in the other clones. A run without it becomes CN-LOH when its allelic excess
   supports that, otherwise it keeps its state with `label` `imbalance` and a new `depth_ok` column FALSE. MEDICC2

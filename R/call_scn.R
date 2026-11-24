@@ -540,6 +540,10 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       res$notes = c(res$notes, mask_note)
     }
     if (!is.null(f0_note)) res$notes = c(res$notes, f0_note)
+    if (!is.null(features$win_allelic)) {
+      res$null_fit$win_allelic = features$win_allelic[c("rho", "f_grid")]
+      res$notes = c(res$notes, features$win_allelic$note)
+    }
     fc = null_false_calls(res$scores)
     res$false_calls = fc$rates
     res$false_events = fc$events
@@ -732,7 +736,9 @@ null_fit_table = function(nf) {
   # tumour mode: the confirmation null (rho / depth t refitted on the reference pool, or the input fits)
   tc = if (!is.null(nf$tpar_confirm)) copy(as.data.table(nf$tpar_confirm))[, kind := "depth_t_confirm"] else NULL
   rc = if (!is.null(nf$rho_confirm) && length(nf$rho_confirm) == 1) data.table(kind = "allelic_rho_confirm", rho = as.numeric(nf$rho_confirm)) else NULL
-  out = rbindlist(list(t, r, extra, tc, rc), fill = TRUE)
+  # normal mode: overdispersion of the windowed allele term (window_allelic_features())
+  rw = if (is.list(nf$win_allelic) && length(nf$win_allelic$rho) == 1) data.table(kind = "allelic_rho_window", rho = as.numeric(nf$win_allelic$rho)) else NULL
+  out = rbindlist(list(t, r, extra, tc, rc, rw), fill = TRUE)
   if (nrow(out)) setcolorder(out, "kind")
   out[]
 }

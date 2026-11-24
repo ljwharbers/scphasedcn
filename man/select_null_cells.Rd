@@ -43,10 +43,19 @@ null_region, eligible optional; chrom optional, else parsed from the region name
 
 \item{n_sim}{simulated rows per class x stratum (parametric; default max(2e4, 20 / (1 - q)))}
 
-\item{chroms}{chromosomes whose rows are scored (default autosomes chr1-chr22); NULL = all}
+\item{chroms}{chromosomes whose rows are scored (default autosomes chr1-chr22); NULL = all
+
+Guards (cells never in the set, whatever their calls): with window columns in \code{feat_long}
+(\code{\link[=window_allelic_features]{window_allelic_features()}}) and \code{params$null_win_guard} (default TRUE), cells with a scored row whose largest
+windowed allele LLR over the fraction grid exceeds \verb{log(1 / (1 - q)) + log(#fractions)} (under the null model
+\code{P(W > t) <= exp(-t)}, Bonferroni over the fractions): an allelic imbalance private to the cell, which the oriented
+scores can miss. With \code{params$null_sd_guard} (default FALSE), cells whose arm \code{sd_null} is above their stratum's
+median + \code{params$null_sd_k} (4) MADs. The selection's scores themselves stay oriented, so that they match what the
+parametric thresholds simulate.}
 }
 \value{
-list(null_cells, log (per iteration), calls (per candidate cell: n_calls, null), tpar, rho, thresholds)
+list(null_cells, log (per iteration), calls (per candidate cell: n_calls, win_guard, sd_guard, null), tpar,
+rho, thresholds)
 }
 \description{
 Starts from all cells of \code{feat_long} minus \code{exclude} (e.g. multiplet-flagged

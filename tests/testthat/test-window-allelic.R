@@ -138,6 +138,10 @@ test_that("select_null_cells: the windowed guard keeps cells with a private LOH 
   expect_true(sel$calls[cell == "c007", win_guard])
   expect_equal(sum(sel$calls$win_guard), 1L)
   expect_true(all(sel$log$n_win_guard == 1L))
+  expect_equal(sel$log$n_in[1], length(cells) - 1L)                    # out from the first fit on
+  s1 = select_null_cells(d, params = p, n_sim = 2e4, n_iter = 1)
+  expect_false("c007" %in% s1$null_cells)
+  expect_equal(s1$log$n_in, length(cells) - 1L)
   sel0 = select_null_cells(d, params = modifyList(p, list(null_win_guard = FALSE)), n_sim = 2e4)
   expect_true("c007" %in% sel0$null_cells)
   expect_false(any(sel0$calls$win_guard))

@@ -760,7 +760,7 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' Self-calibrated null cell set (normal tissue)
 #'
 #' Starts from all cells of `feat_long` minus `exclude` (e.g. multiplet-flagged
-#' barcodes). Each iteration fits the depth t null per class x stratum and the
+#' barcodes) and minus the cells of the windowed guard (see Details). Each iteration fits the depth t null per class x stratum and the
 #' allelic rho on the null rows of the current set, scores every candidate
 #' cell on the `classes` regions (chromosomes and arms) with `s_comb`,
 #' thresholds at the selection quantile `q` and keeps the cells with at most
@@ -822,7 +822,6 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
   if (!"eligible" %in% names(d)) d[, eligible := TRUE]
   if (!"fold" %in% names(d) || anyNA(d$fold)) d[, fold := assign_folds(cell, params$n_folds, params$seed, if ("origin" %in% names(d)) origin else NULL)]
   cand = unique(d$cell)
-  cur = cand
   ok_row = !is.na(d$null_region) & d$null_region & !is.na(d$eligible) & d$eligible
   # guard that does not depend on the iteration (windowed allele term, window_allelic_features()): a row whose largest
   # windowed LLR over the fraction grid exceeds log(1 / (1 - q)) + log(#fractions), the exp(-t) bound of the null model
@@ -838,6 +837,7 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
               ") match no fraction of win_f_grid() (", paste(win_f_grid(params), collapse = ", "), "): no windowed null-cell guard",
               call. = FALSE)
   }
+  cur = setdiff(cand, guard_win)                       # guarded cells are out from the first fit on (also with n_iter = 1)
   log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL
   for (it in seq_len(n_iter)) {
     isn = ok_row & d$cell %in% cur

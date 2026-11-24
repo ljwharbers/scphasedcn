@@ -108,8 +108,28 @@ depends on its own vote count, which the per-region scale of <code><a href="pool
 null pools compared with the class (0 = off; e.g. 0.99);</p></li>
 <li><p><code>pool_tail_k</code> shrinkage pseudo-count of the pooled tail factor (30 effective pools);</p></li>
 <li><p><code>pool_tail_xfit</code> cross-fit the pooled tail (<code><a href="pooled_thresholds.html">pooled_thresholds()</a></code>): the region scale and the
-threshold are estimated on pools of two disjoint halves of the null cells (TRUE).</p></li>
-</ul></div>
+threshold are estimated on pools of two disjoint halves of the null cells (TRUE);</p></li>
+<li><p><code>win_allelic</code> windowed, orientation-free allele term of <code><a href="cell_features.html">cell_features()</a></code> (<code><a href="window_allelic_features.html">window_allelic_features()</a></code>):
+<code>"auto"</code> (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never);</p></li>
+<li><p><code>win_size</code> window size of that term (1e6 bp): the phase is trusted only inside one window x phase set;</p></li>
+<li><p><code>win_f</code> fractions of the windowed term in addition to <code>1 - eps</code> (the loss / CN-LOH rows, always included); 0.98
+by default (= <code>1 - eps</code>); gain fractions are not specific at window level (<code><a href="win_f_grid.html">win_f_grid()</a></code>);</p></li>
+<li><p><code>win_bias_max</code>, <code>win_bias_min_n</code> windows whose haplotype fraction pooled over all cells is off 0.5 by more than
+<code>win_bias_max</code> (0.1) on at least <code>win_bias_min_n</code> (50) votes are left out (shared allelic bias);</p></li>
+<li><p><code>win_chrx</code> also score chrX with the windowed term (FALSE: female X-inactivation gives per-cell imbalance);</p></li>
+<li><p><code>win_score</code> per-cell allele term of normal mode (<code><a href="score_cells.html">score_cells()</a></code> <code>window</code>): <code>"none"</code> (oriented), <code>"max"</code> (the
+better of the oriented and the windowed LLR) or <code>"only"</code> (windowed); without window columns in the features the
+oriented term is used ("max");</p></li>
+<li><p><code>win_min</code> with <code>win_score = "max"</code>, the windowed LLR replaces the oriented one only above this value (15; under
+the null model <code>P(W &gt; 15) &lt;= 3e-7</code> per row): weak window values of normal cells (W 5-11 on balanced rows of
+shallow cells of a normal thyroid sample) otherwise displace the per-row null budget, while LOH gives W in the tens to hundreds;</p></li>
+<li><p><code>null_win_guard</code> null-cell selection (<code><a href="select_null_cells.html">select_null_cells()</a></code>): cells with a windowed allele LLR above the
+<code>exp(-t)</code> bound at the selection quantile on a chromosome or arm row are never null cells (TRUE).</p></li>
+</ul><p>The guard bound (about 9.2) is below <code>win_min</code> (15), so the windowed term never raises a selected null cell's
+chromosome or arm row: the per-row null false-call rates are those of the oriented scores, and the windowed calls are
+controlled by <code>win_min</code> and the model bound <code>P(W &gt; t) &lt;= exp(-t)</code>, not by the empirical null budget. The
+selection-free null check (<code><a href="null_selection_check.html">null_selection_check()</a></code>, <code>call_scn(null_check = TRUE)</code>) does count them.</p>
+    </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

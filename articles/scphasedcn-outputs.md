@@ -44,6 +44,40 @@ written run back.
 | `p`, `q`, `null_borrowed` | normal mode, tested per-cell rows: the empirical p-value against the null rows, the row-level Benjamini-Hochberg q-value (descriptive: not a false discovery rate, not a filter) and whether the row’s chromosome (chrX) or class has no null rows of its own (see below); NA on other rows |
 | `confident` | tumour mode: the cell’s clone assignment is confident |
 
+## Windowed allele term (normal mode)
+
+With chromosome-scale (hybrid) phasing,
+[`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md)
+adds two columns to the features (`features.tsv.gz`, and the scores in
+`scores.tsv.gz`), on the autosomal regions that have allele votes:
+
+| column | meaning |
+|----|----|
+| `wal_f980` | windowed LLR of near-complete LOH (f = 0.98) against 1:1: the sum, over the cell’s 1 Mb window x phase-set units in the region, of the mirrored beta-binomial log-likelihood ratio ([`window_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.md)). The phase is trusted only inside a unit, so an LOH that no other cell carries is not cancelled by population-phase switches. Large positive values are LOH; a balanced region is strongly negative; 0 = no unit with two or more votes |
+| `n_win` | units with at least two votes |
+
+The column is NA on chrX (female X-inactivation; `win_chrx`) and on
+depth-only regions, and it is absent with block-only phasing. On the
+per-cell loss and CN-LOH rows,
+[`caller_normal()`](https://ljwharbers.github.io/scphasedcn/reference/caller_normal.md)
+uses the better of the oriented and the windowed LLR (`win_score`),
+where the windowed LLR is above `win_min` (15). Below that value, a weak
+window value of a normal cell would only take up the per-row null
+budget. Pooled scores (`ar_*` columns) stay oriented.
+
+The guard below keeps every selected null cell under about 9.2 on its
+chromosome and arm rows, so the windowed term never raises a null row of
+those classes. The null false-call rates in `false_calls.tsv` are
+therefore those of the oriented scores, and they cannot show false calls
+of the windowed term. Those calls are controlled by `win_min` and by the
+model bound `P(W > 15) <= 3e-7` per row. The selection-free null check
+(`call_scn(null_check = TRUE)`) does count them, as an upper bound.
+
+The null-cell selection excludes cells whose windowed LLR exceeds the
+selection’s `exp(-t)` bound on any autosomal chromosome or arm
+(`null_win_guard`). The run notes give how many cells this guard took
+out, and the overdispersion and masked windows of the term.
+
 ## False-event load (normal mode)
 
 Normal mode calls a cell-region when its score exceeds the 1 / 1,000

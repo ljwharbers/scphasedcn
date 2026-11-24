@@ -141,4 +141,54 @@ named list:
 - `pool_tail_xfit` cross-fit the pooled tail
   ([`pooled_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/pooled_thresholds.md)):
   the region scale and the threshold are estimated on pools of two
-  disjoint halves of the null cells (TRUE).
+  disjoint halves of the null cells (TRUE);
+
+- `win_allelic` windowed, orientation-free allele term of
+  [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md)
+  ([`window_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.md)):
+  `"auto"` (computed with chromosome-scale, i.e. hybrid, phasing), TRUE
+  (always) or FALSE (never);
+
+- `win_size` window size of that term (1e6 bp): the phase is trusted
+  only inside one window x phase set;
+
+- `win_f` fractions of the windowed term in addition to `1 - eps` (the
+  loss / CN-LOH rows, always included); 0.98 by default (= `1 - eps`);
+  gain fractions are not specific at window level
+  ([`win_f_grid()`](https://ljwharbers.github.io/scphasedcn/reference/win_f_grid.md));
+
+- `win_bias_max`, `win_bias_min_n` windows whose haplotype fraction
+  pooled over all cells is off 0.5 by more than `win_bias_max` (0.1) on
+  at least `win_bias_min_n` (50) votes are left out (shared allelic
+  bias);
+
+- `win_chrx` also score chrX with the windowed term (FALSE: female
+  X-inactivation gives per-cell imbalance);
+
+- `win_score` per-cell allele term of normal mode
+  ([`score_cells()`](https://ljwharbers.github.io/scphasedcn/reference/score_cells.md)
+  `window`): `"none"` (oriented), `"max"` (the better of the oriented
+  and the windowed LLR) or `"only"` (windowed); without window columns
+  in the features the oriented term is used ("max");
+
+- `win_min` with `win_score = "max"`, the windowed LLR replaces the
+  oriented one only above this value (15; under the null model
+  `P(W > 15) <= 3e-7` per row): weak window values of normal cells (W
+  5-11 on balanced rows of shallow cells of a normal thyroid sample)
+  otherwise displace the per-row null budget, while LOH gives W in the
+  tens to hundreds;
+
+- `null_win_guard` null-cell selection
+  ([`select_null_cells()`](https://ljwharbers.github.io/scphasedcn/reference/select_null_cells.md)):
+  cells with a windowed allele LLR above the `exp(-t)` bound at the
+  selection quantile on a chromosome or arm row are never null cells
+  (TRUE).
+
+The guard bound (about 9.2) is below `win_min` (15), so the windowed
+term never raises a selected null cell's chromosome or arm row: the
+per-row null false-call rates are those of the oriented scores, and the
+windowed calls are controlled by `win_min` and the model bound
+`P(W > t) <= exp(-t)`, not by the empirical null budget. The
+selection-free null check
+([`null_selection_check()`](https://ljwharbers.github.io/scphasedcn/reference/null_selection_check.md),
+`call_scn(null_check = TRUE)`) does count them.

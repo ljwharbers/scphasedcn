@@ -1,13 +1,14 @@
 # Self-calibrated null cell set (normal tissue)
 
 Starts from all cells of `feat_long` minus `exclude` (e.g.
-multiplet-flagged barcodes). Each iteration fits the depth t null per
-class x stratum and the allelic rho on the null rows of the current set,
-scores every candidate cell on the `classes` regions (chromosomes and
-arms) with `s_comb`, thresholds at the selection quantile `q` and keeps
-the cells with at most `max_calls` calls. Every iteration re-evaluates
-all candidates (a cell dropped earlier can come back), so the set does
-not ratchet.
+multiplet-flagged barcodes) and minus the cells of the windowed guard
+(see Details). Each iteration fits the depth t null per class x stratum
+and the allelic rho on the null rows of the current set, scores every
+candidate cell on the `classes` regions (chromosomes and arms) with
+`s_comb`, thresholds at the selection quantile `q` and keeps the cells
+with at most `max_calls` calls. Every iteration re-evaluates all
+candidates (a cell dropped earlier can come back), so the set does not
+ratchet.
 
 ## Usage
 
@@ -86,7 +87,7 @@ select_null_cells(
 ## Value
 
 list(null_cells, log (per iteration), calls (per candidate cell:
-n_calls, null), tpar, rho, thresholds)
+n_calls, win_guard, null), tpar, rho, thresholds)
 
 ## Details
 
@@ -109,3 +110,20 @@ Only rows on `chroms` (default the autosomes) are scored: chrX in
 females carries X-inactivation driven allelic imbalance and male chrX /
 chrY are depth-only, so a chrX call says little about whether a cell's
 autosomes are a clean null.
+
+Guard (cells never in the set, whatever their calls): with window
+columns in `feat_long`
+([`window_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.md))
+and `params$null_win_guard` (default TRUE), cells with a scored row
+(`classes`, i.e. chromosome and arm rows on `chroms`) whose largest
+windowed allele LLR over the fraction grid exceeds
+`log(1 / (1 - q)) + log(#fractions)` (about 9.2 at the default `q`;
+under the null model `P(W > t) <= exp(-t)`, Bonferroni over the
+fractions): an allelic imbalance private to the cell, which the oriented
+scores can miss. The bound is per row, without a correction over the
+about 60 scored rows of a cell: the guard errs towards leaving a cell
+out of the null set, which costs little (6 of 4,105 cells of a normal
+thyroid sample). It sees only chromosome and arm rows, so a null cell
+can still carry a windowed call on a smaller tile. The selection's
+scores themselves stay oriented, so that they match what the parametric
+thresholds simulate.

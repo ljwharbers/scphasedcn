@@ -72,7 +72,8 @@ alleles and reports that row's two terms.</p>
 <span>  depth_model <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"t"</span>, <span class="st">"gauss"</span><span class="op">)</span>,</span>
 <span>  params <span class="op">=</span> <span class="fu"><a href="caller_defaults.html">caller_defaults</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  keep_rows <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  sided <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"two"</span>, <span class="st">"one"</span><span class="op">)</span></span>
+<span>  sided <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"two"</span>, <span class="st">"one"</span><span class="op">)</span>,</span>
+<span>  window <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"none"</span>, <span class="st">"max"</span>, <span class="st">"only"</span><span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -120,6 +121,15 @@ per-row depth LLRs <code>dr_&lt;row_id&gt;</code> of multi-shift states); needed
 orientation); <code>"one"</code> = <code>f</code> on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
 clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
 every allelic row, including the per-row columns of <code>keep_rows</code></p></dd>
+
+
+<dt id="arg-window">window<a class="anchor" aria-label="anchor" href="#arg-window"></a></dt>
+<dd><p>windowed allele term (<code><a href="window_allelic_features.html">window_allelic_features()</a></code>, columns <code>wal_f&lt;fff&gt;</code> of <code>d</code>): <code>"none"</code> (default)
+= the oriented term only; <code>"max"</code> = per allelic row the better of the oriented LLR and the windowed LLR <code>W(f)</code> at
+the row's f, where <code>W(f)</code> exceeds <code>params$win_min</code> (below it the row keeps the oriented term, so that null-level
+window values do not enter the scores and thresholds); <code>"only"</code> = <code>W(f)</code> alone. Rows whose window column is NA, and rows of fractions without a column,
+keep the oriented term. The per-row columns of <code>keep_rows</code> (<code>ar_&lt;row_id&gt;</code>, used by the pooled scores) stay
+oriented. Ignored with <code>sided = "one"</code></p></dd>
 
 </dl></div>
     <div class="section level2">

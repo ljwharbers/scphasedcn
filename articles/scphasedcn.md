@@ -102,7 +102,7 @@ res
 #>   regions: 97
 #>   calls: 13446 rows, 746 called, 653 reportable
 #>   clones: 0
-#>   notes: 14
+#>   notes: 16
 ```
 
 Calls are per cell and region; `events` merges a cell’s overlapping

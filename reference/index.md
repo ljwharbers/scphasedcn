@@ -275,6 +275,9 @@
   : Merge over-split clone leaves with a permutation-calibrated split
   test
 
+- [`mirrored_llr()`](https://ljwharbers.github.io/scphasedcn/reference/mirrored_llr.md)
+  : Mirrored beta-binomial LLR of one unit
+
 - [`multiplet_table()`](https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.md)
   : Multiplet table of the caller
 
@@ -441,6 +444,15 @@
 - [`vote_bins()`](https://ljwharbers.github.io/scphasedcn/reference/vote_bins.md)
   : Vote strata: bins of the allele votes per class x depth stratum
 
+- [`win_col()`](https://ljwharbers.github.io/scphasedcn/reference/win_col.md)
+  : Column name of the windowed allele LLR at fraction f
+
+- [`win_f_grid()`](https://ljwharbers.github.io/scphasedcn/reference/win_f_grid.md)
+  : Haplotype fractions of the windowed allele term
+
+- [`window_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.md)
+  : Windowed, orientation-free allele features per cell and region
+
 - [`window_ids()`](https://ljwharbers.github.io/scphasedcn/reference/window_ids.md)
   : Window id per bin for aggregation to a coarser grid
 
@@ -449,6 +461,9 @@
 
 - [`window_table()`](https://ljwharbers.github.io/scphasedcn/reference/window_table.md)
   : Windows table (coordinates per window id)
+
+- [`window_units()`](https://ljwharbers.github.io/scphasedcn/reference/window_units.md)
+  : Window units of the votes
 
 - [`write_alleles_h5ad()`](https://ljwharbers.github.io/scphasedcn/reference/write_alleles_h5ad.md)
   :

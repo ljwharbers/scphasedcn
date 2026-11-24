@@ -24,7 +24,8 @@ score_cells(
   depth_model = c("t", "gauss"),
   params = caller_defaults(),
   keep_rows = FALSE,
-  sided = c("two", "one")
+  sided = c("two", "one"),
+  window = c("none", "max", "only")
 )
 ```
 
@@ -81,6 +82,20 @@ score_cells(
   confirmation), so imbalance of the opposite homologue scores negative.
   Applies to every allelic row, including the per-row columns of
   `keep_rows`
+
+- window:
+
+  windowed allele term
+  ([`window_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.md),
+  columns `wal_f<fff>` of `d`): `"none"` (default) = the oriented term
+  only; `"max"` = per allelic row the better of the oriented LLR and the
+  windowed LLR `W(f)` at the row's f, where `W(f)` exceeds
+  `params$win_min` (below it the row keeps the oriented term, so that
+  null-level window values do not enter the scores and thresholds);
+  `"only"` = `W(f)` alone. Rows whose window column is NA, and rows of
+  fractions without a column, keep the oriented term. The per-row
+  columns of `keep_rows` (`ar_<row_id>`, used by the pooled scores) stay
+  oriented. Ignored with `sided = "one"`
 
 ## Value
 

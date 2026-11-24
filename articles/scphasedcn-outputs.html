@@ -301,6 +301,62 @@ rows</td>
 </table>
 </div>
 <div class="section level2">
+<h2 id="windowed-allele-term-normal-mode">Windowed allele term (normal mode)<a class="anchor" aria-label="anchor" href="#windowed-allele-term-normal-mode"></a>
+</h2>
+<p>With chromosome-scale (hybrid) phasing, <code><a href="../reference/cell_features.html">cell_features()</a></code>
+adds two columns to the features (<code>features.tsv.gz</code>, and the
+scores in <code>scores.tsv.gz</code>), on the autosomal regions that
+have allele votes:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>column</th>
+<th>meaning</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>wal_f980</code></td>
+<td>windowed LLR of near-complete LOH (f = 0.98) against 1:1: the sum,
+over the cell’s 1 Mb window x phase-set units in the region, of the
+mirrored beta-binomial log-likelihood ratio
+(<code><a href="../reference/window_allelic_features.html">window_allelic_features()</a></code>). The phase is trusted only
+inside a unit, so an LOH that no other cell carries is not cancelled by
+population-phase switches. Large positive values are LOH; a balanced
+region is strongly negative; 0 = no unit with two or more votes</td>
+</tr>
+<tr class="even">
+<td><code>n_win</code></td>
+<td>units with at least two votes</td>
+</tr>
+</tbody>
+</table>
+<p>The column is NA on chrX (female X-inactivation;
+<code>win_chrx</code>) and on depth-only regions, and it is absent with
+block-only phasing. On the per-cell loss and CN-LOH rows,
+<code><a href="../reference/caller_normal.html">caller_normal()</a></code> uses the better of the oriented and the
+windowed LLR (<code>win_score</code>), where the windowed LLR is above
+<code>win_min</code> (15). Below that value, a weak window value of a
+normal cell would only take up the per-row null budget. Pooled scores
+(<code>ar_*</code> columns) stay oriented.</p>
+<p>The guard below keeps every selected null cell under about 9.2 on its
+chromosome and arm rows, so the windowed term never raises a null row of
+those classes. The null false-call rates in <code>false_calls.tsv</code>
+are therefore those of the oriented scores, and they cannot show false
+calls of the windowed term. Those calls are controlled by
+<code>win_min</code> and by the model bound
+<code>P(W &gt; 15) &lt;= 3e-7</code> per row. The selection-free null
+check (<code>call_scn(null_check = TRUE)</code>) does count them, as an
+upper bound.</p>
+<p>The null-cell selection excludes cells whose windowed LLR exceeds the
+selection’s <code>exp(-t)</code> bound on any autosomal chromosome or
+arm (<code>null_win_guard</code>). The run notes give how many cells
+this guard took out, and the overdispersion and masked windows of the
+term.</p>
+</div>
+<div class="section level2">
 <h2 id="false-event-load-normal-mode">False-event load (normal mode)<a class="anchor" aria-label="anchor" href="#false-event-load-normal-mode"></a>
 </h2>
 <p>Normal mode calls a cell-region when its score exceeds the 1 / 1,000

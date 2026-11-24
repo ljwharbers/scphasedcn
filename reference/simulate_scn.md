@@ -56,7 +56,9 @@ simulate_scn(
 - events:
 
   data.table (chrom, start, end, cnA, cnB, type); `type` may be a cell
-  type name or "private" (then `private_frac` of the nuclei carry it)
+  type name, "private" (then `private_frac` of the nuclei carry it) or
+  "nucleus:*,,..." (exactly the given nuclei carry it, e.g. several
+  events in one nucleus: a highly aneuploid cell)*
 
 - private_frac:
 

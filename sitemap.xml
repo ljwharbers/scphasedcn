@@ -93,6 +93,7 @@
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/medicc2_pieces.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/medicc2_table.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/merge_clones.html</loc></url>
+<url><loc>https://ljwharbers.github.io/scphasedcn/reference/mirrored_llr.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/new_scn.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/new_scphasedcn.html</loc></url>
@@ -145,9 +146,13 @@
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/tile_name.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/update_allelic_features.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/vote_bins.html</loc></url>
+<url><loc>https://ljwharbers.github.io/scphasedcn/reference/win_col.html</loc></url>
+<url><loc>https://ljwharbers.github.io/scphasedcn/reference/win_f_grid.html</loc></url>
+<url><loc>https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/window_ids.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/window_matrices.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/window_table.html</loc></url>
+<url><loc>https://ljwharbers.github.io/scphasedcn/reference/window_units.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/write_alleles_h5ad.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/write_bins_h5ad.html</loc></url>
 <url><loc>https://ljwharbers.github.io/scphasedcn/reference/write_fragments.html</loc></url>

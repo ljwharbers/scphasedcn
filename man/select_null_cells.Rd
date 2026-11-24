@@ -51,7 +51,7 @@ thresholds)
 }
 \description{
 Starts from all cells of \code{feat_long} minus \code{exclude} (e.g. multiplet-flagged
-barcodes). Each iteration fits the depth t null per class x stratum and the
+barcodes) and minus the cells of the windowed guard (see Details). Each iteration fits the depth t null per class x stratum and the
 allelic rho on the null rows of the current set, scores every candidate
 cell on the \code{classes} regions (chromosomes and arms) with \code{s_comb},
 thresholds at the selection quantile \code{q} and keeps the cells with at most

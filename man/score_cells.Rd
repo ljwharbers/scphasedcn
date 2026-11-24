@@ -13,7 +13,8 @@ score_cells(
   depth_model = c("t", "gauss"),
   params = caller_defaults(),
   keep_rows = FALSE,
-  sided = c("two", "one")
+  sided = c("two", "one"),
+  window = c("none", "max", "only")
 )
 }
 \arguments{
@@ -40,6 +41,13 @@ per-row depth LLRs \verb{dr_<row_id>} of multi-shift states); needed by \code{\l
 orientation); \code{"one"} = \code{f} on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
 clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
 every allelic row, including the per-row columns of \code{keep_rows}}
+
+\item{window}{windowed allele term (\code{\link[=window_allelic_features]{window_allelic_features()}}, columns \verb{wal_f<fff>} of \code{d}): \code{"none"} (default)
+= the oriented term only; \code{"max"} = per allelic row the better of the oriented LLR and the windowed LLR \code{W(f)} at
+the row's f, where \code{W(f)} exceeds \code{params$win_min} (below it the row keeps the oriented term, so that null-level
+window values do not enter the scores and thresholds); \code{"only"} = \code{W(f)} alone. Rows whose window column is NA, and rows of fractions without a column,
+keep the oriented term. The per-row columns of \code{keep_rows} (\verb{ar_<row_id>}, used by the pooled scores) stay
+oriented. Ignored with \code{sided = "one"}}
 }
 \value{
 copy of \code{d} with \verb{dl_<state>}, \verb{al_<state>}, \verb{cl_<state>} per

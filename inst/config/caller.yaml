@@ -44,6 +44,15 @@ pool_events: false          # normal mode: pooled calls of named events (experim
 pool_tail_q: 0.99           # pooled per-region tail calibration: quantile of the standardised null pools vs the class (0 = off)
 pool_tail_k: 30             # shrinkage pseudo-count of the pooled tail factor (effective pools)
 pool_tail_xfit: true        # cross-fit the pooled tail: region scale and threshold from pools of disjoint halves of the null cells
+win_allelic: "auto"         # windowed allele term (normal mode): "auto" = with chromosome-scale (hybrid) phasing, true = always, false = never
+win_size: 1000000           # window size (bp) of the windowed allele term: the phase is trusted only inside one window x phase set
+win_f: 0.98                 # haplotype fraction(s) of the windowed term besides 1 - eps (always included); gain fractions are not specific per window
+win_bias_max: 0.1           # windows whose pooled haplotype fraction over all cells is off 0.5 by more than this are left out (shared bias)
+win_bias_min_n: 50          # ... when they have at least this many votes over all cells
+win_chrx: false             # also score chrX with the windowed term (female X-inactivation gives per-cell imbalance)
+win_score: "max"            # per-cell allele term in normal mode: "none" (oriented), "max" (better of oriented and windowed), "only" (windowed)
+win_min: 15                 # "max": the windowed LLR replaces the oriented one only above this value (null model: P(W > 15) <= 3e-7 per row)
+null_win_guard: true        # null-cell selection: exclude cells with a windowed allele LLR above the exp(-t) bound at the selection quantile
 normal:                     # normal mode: caller_normal() arguments (CLI --n-draws overrides n_draws)
   n_draws: 20000            # null pool-regions per class for the pooled thresholds
   depth_model: "t"          # depth null: "t" (Student-t per class x stratum) or "gauss"

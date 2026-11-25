@@ -67,6 +67,130 @@
 * `inst/scripts/plot_cells.R`: command-line front end that plots every cell of a caller run, one PDF per clone (or per
   stratum in normal mode). It recomputes the feature step when no features .rds is given.
 
+* Tumour mode with a fitted baseline, details and known limits:
+  * Per-cell confirmation scores every null row relative to the neutral state of its own cell's clone (its baseline
+    and its depth contrast `c`), so a diploid reference cell is not scored as a one-copy gain of a near-triploid
+    clone. A piece without a state of a clone is taken at that clone's baseline.
+  * Without a reference pool, the neutral of a haploid row (male chrX / chrY) is one copy. A haploid gain could not
+    be confirmed by depth before. This changes calls on those rows in tumour runs without a reference pool, also at
+    the diploid baseline.
+  * Baseline candidates are narrowed only after a fit in which at least one clone carried allelic information.
+  * `ploidy` is "fit" or a number in [1, 8], also from a config file.
+  * A clone whose depth contrast `c` is at the lower bound of its grid (0.6) has a poorly determined scale and can
+    be off by one copy; the run notes name such clones. Baselines 0.25 apart are near-ties when `c` is free.
+  * Labels stay relative to the diploid normal, so per-cell call counts rise for clones with a baseline above 2. On
+    a whole-genome-doubled tumour the false confirmations on control pieces stayed below 1 per 1,000 on average,
+    with one small clone at 3 per 1,000.
+  * With an odd baseline, a region without allele votes (a female chrX is excluded from the allele channel by
+    default) can only take a balanced state, one copy off the baseline.
+  * In simulations at four seeds the fit put a clone at a quarter-step baseline next to the true one (2.25 for 2,
+    2.75 for 3) in 3 of 12 tumour runs; in one of them a 2:1 chromosome of a diploid clone came out as 3:1.
+    `ploidy = 2` avoids this for tumours known to be near-diploid.
+* Tumour mode memory and run time: the per-cell confirmation and the reference cleaning build their vote tables per
+  clone, the matched null is scored one hypothesis at a time, and the baseline fit's segment refinement no longer
+  recomputes the allele terms per depth contrast. Results are unchanged. On a whole-genome-doubled tumour of about
+  10,000 cells the fitted baseline needs less memory than 0.1.1 did (34 GiB against 42 GiB).
+* Tumour mode without flagged null cells no longer fits its input depth t null and allelic rho on all cells. It fits
+  them on the cells without a call on the null rows (new `tumour_null_fit()`) when that selection is stable, and
+  falls back to all cells otherwise. The run warns, the run notes record which null was used, and the warning also
+  says when the selection keeps more than two thirds of the cells: a stable selection does not show that the cells
+  are copy-number neutral. Results change for such runs; runs with flagged null cells give the same calls.
+  * `call_scn(mode = "tumour", null_cells = "select")` selects the cells for the input null instead of being
+    ignored, and no longer warns that "the features carry their own null fit" when it has just fitted that null.
+  * Without an input rho, `caller_tumour()` and the MEDICC2 helpers use `tumour_null_fit()` with the caller's
+    parameters and without multiplets, instead of a rho on all null rows of the flagged cells.
+* Calls require a positive score, `score > max(thr, 0)`, in every comparison of a score with its null threshold:
+  per-cell calls, pooled calls, tumour confirmation, null-cell selection, the null check, `event_fdr()` and the
+  reference-pool cleaning. Results change only where a null threshold is negative (vote-rich classes, the opt-in
+  `confirm_sided = "one"`). The thresholds tables still report the null quantile itself.
+* Pooled thresholds are computed for fold 0 only: `thresholds.tsv` no longer has pooled fold 1-4 rows, and the
+  pooled step is several times faster. Calls are unchanged.
+* Normal mode, opt-in attenuation-aware state set for chromosome-scale phase sets: `states_normal` is `"normal"`
+  (default, unchanged), `"normal_att"` (loss and CN-LOH also scored over `f_att_normal`, default 0.70-0.98;
+  `1 - eps` is always included) or `"auto"` (`normal_att` when the phasing regime is chromosome). Calls carry
+  `f_state`, the best-fitting fraction of the called state. With the windowed allele term only the rows at `1 - eps`
+  take the windowed LLR. It trades recall of attenuated losses and CN-LOH against more false loss / CN-LOH labels
+  and some gain recall; in the author's benchmarks no attenuated grid kept false arm losses within the target, so it
+  is not the default.
+* `model` depth normalisation, opt-in `gc_method = "ratio"`: the per-cell GC trend from summed counts over GC
+  quantile groups instead of a lowess of per-bin log ratios, which adds a depth-dependent GC bias at low depth. It is
+  applied when features are built, so existing feature files must be recomputed. The default `"lowess"` is unchanged.
+* Normal mode fixes:
+  * A named event in a depth stratum without a depth-null fit of its `sd_class` takes that `sd_class`'s fit over
+    strata; before, it got no depth null and was never called. Events of different sizes in one stratum each use
+    their own `sd_class` fit.
+  * `select_null_cells()`: a class x stratum whose cells were all dropped is thresholded at class level, and a cell
+    with a row that cannot be thresholded is not selected; before, such cells could re-enter the null set. It returns
+    an empty set instead of an error when every candidate is guarded or called.
+  * A cross-validation fold whose threshold is NA (empty training set) uses the fold-0 threshold.
+  * `caller_normal()`: cells without a cell type in `cell_meta` keep the features' cell type.
+  * `make_pools()` and `chrom_rank()` order names in C order, so a seed gives the same pools under any collation,
+    also for non-ASCII names.
+  * `caller_normal()`, `select_null_cells()`, `pooled_thresholds()` and `null_selection_check()` complete a partial
+    `params` list with `caller_defaults()`.
+  * `win_allelic` values other than TRUE / FALSE / "auto" stop with an error; `pool_scale()` default `tail_k` is 30,
+    as `caller_defaults()`; `subset_scn()` keeps the requested order for integer selectors and stops on duplicate or
+    unknown cells; `make_cell_meta()` warns when `qc_args` are not applied.
+  * Missing categorical values in h5ad `obs` / `var` tables are read as `NA` in place, no longer shifting later
+    values.
+* Tumour mode fixes:
+  * Each EM round removes only its own doublet clones (ids were kept across the renumbering of the split pass), so
+    `clones` has unique ids and every doublet flag is in `null_fit$clones$doublet_log`. Doublet clones flagged in the
+    global round no longer appear as `clones` rows.
+  * `caller_tumour()` accepts every multiplet form of `multiplet_table()` and stops clearly when `allelic_exclude`
+    leaves no allele votes.
+  * `segment_clone(gain_support)`: a gain is above the clone's integer baseline and a run is never replaced by its
+    own state. `split_disagree()` tests clones on the state grid of their baseline.
+  * Documented that the confirmation null refits rho only, never the depth t.
+* MEDICC2 export:
+  * No segment spans a dropped range (`medicc2_pieces(max_gap = 0)` by default; `medicc2_table()` never merges
+    across gaps).
+  * Per-cell states keep the chaining flip in the leave-one-out orientation: cells of the reference clone were
+    scored on the wrong haplotype on flipped pieces.
+  * `imbalance` segments enter at the least-imbalanced state of the clone's integer baseline; `medicc2_table()`
+    warns when it clips at `cap`; `cell_piece_states(baseline = )` scores cells of clones with a baseline other than
+    2; numeric clone ids are handled.
+* Functions that seed the random-number generator restore the caller's random state (normal mode, tumour mode and
+  the simulator's genome). Results of `call_scn()` are unchanged; a script that draws random numbers after calling
+  one of these functions directly sees another stream.
+* The caller finds the extractor's bins file under its bin-size name (`bins_<tag>.h5ad`) through the new
+  `bins_file()`; `bins_100kb.h5ad` is still preferred when present. Bin sizes other than 100 kb are readable but
+  not validated.
+* Single-cell track plots: the depth baseline follows the features' depth reference and the clone's ploidy
+  baseline, normal-mode events on haploid chromosomes get haploid states, a clone's reportable segments that the
+  cell does not confirm are drawn as inherited, and every state label has a colour.
+* Simulator:
+  * `simulate_scn()`: `seed` now controls the simulated data when the genome is the default or an inline
+    `sim_genome()`; before, every seed gave the same data. Seed 1 with the default genome gives the same data as
+    before.
+  * Het SNPs are at unique positions; a draw on an occupied position moves to the next free one.
+  * `write_bins_h5ad()` / `write_alleles_h5ad()`: missing values in character columns are written as anndata
+    categoricals and read back as `NA`, instead of as the string `"NA"`.
+* Tests: the main normal-mode and tumour-mode simulations are also checked at three further seeds. Before the seed
+  fix every simulated fixture was drawn from one random stream, whatever seed it named.
+* Extractor (Python):
+  * `extract` / `run` check each chromosome against the BAM header, the FASTA and the chromosome sizes before the
+    BAM pass. A mismatch (another assembly or naming) stops with a message naming the file, instead of binning on
+    the wrong lengths or writing bins without GC.
+  * QC-fail reads (flag 0x200) are skipped and counted in a new `n_qcfail` column; primary records without SEQ or
+    CIGAR are skipped (they crashed the chromosome) and counted in `n_no_seq_cigar`.
+  * FRiP (`frip`) counts peak fragments among the clean (non-blacklisted) fragments, matching its denominator;
+    values drop slightly where blacklisted fragments overlap peaks.
+  * Biallelic SNVs require REF and ALT in A/C/G/T everywhere (`extract`, `select-hets`, `hybrid-phase`). A SNP
+    inside a reference skip of a read is no longer counted as an `other` allele.
+  * The bins file is named after the bin size by default (`bins_100kb.h5ad` for 100 kb as before); `--tag` still
+    overrides.
+  * `merge` without `--chroms` merges the main chromosomes that have a finished partial; without an output
+    directory it gives a usage error. `index-check` exits with status 1 on a stale or missing index.
+  * `run` reports a worker killed for memory with the unfinished chromosomes and a hint to lower `--jobs`.
+  * `select-hets --loci` matches loci contigs that differ by the `chr` prefix and exits with an error when no
+    autosomal site is selected.
+  * The per-bin layers are built sparse, with identical output and far less memory at small bin sizes.
+  * Since 0.1.1: `--vote-ps` (one vote per phase set), input metadata in each partial with checks at `merge`,
+    `--allow-missing`, an interruption-safe `merge`, and a report of barcode-map matches.
+* Development versions are marked as such (R 0.1.1.9000, Python 0.1.2.dev0), and the extractor records its version
+  in its output. Python packaging uses an SPDX license expression and needs setuptools >= 77.
+
 # scphasedcn 0.1.1
 
 * Extractor (Python): the `read_id` of a read whose name does not follow the SPLONGGET convention

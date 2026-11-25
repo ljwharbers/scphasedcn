@@ -32,16 +32,22 @@ window, ploidy; then summaries that need the profile are NA)}
 \item{min_excess}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: an imbalanced run also needs its pooled split-half oriented
 fraction to exceed 0.5 by at least this share of the expected excess \code{a * (f_state - 0.5)} (0 = off)}
 
-\item{bal_frac, min_bal_len}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: a balanced non-neutral run (2:2, depth only) needs
-a mean log2 of at least \code{bal_frac} of its expected shift \code{c * log2(cn / base)} and \code{min_bal_len} bp, else 1:1
-(0 = off)}
+\item{bal_frac, min_bal_len}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: a balanced run other than the balanced reference
+(e.g. 2:2 at baseline 2; depth only) needs a mean log2 of at least \code{bal_frac} of its expected shift
+\code{c * log2(cn / base)} and \code{min_bal_len} bp, else it takes the balanced reference (1:1 at baseline 2) (0 = off)}
 
-\item{max_contra}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: an imbalanced gain / loss whose mean log2 has the opposite sign
-of its expected shift by more than this takes the best supported copy-neutral state (CN-LOH or 1:1; Inf = off)}
+\item{max_contra}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: an imbalanced run whose copy number differs from nb and whose
+mean log2 has the opposite sign of its expected shift by more than this takes the best supported copy-neutral
+imbalanced state (nb copies: CN-LOH at baseline 2), or the balanced reference when none is supported (Inf = off)}
 
 \item{gain_support}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: an imbalanced gain (diploid window, copy number above the
 window's base) needs a mean log2 of at least this share of its expected shift \code{c * log2(cn / base)}, measured
-against the region's depth offset (per window, the median log2 of the other clones that are 1:1 there with= 50 cells). A run that fails takes the best CN-LOH state if its pooled oriented fraction supports one (asmin_excess); otherwise it keeps its state with label "imbalance" and depth_ok FALSE (allelic imbalancewithout the extra copy: a clone mixing LOH and heterozygous cells, or a genome whose baseline is not 2). 0 = off(no depth_ok column; the behaviour up to 0.1.1). Only applies to a fit_clone_states() input.}
+against the region's depth offset (per window, the median over the other clones that are 1:1 there, with at
+least 50 cells, of their log2 minus the 1:1 expectation). A run that fails takes the best copy-neutral imbalanced
+state (nb copies: CN-LOH at baseline 2) if its pooled oriented fraction supports one (as \code{min_excess}); otherwise
+it keeps its state with \code{label} "imbalance" and \code{depth_ok} FALSE (allelic imbalance without the extra copy,
+typically a clone mixing LOH and heterozygous cells). 0 = off (no \code{depth_ok} column; the behaviour up to 0.1.1).
+Only applies to a \code{\link[=fit_clone_states]{fit_clone_states()}} input.}
 }
 \value{
 segments table (\code{\link[=check_segments]{check_segments()}}) plus \code{label}, \code{ploidy} (and \code{depth_ok} when \code{gain_support} > 0)
@@ -53,4 +59,10 @@ into the adjacent run whose state explains them better. With the allele part of 
 \code{\link[=fit_clone_states]{fit_clone_states()}}) a run in an imbalanced state whose allelic log-likelihood ratio vs 1:1 is not positive is
 given the best balanced state instead. Clone profiles of clones under 50 cells are
 expected on the 5 Mb tile grid (\code{\link[=caller_tumour]{caller_tumour()}} does that).
+}
+\details{
+The rules below are anchored on the clone's integer baseline nb (its fitted baseline \code{base} rounded; 2 without a
+fit or at the diploid baseline): copy-neutral states have nb copies (CN-LOH 2:0 and 1:1 when nb = 2, e.g. 2:1 and
+3:0 when nb = 3), and the balanced reference is nb/2:nb/2 (nb even) or the better supported of the balanced states
+next to nb (nb odd, e.g. 1:1 or 2:2 when nb = 3). At nb = 2 they are the rules up to 0.1.x.
 }

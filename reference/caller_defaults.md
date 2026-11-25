@@ -38,6 +38,15 @@ named list:
   ([`read_votes()`](https://ljwharbers.github.io/scphasedcn/reference/read_votes.md)
   `clean`);
 
+- `gc_method` estimator of the per-cell GC trend of the `model` depth
+  normalisation (tumour mode;
+  [`normalise_depth()`](https://ljwharbers.github.io/scphasedcn/reference/normalise_depth.md)):
+  `"lowess"` (per-bin log ratios; biased in a depth-dependent way at low
+  depth) or `"ratio"` (opt-in: ratio of sums over GC quantile groups).
+  Read by
+  [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md),
+  so precomputed features keep the estimator they were built with;
+
 - `sd_floor` floor of the per-cell null SD of the window log2 ratio
   (0.05);
 

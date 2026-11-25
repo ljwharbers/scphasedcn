@@ -351,6 +351,16 @@ the caller finds), groups for the block orientation
 (<code>groups</code>, e.g. spatial regions), known events
 (<code>events</code>, reported as their own regions) and multiplet
 probabilities (<code>multiplets</code>).</p>
+<p>The depth reference of tumour mode is the <code>model</code>
+normalisation (<code><a href="../reference/normalise_depth.html">normalise_depth()</a></code>): a robust Poisson GLM of
+the bin counts on GC and mappability proxies shared by all cells, then a
+per-cell GC trend. By default that trend is a lowess of the per-bin log
+ratios, which at low depth (most 100 kb bins holding 0 or 1 fragments)
+adds a GC bias that depends on the cell’s depth;
+<code>gc_method: "ratio"</code> in the caller parameters estimates it
+instead from summed counts in GC quantile groups, which is unbiased at
+every depth. The trend is fixed when the features are built, so features
+computed before the change must be recomputed.</p>
 <p>The run below flags no normal cells. The input null is then fitted on
 the cells that <code><a href="../reference/tumour_null_fit.html">tumour_null_fit()</a></code> finds without a call on
 the null rows, the run warns that flagged cells give a better null, and

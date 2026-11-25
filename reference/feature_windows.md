@@ -5,7 +5,8 @@ it (e.g. to save disk space): the same cells and bin filter
 (`features$use`),
 [`normalise_depth()`](https://ljwharbers.github.io/scphasedcn/reference/normalise_depth.md)
 with `method` (`model` for tumours, `celltype` with the features' cell
-types), then
+types and the per-cell GC estimator of the features' parameters,
+`features$params$gc_method`), then
 [`window_matrices()`](https://ljwharbers.github.io/scphasedcn/reference/window_matrices.md).
 Needed by the tumour mode (clone pseudobulks).
 

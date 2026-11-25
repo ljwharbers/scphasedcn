@@ -970,3 +970,17 @@ test_that("the header of call_scn.R lists every file write_scphasedcn() can writ
     grepl(paste0("(^|[\\s/(])", gsub(".", "\\.", f, fixed = TRUE), "([\\s,).]|$)"), txt, perl = TRUE), logical(1))
   expect_identical(names(listed)[!listed], character())
 })
+
+test_that("precomputed features: tumour mode warns when params$gc_method differs from the features'; unknown values stop", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ff = fake_features(100, rg, seed = 12)
+  fe = list(long = ff, regions = rg, cells = unique(ff[, .(cell, stratum, n_frag)]))   # no params: built with "lowess"
+  p = caller_defaults(); p$gc_method = "ratio"
+  expect_warning(try(call_scn(tempdir(), "tumour", features = fe, params = p, verbose = FALSE), silent = TRUE),
+                 "built with gc_method \"lowess\"; gc_method \"ratio\" needs features recomputed")
+  p$gc_method = "spline"
+  expect_error(call_scn(tempdir(), "normal", features = fe, params = p, embedding = FALSE, verbose = FALSE),
+               "gc_method must be \"lowess\" or \"ratio\"")
+  fe$params = p
+  expect_error(call_scn(tempdir(), "tumour", features = fe, params = caller_defaults(), verbose = FALSE), "gc_method must be")
+})

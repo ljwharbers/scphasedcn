@@ -14,7 +14,9 @@
 #' @param chroms named numeric vector of chromosome lengths (bp)
 #' @param bin_size bin width in bp
 #' @param centromere_frac position of the centromere as a fraction of length
-#' @param seed RNG seed for the bin covariates
+#' @param seed RNG seed for the bin covariates: the genome depends on `seed` only (not on the caller's random
+#'   stream), and the caller's random stream is left as it was (the RNG state is saved and restored), also when
+#'   `sim_genome()` is evaluated as the `genome` argument of [simulate_scn()]
 #' @return data.table of bins: bin_id, chrom, start, end, gc, frac_blacklist,
 #'   frac_trf, is_centromere, peak_bp, arm, n_peaks
 #' @export
@@ -24,23 +26,35 @@ sim_genome = function(chroms = c(chr1 = 60e6, chr2 = 40e6, chr8 = 30e6, chr21 = 
   set.seed(seed)
   bins = make_bins(chroms, bin_size)
   nb = nrow(bins)
+  d = genome_covariate_draws(nb)
   # GC: smooth random walk around 0.41, clipped to a plausible range
-  gc = 0.41 + smooth_noise(nb, sd = 0.05, window = 15)
+  gc = 0.41 + d$gc_noise
   bins[, gc := pmin(pmax(gc, 0.3), 0.6)]
   bins[, frac_blacklist := 0]
-  bl = sample(nb, max(1, round(0.01 * nb)))
-  bins[bl, frac_blacklist := runif(length(bl), 0.3, 1)]
-  bins[, frac_trf := pmin(abs(rnorm(nb, 0.01, 0.02)), 0.3)]
+  bins[d$bl, frac_blacklist := d$bl_frac]
+  bins[, frac_trf := pmin(abs(d$trf), 0.3)]
   bins[, is_centromere := FALSE]
   for (ch in names(chroms)) {
     cen = centromere_frac * chroms[[ch]]
     bins[chrom == ch & start < cen + 1.5e6 & end > cen - 1.5e6, is_centromere := TRUE]
   }
   bins[, arm := ifelse(start < centromere_frac * chroms[chrom], "p", "q")]
-  bins[, n_peaks := rpois(nb, 3)]
+  bins[, n_peaks := d$n_peaks]
   bins[, peak_bp := n_peaks * 500L]
   bins[is_centromere == TRUE, `:=`(n_peaks = 0L, peak_bp = 0L)]
   bins[]
+}
+
+# The random draws of sim_genome() for nb bins, in their order (GC noise, blacklisted bins and their fractions,
+# tandem-repeat fractions, peak counts). simulate_scn() makes the same draws after set.seed(seed) and discards them,
+# so that its random stream starts where it always has (see simulate_scn()).
+genome_covariate_draws = function(nb) {
+  gc_noise = smooth_noise(nb, sd = 0.05, window = 15)
+  bl = sample(nb, max(1, round(0.01 * nb)))
+  bl_frac = runif(length(bl), 0.3, 1)
+  trf = rnorm(nb, 0.01, 0.02)
+  n_peaks = rpois(nb, 3)
+  list(gc_noise = gc_noise, bl = bl, bl_frac = bl_frac, trf = trf, n_peaks = n_peaks)
 }
 
 smooth_noise = function(n, sd = 1, window = 10) {
@@ -85,7 +99,8 @@ sim_events_tumour = function() {
 #' @param wave_sd log-sd of the cell-type chromatin wave (2-5 Mb scale)
 #' @param noise_phi cell-private multiplicative noise (log-sd), autocorrelated over ~5 bins
 #' @param frag_len lognormal parameters of fragment length (bp)
-#' @param snp_density het SNPs per bp
+#' @param snp_density het SNPs per bp (uniform positions, one SNP per position: a draw that falls on an
+#'   occupied position is moved to the next free one)
 #' @param phase_block_mean mean phase-block length (bp)
 #' @param switch_rate per-SNP switch-error probability inside a block (1e-4
 #'   keeps a 750-SNP block mostly in one parity, attenuation ~0.93 by
@@ -93,7 +108,11 @@ sim_events_tumour = function() {
 #' @param block_flip_prob probability that a block's orientation is flipped
 #'   relative to the true haplotypes (0 = anchored blocks)
 #' @param allele_error per-observation allele error rate (ONT)
-#' @param seed RNG seed
+#' @param seed RNG seed of the simulation (cells, nuclei, copy numbers, fragments, SNPs, alleles). It does not
+#'   change the genome: `genome` is evaluated before seeding, and [sim_genome()] uses its own `seed`. After
+#'   `set.seed(seed)` the simulator first makes (and discards) the random draws of [sim_genome()] for
+#'   `nrow(genome)` bins, then draws the data; the result depends only on the genome table, `seed` and the other
+#'   parameters, not on how `genome` was given. The caller's random stream is saved and restored.
 #' @return list with `scn` (an `scn` object, see [new_scn()]), `truth` (cells,
 #'   nuclei, cn/cnA per nucleus, events), `fragments` (data.table in the Python
 #'   `fragments.tsv.gz` layout, `ps` = phase set of the first covered SNP or -1, plus nucleus,
@@ -108,11 +127,16 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
                         noise_phi = 0.25, frag_len = c(meanlog = log(700), sdlog = 0.6),
                         snp_density = 1 / 2000, phase_block_mean = 1.5e6, switch_rate = 1e-4,
                         block_flip_prob = 0, allele_error = 0.04, seed = 1) {
+  # the genome first, before seeding: a default or inline sim_genome() then uses its own seed and restores the
+  # caller's stream (evaluated after set.seed(seed), it reseeded the simulation: every seed gave the same data)
+  bins = copy(genome)
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   sex = match.arg(sex)
-  set.seed(seed)
-  bins = copy(genome)
   nb = nrow(bins)
+  set.seed(seed)
+  # the stream starts after the genome's covariate draws for nb bins (made and discarded), as it did when the
+  # default genome was drawn inside the seeded call: seed 1 with sim_genome()'s default seed keeps its data
+  invisible(genome_covariate_draws(nb))
   chrom_sizes = chrom_sizes_from_bins(bins)
   bins[, bin_id := seq_len(nb)]
 
@@ -192,7 +216,7 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
   # ---- SNPs, phase blocks, switch errors ----------------------------------------
   snps = rbindlist(lapply(names(chrom_sizes), function(ch) {
     n = rpois(1, chrom_sizes[[ch]] * snp_density)
-    data.table(chrom = ch, pos = sort(floor(runif(n) * chrom_sizes[[ch]])))
+    data.table(chrom = ch, pos = unique_positions(sort(floor(runif(n) * chrom_sizes[[ch]])), chrom_sizes[[ch]]))
   }))
   snps[, hap_of_alt_true := sample(c("A", "B"), .N, replace = TRUE)]
   snps[, block := cumsum(c(TRUE, runif(.N - 1) < 1 / (phase_block_mean * snp_density))), by = chrom]
@@ -268,6 +292,19 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
                      multiplet_rate = multiplet_rate, peak_frac = peak_frac, frag_len = frag_len,
                      snp_density = snp_density, switch_rate = switch_rate, allele_error = allele_error,
                      block_flip_prob = block_flip_prob, seed = seed))
+}
+
+# Unique SNP positions (a het list has one entry per site) from sorted draws in [0, size): every position that
+# collides with an earlier one is moved up to the next free position (a run of k draws at p becomes p, p + 1, ...,
+# p + k - 1, pushing a later draw up only when it is reached), and the last ones down when that passes size - 1.
+# Draws without collisions are returned unchanged, and no random numbers are used, so the rest of the simulation's
+# random stream is the same as without the step (moving a duplicate by redrawing it would shift it).
+unique_positions = function(pos, size) {
+  n = length(pos)
+  if (n < 2) return(pos)
+  if (n > size) stop(sprintf("unique_positions: %d positions do not fit in %s bp", n, format(size)), call. = FALSE)
+  k = seq_len(n) - 1
+  k + pmin(cummax(pos - k), size - n)
 }
 
 # Drop fragments that overlap an earlier-accepted fragment of the same molecule (same group, sorted by

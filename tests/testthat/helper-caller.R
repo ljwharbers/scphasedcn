@@ -8,6 +8,7 @@
 #       - sim_tum3: sim_tum2 at half the depth with in-block switch errors (clone allele attenuation a ~ 0.7).
 #       - fake_regions(), fake_features(), fake_atoms(), fake_votes(): tables in the package's table
 #         schemas (check_tables) with known truth, for unit tests that do not need the full simulator.
+#       - sim_features(), clone_sim_input(), sim_truth(): caller inputs and truth from a simulation.
 # Why: the tests of the feature step, scorer, tumour mode and pipeline share the same data. The simulations are
 #      built lazily (active bindings, first use only, then cached), so test files that do not use them
 #      pay nothing; both together take ~20 s.
@@ -23,6 +24,11 @@ lazy_cached = function(name, build, env = parent.frame()) {
 
 # ---- simulations ---------------------------------------------------------------------------------
 
+# Every simulation uses seed 1. Before simulate_scn() evaluated its genome ahead of seeding, the default (or an inline)
+# sim_genome() reseeded the stream to its own seed 1, so all of these were drawn from the seed-1 stream whatever their
+# `seed`; seed = 1 keeps the data the tests below were written on (depth counts, truth and fragments exactly; since
+# SNP positions are unique, the former duplicate SNPs sit one or more bp further on, which in sim_norm_f / sim_norm_blk
+# shifted the allele-error draws (fragment haplotype calls differ) and in sim_tum4 / sim_tri raised some phase sets by 1).
 # Cell-private events of the normal-tissue simulation. The simulator draws carriers of a "private"
 # event independently per event: each nucleus carries it with probability `private_frac` (0.05),
 # so ~10 of 200 barcodes carry each event (a few carry two).
@@ -35,21 +41,21 @@ sim_norm_f_events = function() {
 # chrX loss (1:0; female). Default sim_genome(): chr1 60 Mb (p arm 0-24 Mb), chr2 40, chr8 30,
 # chr21 20, chr22 20, chrX 40 Mb; 100 kb bins.
 # Hybrid (longphase + population) phasing: phase_block_mean = 1e9 gives one anchored block per chromosome
-# (seed 101: chrX has one extra break). The default switch_rate (1e-4 per SNP) would put ~5 switches on a
+# (at seed 1 chrX has one extra break). The default switch_rate (1e-4 per SNP) would put ~5 switches on a
 # 30,000-SNP chromosome and scramble chromosome-wide orientation; 2e-6 (~1 switch per 500,000 SNPs) keeps the
 # anchored haplotype fraction intact (hap agrees with hap_true for > 90 % of phased fragments).
 # multiplet_rate 0.05: a realistic residual rate after the soft multiplet filter.
 lazy_cached("sim_norm_f", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 1))
 
 # sim_norm_blk: sim_norm_f with block-only phasing (unoriented 200 kb read-backed blocks, each flipped with
 # probability 0.5; default switch_rate), i.e. longphase blocks without a population phase: normal mode warns.
 lazy_cached("sim_norm_blk", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 
 # sim_norm_aneu: sim_norm_f's events plus three highly aneuploid nuclei (5, 50, 120; singlet barcodes cell_0005,
 # cell_0049, cell_0116), each carrying a whole-chr2 loss (1:0), a chr22 loss (1:0), chr21 CN-LOH (2:0) and a chr8 gain
@@ -63,11 +69,11 @@ sim_norm_aneu_events = function() {
 lazy_cached("sim_norm_aneu", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_aneu_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 1))
 lazy_cached("sim_norm_aneu_blk", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_aneu_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 
 # Clone truth of the tumour simulation: `type` = the cell type (clone) that carries the event. The
 # simulator applies one event row to one cell type, so the trunk event (chr8 distal 3:1 in both clones)
@@ -84,14 +90,14 @@ sim_tum2_events = function() {
 lazy_cached("sim_tum2", function() simulate_scn(
   n_cells = 200, sex = "male", cell_types = c(normal = 0.3, cloneA = 0.35, cloneB = 0.35),
   depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tum2_events(),
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 102))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 # sim_tum3: sim_tum2's clones and events, attenuated allele signal and half the depth (a hard confirmation regime):
 # switch_rate 3.5e-3 per SNP in ~100-SNP blocks gives switch_attenuation(3.5e-3, 100) ~ 0.72 (with the 4 % allele
 # error the clone attenuation a ~ 0.66, chr21 2:1 at f ~ 0.61); depth meanlog log(4000).
 lazy_cached("sim_tum3", function() simulate_scn(
   n_cells = 200, sex = "male", cell_types = c(normal = 0.3, cloneA = 0.35, cloneB = 0.35),
   depth = c(meanlog = log(4000), sdlog = 0.35), events = sim_tum2_events(),
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, switch_rate = 3.5e-3, seed = 102))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, switch_rate = 3.5e-3, seed = 1))
 # sim_tum4: sim_tum2's clones plus two subclones that differ from their parent clone only on chr21 (the loss-inside-CN-LOH
 # and LOH-gain cases of the disagreement split): cloneB now carries chr21 CN-LOH (2:0) and cloneC is cloneB
 # with a chr21 loss of the same haplotype (1:0: one copy apart, same allele configuration); cloneD is cloneA with chr21
@@ -111,7 +117,7 @@ lazy_cached("sim_tum4", function() simulate_scn(
   n_cells = 460, sex = "male",
   genome = sim_genome(c(chr1 = 60e6, chr2 = 40e6, chr3 = 40e6, chr4 = 40e6, chr5 = 40e6, chr8 = 30e6, chr21 = 20e6, chr22 = 20e6, chrX = 40e6)), cell_types = c(normal = 0.13, cloneA = 0.2175, cloneB = 0.2175, cloneC = 0.2175, cloneD = 0.2175),
   depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tum4_events(),
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 104))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 
 # ---- fake tables ---------------------------------------------------------------------------------
 
@@ -256,3 +262,97 @@ fake_votes = function(n_cells, atoms, clones, events, flip_prob = 0.5, seed = 1,
   setattr(v, "truth", list(cnA = cnA, cnB = cnB, atom = at$atom))
   v[]
 }
+
+# ---- simulation inputs shared by the caller tests (moved here from test-caller.R / test-clones.R so that
+# test-multi-seed.R can use them) --------------------------------------------------------------------------------
+
+# features of a simulation (stand-in for cell_features()): celltype expected counts, per-cell window z with sd_null = 1.4826 MAD over
+# the cell's regions of the same class, and anchored molecule votes (hybrid-like phasing: one block per chromosome)
+sim_features = function(sim, tiles = c("20Mb" = 2e7)) {
+  scn = sim$scn; bins = scn$bins
+  rg = fake_regions(bins, tiles = tiles)
+  norm = normalise_depth(scn, "celltype")
+  X = dense(scn$counts); E = norm$expected; use = norm$use
+  cells = scn$cells$cell
+  fr = sim$fragments[hap %in% 1:2]
+  fr[, ci := if (is.numeric(cell)) as.integer(cell) else match(cell, cells)]
+  out = list()
+  for (i in seq_len(nrow(rg))) {
+    r = rg[i]
+    b = which(bins$chrom == r$chrom & bins$start >= r$start & bins$end <= r$end & use)
+    h = fr[chrom == r$chrom & start >= r$start & start < r$end, .(nA = sum(hap == 1L), nB = sum(hap == 2L)), by = ci]
+    nA = numeric(length(cells)); nB = numeric(length(cells)); nA[h$ci] = h$nA; nB[h$ci] = h$nB
+    out[[i]] = data.table(cell = cells, region = r$region, class = r$class, sd_class = r$sd_class, chrom = r$chrom,
+                          x = colSums(X[b, , drop = FALSE]), e = colSums(E[b, , drop = FALSE]), nA = nA, nB = nB)
+  }
+  d = rbindlist(out)
+  d[, log2ratio := log2((x + 0.5) / (e + 0.5))]
+  d[, sd_null := 1.4826 * mad(log2ratio, constant = 1), by = .(cell, sd_class)]
+  d[, z := log2ratio / pmax(sd_null, 0.05)]
+  d[, `:=`(n_hap = nA + nB, n_blocks = 1, f = fifelse(nA + nB > 0, nA / (nA + nB), NA_real_), orient = "anchored")]
+  d = merge(d, scn$cells[, .(cell, n_frag = as.numeric(n_frag), cell_type)], by = "cell")
+  d[, `:=`(stratum = as.character(depth_stratum(n_frag)), fold = assign_folds(cell), null_cell = NA, null_region = TRUE, eligible = TRUE)]
+  d[]
+}
+
+# scn_features-like list from a simulation: features (arms, chromosomes, 5 / 10 / 20 Mb tiles), regions, votes,
+# atoms (one per bin), cells, 1 Mb window depth (win) and null fits. Depth: model expected counts, each cell centred
+# on the median log2 ratio of its autosomal 5 Mb windows. Null cells = non-multiplet cells of `null_types`.
+clone_sim_input = function(sim, null_types = "normal", tiles = c("5Mb" = 5e6, "10Mb" = 1e7, "20Mb" = 2e7), mol_gap = 2000) {
+  scn = sim$scn
+  nm = suppressWarnings(normalise_depth(scn, "model"))
+  bins = scn$bins
+  sex = scn$cells$sex[1]
+  regions = fake_regions(bins, tiles = tiles, sex = sex)
+  if (sex == "male") regions[chrom %in% c("chrX", "chrY"), null_region := FALSE]
+  cells = scn$cells$cell
+  use = nm$use
+  X = as.matrix(scn$counts); X[!use, ] = 0
+  E = nm$expected; E[!use, ] = 0
+  w5 = window_ids(bins, 5e6); w5[!use | bins$chrom %in% c("chrX", "chrY")] = NA
+  i5 = group_indicator(w5)
+  med = apply(log2(as.matrix(i5 %*% X) / as.matrix(i5 %*% E)), 2, median)
+  E = sweep(E, 2, 2^med, "*")
+  wid = window_ids(bins, 1e6)
+  ind = group_indicator(wid)
+  wt = window_table(bins, wid)[match(rownames(ind), window)]
+  win = list(windows = wt[, .(window, chrom, start, end)], x = as.matrix(ind %*% X), e = as.matrix(ind %*% E))
+  colnames(win$x) = colnames(win$e) = cells
+  rb = lapply(seq_len(nrow(regions)), function(r) which(bins$chrom == regions$chrom[r] & bins$start >= regions$start[r] & bins$end <= regions$end[r]))
+  RI = Matrix::sparseMatrix(i = rep(seq_along(rb), lengths(rb)), j = unlist(rb), x = 1, dims = c(nrow(regions), nrow(bins)))
+  xr = as.matrix(RI %*% X); er = as.matrix(RI %*% E)
+  d = data.table(cell = rep(cells, each = nrow(regions)), ci = rep(seq_along(cells), each = nrow(regions)),
+                 region = rep(regions$region, length(cells)), x = as.vector(xr), e = as.vector(er))
+  d = merge(d, regions[, .(region, class, sd_class, chrom, null_region, eligible, allelic_ok)], by = "region", sort = FALSE)
+  d[, log2ratio := log2((x + 0.5) / (e + 0.5))]
+  d[, null_cell := (scn$cells$cell_type %in% null_types & !sim$truth$cells$multiplet)[ci]]
+  d[, sd_null := mad(log2ratio[null_region]), by = .(cell, sd_class)]
+  d[, z := log2ratio / pmax(sd_null, 0.05)]
+  fr = sim$fragments[hap %in% c(1L, 2L) & ps > 0, .(cell, chrom, start, end, hap = ifelse(hap == 1L, "A", "B"), ps)]
+  setorder(fr, cell, chrom, start)
+  fr[, new := c(TRUE, start[-1] > cummax(end)[-.N] + mol_gap), by = .(cell, chrom)]
+  fr[, mol := cumsum(new)]
+  m = fr[, .(start = min(start), ps = ps[1], nA = sum(hap == "A"), nB = sum(hap == "B")), by = .(cell, chrom, mol)][nA != nB]
+  if (sex == "male") m = m[!chrom %in% c("chrX", "chrY")]
+  atoms = fake_atoms(bins)
+  m[, atom := locate_bins(bins, chrom, start)]
+  votes = m[, .(nA = sum(nA > nB), nB = sum(nB > nA)), by = .(cell, atom, ps)]
+  votes[, `:=`(cell = as.integer(cell), atom = as.integer(atom), ps = as.numeric(ps), nA = as.integer(nA), nB = as.integer(nB))]
+  setorder(votes, cell, atom, ps)
+  ob = cl_orient(votes, regions, atoms, groups = NULL, loo = TRUE)
+  ob[, cell := cells[cell]]
+  d = merge(d, ob, by = c("cell", "region"), all.x = TRUE, sort = FALSE)
+  d[is.na(nA) | allelic_ok == FALSE, `:=`(nA = 0, nB = 0, n_blocks = 0)]
+  d[, n_hap := nA + nB][, f := fifelse(n_hap > 0, nA / n_hap, NA_real_)]
+  nf = scn$cells$n_frag
+  d[, `:=`(orient = "pseudobulk", n_frag = as.numeric(nf[ci]), stratum = as.character(depth_stratum(nf[ci])),
+           cell_type = scn$cells$cell_type[ci], fold = as.integer((ci - 1L) %% 4L + 1L))]
+  d[, c("ci", "allelic_ok") := NULL]
+  nr = d[null_cell & null_region & eligible]
+  list(features = d[], regions = regions, votes = votes, atoms = atoms,
+       cells = data.table(cell = cells, n_frag = as.numeric(nf), stratum = as.character(depth_stratum(nf)), cell_type = scn$cells$cell_type),
+       win = win, null_fit = list(tpar = fit_depth_null(nr, by = c("class", "stratum")), rho = fit_allelic_null(nr$nA, nr$n_hap)))
+}
+
+sim_truth = function(sim) data.table(cell = sim$scn$cells$cell, type = sim$scn$cells$cell_type,
+                                     mult = sim$truth$cells$multiplet, types = sim$truth$cells$types)

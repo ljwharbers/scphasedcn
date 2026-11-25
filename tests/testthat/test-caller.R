@@ -145,35 +145,6 @@ test_that("budget calibration: realised CV rate 0.7-1.4 per 1,000 per class; chr
   expect_true(all(ok$recall > 0.8), label = paste(ok$truth, round(ok$recall, 2), collapse = " "))
 })
 
-# features of a simulation (stand-in for cell_features()): celltype expected counts, per-cell window z with sd_null = 1.4826 MAD over
-# the cell's regions of the same class, and anchored molecule votes (hybrid-like phasing: one block per chromosome)
-sim_features = function(sim, tiles = c("20Mb" = 2e7)) {
-  scn = sim$scn; bins = scn$bins
-  rg = fake_regions(bins, tiles = tiles)
-  norm = normalise_depth(scn, "celltype")
-  X = dense(scn$counts); E = norm$expected; use = norm$use
-  cells = scn$cells$cell
-  fr = sim$fragments[hap %in% 1:2]
-  fr[, ci := if (is.numeric(cell)) as.integer(cell) else match(cell, cells)]
-  out = list()
-  for (i in seq_len(nrow(rg))) {
-    r = rg[i]
-    b = which(bins$chrom == r$chrom & bins$start >= r$start & bins$end <= r$end & use)
-    h = fr[chrom == r$chrom & start >= r$start & start < r$end, .(nA = sum(hap == 1L), nB = sum(hap == 2L)), by = ci]
-    nA = numeric(length(cells)); nB = numeric(length(cells)); nA[h$ci] = h$nA; nB[h$ci] = h$nB
-    out[[i]] = data.table(cell = cells, region = r$region, class = r$class, sd_class = r$sd_class, chrom = r$chrom,
-                          x = colSums(X[b, , drop = FALSE]), e = colSums(E[b, , drop = FALSE]), nA = nA, nB = nB)
-  }
-  d = rbindlist(out)
-  d[, log2ratio := log2((x + 0.5) / (e + 0.5))]
-  d[, sd_null := 1.4826 * mad(log2ratio, constant = 1), by = .(cell, sd_class)]
-  d[, z := log2ratio / pmax(sd_null, 0.05)]
-  d[, `:=`(n_hap = nA + nB, n_blocks = 1, f = fifelse(nA + nB > 0, nA / (nA + nB), NA_real_), orient = "anchored")]
-  d = merge(d, scn$cells[, .(cell, n_frag = as.numeric(n_frag), cell_type)], by = "cell")
-  d[, `:=`(stratum = as.character(depth_stratum(n_frag)), fold = assign_folds(cell), null_cell = NA, null_region = TRUE, eligible = TRUE)]
-  d[]
-}
-
 test_that("select_null_cells drops >= 90 % of sim_norm_f's private-event carriers and keeps the rest", {
   sf = sim_features(sim_norm_f)
   tr = sim_norm_f$truth

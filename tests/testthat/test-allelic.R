@@ -13,8 +13,8 @@ test_that("bb_loglik reduces to the binomial at rho = 0 and fit_bb_rho recovers 
 test_that("switch errors attenuate the anchored imbalance; theory and simulation agree in direction", {
   expect_lt(switch_attenuation(0.02, 750), switch_attenuation(1e-4, 750))
   expect_gt(switch_attenuation(1e-4, 750), 0.85)
-  s_bad = simulate_scn(n_cells = 80, seed = 31, multiplet_rate = 0, switch_rate = 0.02)
-  s_good = simulate_scn(n_cells = 80, seed = 31, multiplet_rate = 0, switch_rate = 1e-4)
+  s_bad = simulate_scn(n_cells = 80, seed = 1, multiplet_rate = 0, switch_rate = 0.02)
+  s_good = simulate_scn(n_cells = 80, seed = 1, multiplet_rate = 0, switch_rate = 1e-4)
   # hap-A fraction of the phased fragments on chr22 (monosomy 1:0 in the tumour cells)
   f_hap = function(s) {
     b = s$scn$bins$chrom == "chr22"

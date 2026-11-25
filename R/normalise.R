@@ -70,7 +70,10 @@ norm_method = function(method) {
 # estimator of the per-cell GC trend of `model`: "lowess" or "ratio" (NULL = "lowess", e.g. parameters of older runs)
 gc_trend_method = function(gc_method) {
   if (is.null(gc_method) || !length(gc_method)) return("lowess")
-  match.arg(as.character(gc_method[1]), c("lowess", "ratio"))
+  ok = c("lowess", "ratio")
+  m = ok[pmatch(as.character(gc_method[1]), ok)]
+  if (is.na(m)) stop(sprintf("gc_method must be \"lowess\" or \"ratio\", not \"%s\"", as.character(gc_method[1])), call. = FALSE)
+  m
 }
 
 finish_norm = function(scn, X, E, use, s, method, params) {

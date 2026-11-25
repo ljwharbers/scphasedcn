@@ -89,7 +89,9 @@ test_that("the default per-cell GC step (lowess) is unchanged; gc_method unset =
   expect_identical(n4$params$gc_method, "ratio")
   expect_false(identical(n1$expected, n4$expected))
   expect_equal(colSums(n4$expected, na.rm = TRUE), n4$size, ignore_attr = TRUE)   # cell totals preserved
-  expect_error(normalise_depth(scn, "model", gc_method = "spline"))
+  expect_error(normalise_depth(scn, "model", gc_method = "spline"), "gc_method must be \"lowess\" or \"ratio\", not \"spline\"")
+  expect_error(normalise_depth(scn, "celltype", gc_method = "spline"), "gc_method must be")   # checked in every method
+  expect_identical(gc_trend_method("rat"), "ratio")                                              # match.arg-style partial
   expect_identical(caller_defaults()$gc_method, "lowess")
 })
 

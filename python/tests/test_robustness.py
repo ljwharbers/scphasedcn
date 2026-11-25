@@ -448,28 +448,81 @@ def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------- records without SEQ / CIGAR
-def test_records_without_seq_or_cigar_are_counted_and_skipped(genome, bam, vcf, tmp_path):
+def _strip_seq(r):
+    """SEQ `*` on CELL_A's chr1 record c ([20000, 22000)) and on CELL_B's chr2 R2 (over SNPs 1001 and 1501)."""
+    if (r.get_tag("CB"), r.reference_name, r.reference_start) in ((CELL_A, "chr1", 20000), (CELL_B, "chr2", 950)):
+        r.query_sequence = None
+    return r
+
+
+def test_records_without_seq_count_in_depth_and_fragments(genome, bam, tmp_path):
+    """Depth and fragments need only the CIGAR: a BAM with SEQ stripped gives the same depth layers, QC and fragments
+    table as the full BAM (without SNPs, --layers depth,fragments)."""
+    b = rewrite_bam(bam, tmp_path / "noseq.bam", _strip_seq)
+    for x, bb in (("full", bam), ("noseq", b)):
+        o = tmp_path / x
+        assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "depth,fragments"]
+                    + _common(genome, bb, o)) == 0
+    full, noseq = (ad.read_h5ad(tmp_path / x / "bins_100kb.h5ad") for x in ("full", "noseq"))
+    assert full.X.sum() > 0 and (full.X != noseq.X).nnz == 0
+    assert all((full.layers[k] != noseq.layers[k]).nnz == 0 for k in full.layers)
+    pd.testing.assert_frame_equal(full.obs, noseq.obs)
+    pd.testing.assert_frame_equal(_frags(tmp_path / "full"), _frags(tmp_path / "noseq"))
+    s = json.load(open(tmp_path / "noseq" / "summary.json"))
+    assert s["n_no_seq"] == 2 and s["n_no_cigar"] == 0
+
+
+def test_records_without_seq_have_no_snp_observation(genome, bam, vcf, tmp_path):
+    """In an allele run, a record without SEQ over SNPs is a fragment without SNP observation (hap 0, nsnp 0, ps -1):
+    the allele counts lose its observations, nothing else changes."""
+    b = rewrite_bam(bam, tmp_path / "noseq.bam", _strip_seq)
+    for x, bb in (("full", bam), ("noseq", b)):
+        assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--snps", str(vcf), "--phased"]
+                    + _common(genome, bb, tmp_path / x)) == 0
+    f0, f1 = _frags(tmp_path / "full"), _frags(tmp_path / "noseq")
+    r2 = (f1.cell == CELL_B) & (f1.start == 950)
+    assert f1.loc[r2, ["hap", "nsnp", "ps"]].values.tolist() == [[0, 0, -1]]
+    assert f0.loc[r2, ["hap", "nsnp", "ps"]].values.tolist() == [[2, 2, 1000]]
+    pd.testing.assert_frame_equal(f0.loc[~r2], f1.loc[~r2])
+    a0, a1 = (ad.read_h5ad(tmp_path / x / "alleles_dna.h5ad") for x in ("full", "noseq"))
+    pd.testing.assert_frame_equal(a0.var, a1.var)                       # n_other / n_lowbq unchanged
+    d = (a0.X - a1.X).toarray()
+    snp = list(a0.var["pos"])
+    assert d[1, snp.index(1001)] == 1 and d[1, snp.index(1501)] == 1 and abs(d).sum() == 2   # R2 only (cell B)
+    assert ((a0.layers["AD"] - a1.layers["AD"]).toarray()[1, snp.index(1001)]) == 1           # R2 was alt at 1001
+    q0, q1 = (pd.read_csv(tmp_path / x / "cells_qc.tsv", sep="\t", index_col=0) for x in ("full", "noseq"))
+    assert q1.loc[CELL_B, "n_hapB"] == q0.loc[CELL_B, "n_hapB"] - 1 and q1.loc[CELL_B, "n_pass"] == q0.loc[CELL_B, "n_pass"]
+    assert json.load(open(tmp_path / "noseq" / "summary.json"))["n_no_seq"] == 2
+
+
+def test_records_without_cigar_are_skipped_and_counted(genome, bam, tmp_path):
+    """A primary record without CIGAR has no reference span: skipped before the per-record counters, the same way for
+    listed cells, "-" and unlisted barcodes, so n_records stays the sum of its categories; counted in n_no_cigar."""
     def edit(r):
-        if r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 20000:
-            r.query_sequence = None                                   # SEQ *
-        elif r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 30000:
-            r.cigartuples = None                                      # no CIGAR
-        elif r.get_tag("CB") == CELL_B and r.reference_name == "chr2" and r.reference_start == 950:
-            r.query_sequence = None                                   # R2 covers two SNPs
+        if (r.get_tag("CB"), r.reference_name, r.reference_start) in (
+                (CELL_A, "chr1", 30000), ("-", "chr1", 17000), ("GGGGTTTTAAAACCCC", "chr1", 15000)):
+            r.cigartuples = None
         return r
-    b = rewrite_bam(bam, tmp_path / "noseq.bam", edit)
+    b = rewrite_bam(bam, tmp_path / "nocigar.bam", edit)
+    for x, bb in (("full", bam), ("o", b)):
+        assert main(["extract", "--chrom", "chr1"] + _common(genome, bb, tmp_path / x)) == 0
+        assert main(["merge", "--out", str(tmp_path / x), "--chroms", "chr1"]) == 0
     o = tmp_path / "o"
-    for ch in ("chr1", "chr2"):
-        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, b, o)) == 0
-    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0
-    p1, p2 = (json.load(open(o / "partials" / c / "params.json")) for c in ("chr1", "chr2"))
-    assert p1["n_no_seq_cigar"] == 2 and p2["n_no_seq_cigar"] == 1
-    assert json.load(open(o / "summary.json"))["n_no_seq_cigar"] == 3
-    f = _frags(o)
-    assert not f["start"].isin([20000, 30000]).any() and not ((f.cell == CELL_B) & (f.start == 950)).any()
+    p = json.load(open(o / "partials" / "chr1" / "params.json"))
+    assert p["n_no_cigar"] == 3 and p["n_no_seq"] == 0
+    assert json.load(open(o / "summary.json"))["n_no_cigar"] == 3
+    cats = ["n_secondary", "n_supplementary", "n_duplicate", "n_primary", "n_qcfail"]
+    for d in (p["dash"], p["unlisted"]):
+        assert d["n_records"] == sum(d[k] for k in cats)
+    assert p["dash"]["n_records"] == 1 and p["dash"]["n_pass"] == 0                    # d2 (duplicate) only
+    assert p["unlisted"]["n_records"] == 1 and p["unlisted"]["n_pass"] == 1
     q = pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0)
-    assert q.loc[CELL_A, "n_primary"] == 19 and q.loc[CELL_A, "n_pass"] == 18     # 21 / 20 without the edits
-    assert q.loc[CELL_A, ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]].sum() == 19
+    assert (q["n_records"] == q[cats].sum(axis=1)).all()
+    q0 = pd.read_csv(tmp_path / "full" / "cells_qc.tsv", sep="\t", index_col=0)
+    for k in ("n_records", "n_primary", "n_pass"):                                    # one record less: e
+        assert q.loc[CELL_A, k] == q0.loc[CELL_A, k] - 1 and q.loc[CELL_B, k] == q0.loc[CELL_B, k]
+    assert q.loc[CELL_A, ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]].sum() == q.loc[CELL_A, "n_primary"]
+    assert not _frags(o)["start"].isin([30000]).any()
 
 
 # --------------------------------------------------------------------------------------------- bins tag

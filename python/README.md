@@ -48,7 +48,8 @@ Options worth knowing:
 - `--binsize` (default 100000) and `--tag`: the bins are written to `bins_<tag>.h5ad`, the tag by default named after
   the bin size (`100kb` for 100000, `50kb`, `1Mb`; `<n>bp` for a size that is not a whole number of kb; `merge` takes
   the bin size of the partials). The R caller finds the bins file of the directory (`bins_100kb.h5ad` when present,
-  else the single `bins_<tag>.h5ad`), so keep one bins file per extraction directory.
+  else the single `bins_<tag>.h5ad`): one bins file per extraction directory, so `merge` removes any other
+  `bins_*.h5ad` there (e.g. of an earlier run at another bin size) when it writes its own.
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).
 - `merge` without `--chroms` (and without `chroms` in the yaml sample) merges the chromosomes `run` extracts: the main

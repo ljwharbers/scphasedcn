@@ -301,7 +301,8 @@ def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_parti
     """Merge the finished partials of `chroms`. A chromosome without a finished partial (partials/<chrom>/DONE) is an
     error unless `allow_missing` (then it is listed as `missing` in summary.json). Partials are checked with
     check_partials() first. The bins are written to bins_<tag>.h5ad; `tag` None: default_tag() of the partials' bin
-    size (100kb for 100000). Every output is written to a temporary file and moved into place; summary.json is removed
+    size (100kb for 100000); other bins_*.h5ad files of `out` (an earlier merge with another bin size or tag) are
+    removed, so that the directory has one bins file. Every output is written to a temporary file and moved into place; summary.json is removed
     at the start and written last, so it is present only after a complete merge."""
     t0 = time.time()
     log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
@@ -353,7 +354,12 @@ def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_parti
         a = ad.AnnData(X=X, obs=qc, var=bins, layers=layers, obsm={k: v.astype(np.int32) for k, v in obsm.items()})
         a.uns["params"] = _uns_safe(params)
         a.uns["obsm_layout"] = _uns_safe(obsm_layout())
-        _write_via_tmp(out / f"bins_{tag}.h5ad", lambda p: a.write_h5ad(p, compression="gzip"))
+        bins_path = out / f"bins_{tag}.h5ad"
+        _write_via_tmp(bins_path, lambda p: a.write_h5ad(p, compression="gzip"))
+        for old in sorted(out.glob("bins_*.h5ad")):   # one bins file per directory (the R caller finds it by name)
+            if old.name != bins_path.name:
+                old.unlink()
+                log(f"removed {old.name}: an earlier bins file of this directory (now {bins_path.name})")
         _write_via_tmp(out / "cells_qc.tsv", lambda p: qc.to_csv(p, sep="\t"))
         summary["bins"] = {"n_bins": int(a.n_vars), "total_counts": int(X.sum()), "layers": list(layers.keys())}
         for k in ("n_pass", "n_clean"):

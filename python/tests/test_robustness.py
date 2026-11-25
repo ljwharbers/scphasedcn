@@ -485,11 +485,25 @@ def test_tag_follows_the_bin_size(genome, bam, tmp_path):
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0            # merge: the tag of the partials
     assert (o / "bins_50kb.h5ad").exists()
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2", "--tag", "x"]) == 0
-    assert (o / "bins_x.h5ad").exists()
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_x.h5ad"]           # one bins file per directory
     # a later run that rewrites the fragments only (default --binsize): the depth layer keeps its 50 kb bins
-    (o / "bins_50kb.h5ad").unlink()
     assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "fragments"] + _common(genome, bam, o)) == 0
-    assert (o / "bins_50kb.h5ad").exists() and not (o / "bins_100kb.h5ad").exists()
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_50kb.h5ad"]
+
+
+def test_merge_removes_the_bins_file_of_another_bin_size(genome, bam, tmp_path, capsys):
+    """Re-extracting at another bin size into the same directory: the R caller prefers bins_100kb.h5ad, so a stale
+    one beside the new bins_50kb.h5ad would be paired with the new cells_qc.tsv and fragments.tsv.gz."""
+    o = tmp_path / "o"
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1"] + _common(genome, bam, o)) == 0
+    assert (o / "bins_100kb.h5ad").exists()
+    (o / "bins_other.h5ad").write_text("")
+    (o / "keep_bins_100kb.h5ad").write_text("")                                          # not a bins file name
+    capsys.readouterr()
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--binsize", "50000"] + _common(genome, bam, o)) == 0
+    assert sorted(f.name for f in o.glob("*.h5ad")) == ["bins_50kb.h5ad", "keep_bins_100kb.h5ad"]
+    err = capsys.readouterr().err
+    assert "removed bins_100kb.h5ad" in err and "removed bins_other.h5ad" in err
 
 
 # --------------------------------------------------------------------------------------------- FRiP

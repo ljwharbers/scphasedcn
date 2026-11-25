@@ -455,7 +455,8 @@ def build_parser():
     s.add_argument("--chroms", help="comma list (default: the yaml sample's chroms, else chr1-22, X, Y, M in the BAM)")
     s.add_argument("--jobs", type=int, default=4, help="chromosomes extracted in parallel (memory: ~2-9 GB each)")
     s.add_argument("--tag", help="bins_<tag>.h5ad (default: from --binsize, 100kb for 100000, 50kb, 1Mb, else <n>bp; "
-                                 "the R caller finds the bins file of the directory: keep one per directory)")
+                                 "the R caller finds the bins file of the directory: other bins_*.h5ad files there are "
+                                 "removed)")
     add_extract_args(s)
     s.set_defaults(func=cmd_run, chrom=None, region=None)
 

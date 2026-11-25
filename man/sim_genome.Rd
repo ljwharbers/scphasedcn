@@ -19,7 +19,9 @@ sim_genome(
 
 \item{centromere_frac}{position of the centromere as a fraction of length}
 
-\item{seed}{RNG seed for the bin covariates}
+\item{seed}{RNG seed for the bin covariates: the genome depends on \code{seed} only (not on the caller's random
+stream), and the caller's random stream is left as it was (the RNG state is saved and restored), also when
+\code{sim_genome()} is evaluated as the \code{genome} argument of \code{\link[=simulate_scn]{simulate_scn()}}}
 }
 \value{
 data.table of bins: bin_id, chrom, start, end, gc, frac_blacklist,

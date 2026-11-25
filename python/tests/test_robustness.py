@@ -507,3 +507,29 @@ def test_frip_counts_clean_peak_fragments(genome, bam, tmp_path):
     pd.read_csv(pq, sep="\t", index_col=0).drop(columns="n_peak_clean").to_csv(pq, sep="\t")
     assert main(["merge", "--out", str(o), "--chroms", "chr1"]) == 0
     assert pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0).loc[CELL_A, "frip"] == pytest.approx(2 / 16)
+
+
+# --------------------------------------------------------------------------------------------- merge defaults
+def test_merge_needs_an_output_directory():
+    with pytest.raises(SystemExit, match="merge: need --out"):
+        main(["merge"])
+
+
+def test_merge_without_chroms_merges_the_finished_partials(genome, bam, tmp_path, capsys):
+    o = tmp_path / "o"
+    for ch in ("chr2", "chr1"):
+        assert main(["extract", "--chrom", ch] + _common(genome, bam, o)) == 0
+    assert main(["extract", "--region", "chr1:0-50000"] + _common(genome, bam, o)) == 0   # never merged
+    (o / "partials" / "chrX").mkdir()                                                    # unfinished: no DONE
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o)]) == 0
+    s = json.load(open(o / "summary.json"))
+    assert s["chroms"] == ["chr1", "chr2"] and s["missing"] == []
+    err = capsys.readouterr().err
+    assert "merging chr1, chr2" in err and "chrX" in err and "chrY" in err
+    # an explicit list keeps the missing-partial error and --allow-missing
+    with pytest.raises(SystemExit, match="chrX"):
+        main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX"])
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX", "--allow-missing"]) == 0
+    with pytest.raises(SystemExit, match="no finished partials"):
+        main(["merge", "--out", str(tmp_path / "empty")])

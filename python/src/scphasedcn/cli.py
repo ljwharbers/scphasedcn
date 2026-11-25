@@ -325,8 +325,20 @@ def cmd_merge(a):
     if a.config and a.sample:
         cfg = load_yaml(a.config); sc = sample_from_config(cfg, a.sample)
         out = out or sc.out
-        chroms = chroms or sc.chroms
-    chroms = chroms or MAIN_CHROMS
+        if chroms is None and sc.chroms_set:
+            chroms = list(sc.chroms)
+    if out is None:
+        raise SystemExit("merge: need --out (the sample output directory) or --config with --sample")
+    if chroms is None:   # not given: the main chromosomes with a finished partial (as `run`: those of the BAM)
+        P = Path(out) / "partials"
+        chroms = [c for c in MAIN_CHROMS if (P / c / "DONE").exists()]
+        none = [c for c in MAIN_CHROMS if c not in chroms]
+        other = sorted(p.name for p in P.iterdir() if p.name not in MAIN_CHROMS and not p.name.startswith("region_")
+                       and (p / "DONE").exists()) if P.is_dir() else []
+        if chroms:
+            _log(f"merge: merging {', '.join(chroms)} (the main chromosomes with a finished partial; --chroms not "
+                 f"given); no finished partial for {', '.join(none) or 'none'}"
+                 + (f"; partials of {', '.join(other)} are merged only when named in --chroms" if other else ""))
     s = merge_sample(out, chroms, tag=a.tag, allow_missing=a.allow_missing, log=_log)
     _log(json.dumps({k: v for k, v in s.items() if k != "params"}, default=str))
     return 0
@@ -476,10 +488,13 @@ def build_parser():
     s.set_defaults(func=cmd_hybrid_phase)
 
     s = sub.add_parser("merge", help="merge chromosome partials into h5ad / tsv outputs")
-    s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out"); s.add_argument("--chroms")
+    s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out", help="sample output directory")
+    s.add_argument("--chroms", help="comma list (default: the yaml sample's chroms, else the chromosomes of chr1-22, X, "
+                                    "Y, M with a finished partial)")
     s.add_argument("--tag", help="bins_<tag>.h5ad (default: from the bin size of the partials, as in `run`)")
     s.add_argument("--allow-missing", action="store_true",
-                   help="merge although some chromosomes have no finished partial (default: fail and list them)")
+                   help="merge although some chromosomes of --chroms (or the yaml chroms) have no finished partial "
+                        "(default: fail and list them)")
     s.set_defaults(func=cmd_merge)
     return p
 

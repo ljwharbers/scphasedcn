@@ -40,16 +40,17 @@ cli_args = function(args = commandArgs(trailingOnly = TRUE), defaults = list(), 
 #' Sample entry of a sample yaml (with its extraction directory)
 #'
 #' The extraction directory is the sample's `extract_dir`, else `<outputs.root>/<sample>/extract` (where
-#' `scphasedcn run` writes it).
+#' `scphasedcn run` writes it); NULL when the yaml gives neither.
 #' @param cfg sample yaml read with [read_config()]
 #' @param sample sample name
-#' @return list with the sample fields plus `name`, `dir` (extraction output dir)
+#' @return list with the sample fields plus `name`, `dir` (extraction output dir, or NULL)
 #' @export
 cli_sample = function(cfg, sample) {
   s = cfg$samples[[sample]]
   if (is.null(s)) stop("sample not in config: ", sample)
   s$name = sample
-  s$dir = s$extract_dir %||% file.path(cfg$outputs$root, sample, "extract")
+  root = cfg$outputs$root
+  s$dir = s$extract_dir %||% (if (length(root) && !is.na(root[1]) && nzchar(root[1])) file.path(root[1], sample, "extract"))
   s
 }
 

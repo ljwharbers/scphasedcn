@@ -91,7 +91,7 @@ if (nzchar(cfg_file)) {
 } else if (nzchar(a$sample)) fail("--sample needs --config <sample yaml>")
 s = if (nzchar(a$sample)) cli_sample(cfg, a$sample) else list(name = "sample")
 dir = if (nzchar(a$dir)) a$dir else s$dir
-if (is.null(dir) || !nzchar(dir)) fail("give --dir <extraction dir> (or --config + --sample)")
+if (!length(dir) || !nzchar(dir[1])) fail("give --dir <extraction dir> (or --config + --sample)")
 if (!nzchar(a$features) && !file.exists(file.path(dir, "bins_100kb.h5ad"))) fail("no bins_100kb.h5ad in ", dir)
 mode = if (nzchar(a$mode)) a$mode else if (isTRUE(tolower(s$type) %in% c("tumour", "tumor"))) "tumour" else "normal"
 if (identical(tolower(mode), "tumor")) mode = "tumour"

@@ -150,3 +150,26 @@ test_that("h5_read_df: a missing category (code -1) is NA in place; the values a
   expect_identical(df$cell, c("c1", "c2", "c3", "c4"))
 })
 
+test_that("cli_sample: without extract_dir and outputs.root the sample has no directory (NULL)", {
+  cfg = list(samples = list(s1 = list(sex = "female")))
+  expect_null(cli_sample(cfg, "s1")$dir)
+  cfg$outputs = list(root = "out_root")
+  expect_identical(cli_sample(cfg, "s1")$dir, file.path("out_root", "s1", "extract"))
+  cfg$samples$s1$extract_dir = "ex"
+  expect_identical(cli_sample(cfg, "s1")$dir, "ex")
+  expect_error(cli_sample(cfg, "s2"), "sample not in config")
+})
+
+test_that("call_scn.R --config --sample without an extraction directory gives the usage message", {
+  # the script loads the installed package: run it under R CMD check (or SCPHASEDCN_TEST_CLI=true after an install)
+  skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
+  script = system.file("scripts", "call_scn.R", package = "scphasedcn")
+  y = tempfile(fileext = ".yaml")
+  writeLines(c("samples:", "  s1:", "    sex: female"), y)
+  log = suppressWarnings(system2(file.path(R.home("bin"), "Rscript"), c(script, "--config", y, "--sample", "s1"),
+                                 stdout = TRUE, stderr = TRUE))
+  expect_false(is.null(attr(log, "status")))
+  expect_true(any(grepl("give --dir <extraction dir>", log, fixed = TRUE)))
+  expect_false(any(grepl("missing value|argument is of length zero|invalid 'y' type", log)))
+})
+

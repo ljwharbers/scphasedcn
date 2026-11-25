@@ -55,10 +55,11 @@ genome_layout = function(windows) {
 #' - `depth`: per cell and window the log2 ratio `log2((x + 0.5) / (e + 0.5))` of the features' 1 Mb windows and of
 #'   `agg` windows. As in [clone_profiles()], relative to the reference pool when it has at least `min_ref` cells
 #'   and centred on the cell's autosomal median, so the track is on the scale of the clone segments. The
-#'   copy-number baseline (`base`, the copy number at log2 0) is the chromosome's ploidy when the depth is relative
-#'   to other cells of the sample (a reference pool, or the features' `celltype` / `loo` depth, normal mode's), else 2
-#'   (`model` depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
-#'   take the ploidy.
+#'   copy-number baseline (`base`, the copy number at log2 0) follows the caller's expected depth. Tumour mode: the
+#'   chromosome's ploidy with a reference pool, else 2 whatever the features' depth method (as [caller_tumour()]
+#'   scores the cells: without a pool a male chrX sits at log2 -1). Normal mode: the chromosome's ploidy when the
+#'   depth is relative to other cells of the sample (a reference pool, or the features' `celltype` / `loo` depth),
+#'   else 2 (`model` depth); without a depth method in the features' notes, the ploidy.
 #'   When the result's `clones` has a `baseline` column (the clone's ploidy baseline B, with absolute copy-number
 #'   states), `base` is scaled by B / 2 for the cell's clone (NA or no column: 2, i.e. unchanged).
 #' - `baf`: per cell and `agg` window the oriented haplotype-A fraction `nA / (nA + nB)` of the cell's molecule votes.
@@ -114,9 +115,10 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
   use_ref = length(ref) >= min_ref
   cl = if (!is.null(result$clones)) as.data.table(result$clones) else data.table(clone = character())
   for (k in c("c", "a", "baseline")) if (!k %in% names(cl)) cl[, (k) := rep(NA_real_, .N)]
-  # copy-number baseline of the depth: the ploidy when the depth is relative to cells of the sample
+  # copy-number baseline of the depth: the ploidy when the depth is relative to cells of the sample. Tumour mode
+  # follows caller_tumour(), whose expected depth is pool-relative only with a pool, whatever the depth method
   dm = features_depth_method(features)
-  rel_depth = use_ref || (if (is.na(dm)) mode == "normal" else dm %in% c("celltype", "loo"))
+  rel_depth = use_ref || (mode != "tumour" && (if (is.na(dm)) mode == "normal" else dm %in% c("celltype", "loo")))
   if (orient == "auto") {
     chromwide = !is.null(features$phasing) && identical(unname(features$phasing[["detected"]]), "chromosome")
     orient = if (mode == "tumour" && nrow(asg)) "clone" else if (chromwide) "none" else "pseudobulk"

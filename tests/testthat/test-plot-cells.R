@@ -217,6 +217,31 @@ test_that("expected log2 lines are relative to the clone's ploidy baseline (clon
   expect_equal(unique(cell_tracks(feat, r0, cells = ca)$fit[chrom == "chr21", log2_exp]), 0.8 * log2(3 / 2))
 })
 
+test_that("tumour tracks without a reference pool follow the caller's expected depth, whatever the depth method", {
+  # a male tumour result without a pool on cell-type matched features: caller_tumour() scores the cells without a pool
+  # against B copies (a male chrX 1:0 at c log2(1 / B)), so the tracks do too; with a pool the ploidy x B / 2
+  feat = pc_features_celltype()
+  expect_identical(scphasedcn:::features_depth_method(feat), "celltype")
+  res = pc_result(feat)
+  res$clones = copy(res$clones)[, baseline := c(2, 3, NA)]
+  ca = res$assignments[clone == "CA", cell][1:2]
+  n0 = res$assignments[clone == "N0", cell][1]
+  r0 = res; r0$assignments = copy(r0$assignments)[, ref_pool := FALSE]
+  f = cell_tracks(feat, r0, cells = c(ca, n0))$fit
+  expect_equal(unique(f[cell %in% ca & chrom == "chrX", log2_exp]), 0.8 * log2(1 / 3))
+  expect_equal(unique(f[cell %in% ca & chrom == "chrX", base]), 3)
+  expect_equal(unique(f[cell %in% ca & chrom == "chr1", log2_exp]), 0.8 * log2(2 / 3))
+  expect_equal(unique(f[cell == n0 & chrom == "chrX", log2_exp]), log2(1 / 2))
+  expect_equal(unique(f[cell == n0 & chrom == "chr1", log2_exp]), 0)
+  # with the pool: unchanged (ploidy x B / 2)
+  fp = cell_tracks(feat, res, cells = c(ca, n0))$fit
+  expect_equal(unique(fp[cell %in% ca & chrom == "chrX", log2_exp]), 0.8 * log2(1 / 1.5))
+  expect_equal(unique(fp[cell == n0 & chrom == "chrX", log2_exp]), 0)
+  # normal mode keeps the features' depth method: cell-type matched depth puts a male chrX at the ploidy
+  nres = new_scphasedcn("normal", cells = res$cells, regions = res$regions)
+  expect_equal(unique(cell_tracks(feat, nres, cells = n0, orient = "pseudobulk")$fit[chrom == "chrX", log2_exp]), 0)
+})
+
 test_that("plots colour every state label, including imbalance and labels the palette does not know", {
   skip_if_not_installed("ggplot2")
   skip_if_not_installed("patchwork")

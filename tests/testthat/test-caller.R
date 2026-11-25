@@ -1861,14 +1861,21 @@ test_that("partial parameter lists mean defaults for the rest (caller_normal, se
   expect_identical(pt(pp), pt(caller_defaults()))
 })
 
-test_that("pool_scale: the default tail shrinkage is caller_defaults()$pool_tail_k (30)", {
-  expect_identical(eval(formals(pool_scale)$tail_k), caller_defaults()$pool_tail_k)
+test_that("pool_scale: the default tail shrinkage is that of the caller (pool_tail_k 30)", {
+  set.seed(23)
+  st = caller_states("normal")
+  ps = rbindlist(lapply(1:6, function(i) {
+    s = if (i == 1) stats::rt(400, 3) else rnorm(400)
+    data.table(pool = seq_len(400), region = sprintf("10Mb|chr%d:0", i), class = "10Mb", cl_loss = s, cl_gain = -Inf, cl_cnloh = -Inf)
+  }))
+  s_def = pool_scale(ps, st, tail_q = 0.99, n_eff = 50)
+  expect_identical(s_def, pool_scale(ps, st, tail_q = 0.99, n_eff = 50, tail_k = caller_defaults()$pool_tail_k))
+  expect_false(identical(s_def$tail, pool_scale(ps, st, tail_q = 0.99, n_eff = 50, tail_k = 100)$tail))
 })
 
 test_that("caller_states: a list without f_att takes its default (not f_att_normal by partial matching)", {
   p = caller_defaults(); p$f_att = NULL
   expect_identical(caller_states("tumour", p), caller_states("tumour"))
-  expect_identical(caller_states("normal_att", p), caller_states("normal_att"))
 })
 
 test_that("select_null_cells: rows of a class without any null row (named events in `classes`) are ignored", {

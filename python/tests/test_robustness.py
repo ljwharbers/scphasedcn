@@ -650,6 +650,30 @@ def test_merge_removes_the_bins_file_of_another_bin_size(genome, bam, tmp_path, 
     assert "removed bins_100kb.h5ad" in err and "removed bins_other.h5ad" in err
 
 
+def test_tag_of_a_depth_layer_without_per_layer_inputs(genome, bam, tmp_path):
+    """A depth layer kept from a partial of scphasedcn <= 0.1.1 (no per-layer inputs in DONE): the tag follows the bin
+    size of the partial's own bins.tsv, not the top-level `binsize` of the latest extract run (which may have
+    rewritten other layers only)."""
+    o = tmp_path / "o"
+    assert main(["run", "--chroms", "chrM,chr1,chr2", "--jobs", "1", "--binsize", "50000"]
+                + _common(genome, bam, o)) == 0
+    for c in ("chrM", "chr1", "chr2"):                  # a later fragments-only run at the default bin size, by hand
+        P = o / "partials" / c
+        done = json.load(open(P / "DONE"))
+        done["binsize"] = 100_000; done["layers"]["depth"]["inputs"] = None
+        (P / "DONE").write_text(json.dumps(done))
+        prm = json.load(open(P / "params.json")); prm["binsize"] = 100_000
+        (P / "params.json").write_text(json.dumps(prm))
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["merge", "--out", str(o), "--chroms", "chrM,chr1,chr2"]) == 0
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_50kb.h5ad"]
+    for c in ("chrM", "chr1", "chr2"):                  # partials of scphasedcn <= 0.1.1: empty DONE
+        (o / "partials" / c / "DONE").write_text("")
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["merge", "--out", str(o), "--chroms", "chrM,chr1,chr2"]) == 0
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_50kb.h5ad"]
+
+
 # --------------------------------------------------------------------------------------------- FRiP
 def test_frip_counts_clean_peak_fragments(genome, bam, tmp_path):
     peaks = tmp_path / "peaks.bed"

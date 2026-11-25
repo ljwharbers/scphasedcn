@@ -45,18 +45,41 @@ def _fill_snp_defaults(meta: dict | None) -> None:
                 inp[k] = v if inp["snps"] is not None else None
 
 
-def _partial_binsize(d: Path) -> int | None:
-    """Bin size of a partial's depth layer: the inputs of its depth layer in DONE (the top-level DONE `binsize` is that
-    of the latest extract run, which may have rewritten other layers only), else (partials of scphasedcn <= 0.1.1) its
-    params.json."""
-    m = read_done(d)
-    if m:
-        inp = ((m.get("layers") or {}).get("depth") or {}).get("inputs") or {}
-        bs = inp.get("binsize") or m.get("binsize")
+def _bins_binsize(d: Path) -> int | None:
+    """Bin size of a partial's depth layer from its own bins.tsv: the first bin's width, when the partial has two or
+    more bins and the layer's shape fits (bins.tsv rows = layers.npz columns = chromosome end / size, rounded up);
+    else None (a single bin is no shorter than the chromosome, not the bin size)."""
+    if not (d / "bins.tsv").exists():
+        return None
+    b = pd.read_csv(d / "bins.tsv", sep="\t", index_col=0)
+    if len(b) < 2:
+        return None
+    bs = int(b["end"].iloc[0] - b["start"].iloc[0])
+    ncol = _npz_shapes(d / "layers.npz")["counts"][1] if (d / "layers.npz").exists() else len(b)
+    return bs if bs > 0 and len(b) == ncol == -(-int(b["end"].iloc[-1]) // bs) else None
+
+
+def _partial_binsize(dirs: list[Path]) -> int | None:
+    """Bin size of the partials' depth layers: the inputs of a depth layer in DONE (the top-level DONE `binsize` is
+    that of the latest extract run, which may have rewritten other layers only); for depth layers without per-layer
+    inputs (written, or kept from a partial written, by scphasedcn <= 0.1.1), the partials' own bins.tsv; only when
+    every partial has a single bin, the recorded bin size (DONE, else params.json)."""
+    metas = [read_done(d) for d in dirs]
+    for m in metas:
+        bs = ((((m or {}).get("layers") or {}).get("depth") or {}).get("inputs") or {}).get("binsize")
         if bs:
             return int(bs)
-    bs = json.load(open(d / "params.json")).get("binsize") if (d / "params.json").exists() else None
-    return int(bs) if bs else None
+    for d in dirs:
+        bs = _bins_binsize(d)
+        if bs:
+            return bs
+    for d, m in zip(dirs, metas):
+        bs = (m or {}).get("binsize")
+        if not bs and (d / "params.json").exists():
+            bs = json.load(open(d / "params.json")).get("binsize")
+        if bs:
+            return int(bs)
+    return None
 
 
 def _recorded_bam(P: Path) -> tuple[str | None, dict | None]:
@@ -322,7 +345,7 @@ def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_parti
         log(f"warning: unfinished partials (no DONE; not merged): {', '.join(unfinished)}")
     check_partials(dirs, log)
     if tag is None:
-        bs = _partial_binsize(dirs[0])
+        bs = _partial_binsize(dirs)
         tag = default_tag(bs) if bs else "100kb"
     (out / "summary.json").unlink(missing_ok=True)
     first = dirs[0]

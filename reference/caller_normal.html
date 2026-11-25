@@ -191,8 +191,9 @@ same construction) before the per-class pooled thresholds</p></dd>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p><code>scphasedcn</code> (mode normal) with <code>scores</code>, <code>thresholds</code> (column <code>level</code>:
-cell, pool_type, pool_knn), <code>calls</code> (cell and pool level; <code>resolved</code> for gains changed by
-<code><a href="resolve_nested.html">resolve_nested()</a></code>; with <code>gain_gate = "z"</code> also its <code>gate_z</code>, <code>gate_thr</code>), <code>events</code>, <code>pools</code>, <code>null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)</code> (<code>vote_bins</code>: the <code><a href="vote_bins.html">vote_bins()</a></code> table with <code>params$calib = "votes"</code>; <code>rho_chrom</code>: the
+cell (folds 0 to <code>n_folds</code>), pool_type, pool_knn (fold 0 only)), <code>calls</code> (cell and pool level; <code>resolved</code>
+for gains changed by <code><a href="resolve_nested.html">resolve_nested()</a></code>; with <code>gain_gate = "z"</code> also its <code>gate_z</code>, <code>gate_thr</code>), <code>events</code>,
+<code>pools</code>, <code>null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)</code> (<code>vote_bins</code>: the <code><a href="vote_bins.html">vote_bins()</a></code> table with <code>params$calib = "votes"</code>; <code>rho_chrom</code>: the
 <code><a href="rho_by_chrom.html">rho_by_chrom()</a></code> table with <code>params$calib_rho = "chrom"</code>)</p>
     </div>
     <div class="section level2">

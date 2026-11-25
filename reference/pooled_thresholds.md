@@ -7,9 +7,13 @@ quantile is taken per `by` (class). Random constructions are redrawn
 (seed + draw) until every class has at least `n_draws` null
 pool-regions; a deterministic construction (same pools twice, e.g. kNN)
 is used once. With `cv` one threshold per fold from the null cells of
-the other folds, plus fold 0 from all null cells. With `loo` the
-leave-one-out scores (`s_rob`) are computed and can be thresholded,
-exactly as
+the other folds, plus fold 0 from all null cells; the fold-0 rows and
+scale do not depend on `cv`.
+[`call_pools()`](https://ljwharbers.github.io/scphasedcn/reference/call_pools.md)
+applies fold 0 only (pools have no fold), so
+[`caller_normal()`](https://ljwharbers.github.io/scphasedcn/reference/caller_normal.md)
+computes fold 0 only (`cv = FALSE`). With `loo` the leave-one-out scores
+(`s_rob`) are computed and can be thresholded, exactly as
 [`call_pools()`](https://ljwharbers.github.io/scphasedcn/reference/call_pools.md)
 scores the test pools.
 

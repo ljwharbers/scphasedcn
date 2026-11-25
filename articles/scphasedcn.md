@@ -100,7 +100,7 @@ res
 #> <scphasedcn> mode: normal
 #>   cells: 120
 #>   regions: 97
-#>   calls: 13446 rows, 746 called, 653 reportable
+#>   calls: 13446 rows, 735 called, 652 reportable
 #>   clones: 0
 #>   notes: 16
 ```
@@ -155,38 +155,38 @@ scphasedcn_summary(res)
 #>  3:        cells                           multiplets   0.00000000   120
 #>  4:        cells           cells_with_reportable_call  23.00000000   120
 #>  5:        cells                     cells_with_event  23.00000000   120
-#>  6:        calls                        cell|arm|gain  23.00000000     0
+#>  6:        calls                        cell|arm|gain  21.00000000     0
 #>  7:        calls                        cell|arm|loss  16.00000000    16
-#>  8:        calls                      cell|chrom|gain  31.00000000    11
-#>  9:        calls                       cell|20Mb|gain  13.00000000     0
+#>  8:        calls                      cell|chrom|gain  26.00000000    10
+#>  9:        calls                       cell|20Mb|gain  10.00000000     0
 #> 10:        calls                       cell|20Mb|loss  16.00000000     0
-#> 11:        calls                       cell|50Mb|gain  17.00000000     0
+#> 11:        calls                       cell|50Mb|gain  16.00000000     0
 #> 12:        calls                        pool|arm|gain 121.00000000   119
 #> 13:        calls                      pool|chrom|gain  34.00000000    34
 #> 14:        calls                        pool|5Mb|gain  79.00000000    77
 #> 15:        calls                       pool|10Mb|gain 194.00000000   194
 #> 16:        calls                       pool|20Mb|gain  95.00000000    95
 #> 17:        calls                       pool|50Mb|gain 107.00000000   107
-#> 18:  false_calls                         arm|per_1000   2.57731959   776
-#> 19:  false_calls                       chrom|per_1000   4.12371134   485
+#> 18:  false_calls                         arm|per_1000   0.00000000   776
+#> 19:  false_calls                       chrom|per_1000   0.00000000   485
 #> 20:  false_calls                         5Mb|per_1000   1.06647707  2813
-#> 21:  false_calls                        10Mb|per_1000   1.37457045  1455
-#> 22:  false_calls                        20Mb|per_1000   2.57731959   776
-#> 23:  false_calls                        50Mb|per_1000  10.30927835    97
+#> 21:  false_calls                        10Mb|per_1000   0.68728522  1455
+#> 22:  false_calls                        20Mb|per_1000   0.00000000   776
+#> 23:  false_calls                        50Mb|per_1000   0.00000000    97
 #> 24:  false_calls       class_x_stratum_range_per_1000   0.00000000    12
-#> 25: false_events          arm_calls_per_null_cell|any   0.02061856    97
+#> 25: false_events          arm_calls_per_null_cell|any   0.00000000    97
 #> 26: false_events         arm_calls_per_null_cell|loss   0.00000000    97
-#> 27: false_events         arm_calls_per_null_cell|gain   0.02061856    97
+#> 27: false_events         arm_calls_per_null_cell|gain   0.00000000    97
 #> 28: false_events        arm_calls_per_null_cell|cnloh   0.00000000    97
-#> 29:       events      reportable_cell_events_per_cell   0.22500000    27
+#> 29:       events      reportable_cell_events_per_cell   0.21666667    26
 #> 30:       events reportable_cell_events_per_null_cell   0.00000000    97
 #> 31:       events            cell_events_in_null_cells   0.00000000    97
-#> 32:       events           expected_false_cell_events   0.00000000    27
-#> 33:       events   expected_false_cell_event_fraction   0.00000000    27
-#> 34:       events         expected_false_cell_events|A   0.00000000    27
+#> 32:       events           expected_false_cell_events   0.00000000    26
+#> 33:       events   expected_false_cell_event_fraction   0.00000000    26
+#> 34:       events         expected_false_cell_events|A   0.00000000    26
 #> 35:       events         expected_false_cell_events|X   0.00000000     0
-#> 36:        calls expected_false_reportable_cell_calls   0.00000000    27
-#> 37:       events             cell_events_q_below_0.05  27.00000000    27
+#> 36:        calls expected_false_reportable_cell_calls   0.00000000    26
+#> 37:       events             cell_events_q_below_0.05  26.00000000    26
 #> 38:       events                    empirical_p_floor   0.01020408  2040
 #> 39:       events                         pooled_calls 630.00000000 10206
 #> 40:       events                     pooled_calls|knn 617.00000000  9720
@@ -218,7 +218,7 @@ scphasedcn_summary(res)
 #> 21:                                                                                                                                                                                                                                null rows, CV thresholds
 #> 22:                                                                                                                                                                                                                                null rows, CV thresholds
 #> 23:                                                                                                                                                                                                                                null rows, CV thresholds
-#> 24:                                                                                                                                                                                                                                              max 10.526
+#> 24:                                                                                                                                                                                                                                               max 1.089
 #> 25:                                                                                                                                                                                                                                                    <NA>
 #> 26:                                                                                                                                                                                                                                                    <NA>
 #> 27:                                                                                                                                                                                                                                                    <NA>

@@ -154,8 +154,8 @@ caller_normal(
 ## Value
 
 `scphasedcn` (mode normal) with `scores`, `thresholds` (column `level`:
-cell, pool_type, pool_knn), `calls` (cell and pool level; `resolved` for
-gains changed by
+cell (folds 0 to `n_folds`), pool_type, pool_knn (fold 0 only)), `calls`
+(cell and pool level; `resolved` for gains changed by
 [`resolve_nested()`](https://ljwharbers.github.io/scphasedcn/reference/resolve_nested.md);
 with `gain_gate = "z"` also its `gate_z`, `gate_thr`), `events`,
 `pools`,

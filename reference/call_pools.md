@@ -3,7 +3,9 @@
 Scores the pools
 ([`pool_scores()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scores.md)
 per pool x region), applies the fold-0 pooled thresholds per class and
-returns the policy's pool-level rows. With `loo` the pools are scored as
+returns the policy's pool-level rows (`called = score > max(thr, 0)`, as
+[`apply_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/apply_thresholds.md)).
+With `loo` the pools are scored as
 [`pool_scores()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scores.md)
 describes; use `score = "s_rob"` (thresholded by
 [`pooled_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/pooled_thresholds.md)

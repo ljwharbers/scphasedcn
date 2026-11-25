@@ -10,10 +10,14 @@ p-value, `perm_decision`), and non-different pairs are merged (each
 clone at most once per round). Stops when every candidate pair of the
 remaining clones differs at the budget (`q = 0.999`: about 1 false split
 per 1,000 tests with `perm_decision = "pvalue"`, about 6 with the
-default `"quantile"`). Each half is subsampled to `max_cells` cells
-(observed and null alike). Nearest neighbours rather than Ward siblings
-only: once two sibling clones differ, a sibling-only rule never compares
-either of them with any other clone.
+default `"quantile"`: the 0.999 quantile of 200 permutations sits near
+their maximum, about 1 / 201 per test, and the early "different" stop,
+observed above 3 x the null maximum after 20 / 50 / 100 permutations,
+adds about 0.6-1 per 1,000 at the minimum leaf size, 20 against 20
+cells; no correction for the number of tests). Each half is subsampled
+to `max_cells` cells (observed and null alike). Nearest neighbours
+rather than Ward siblings only: once two sibling clones differ, a
+sibling-only rule never compares either of them with any other clone.
 
 ## Usage
 

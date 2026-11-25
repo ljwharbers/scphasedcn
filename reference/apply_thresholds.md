@@ -1,13 +1,15 @@
 # Apply null thresholds to scored rows
 
-Adds `thr_<score>` and `call_<score>` (`score > thr`, strict). A row
-whose `fold` has a threshold in the table gets that fold's
-(cross-validated) threshold; other rows (no `fold` column, fold 0, or a
-fold the table does not have) get fold 0. A thresholds table whose
-`stratum` is all "all" (class-level, e.g. pooled) is matched on class
-only. A table with a non-NA `hstratum` column (vote calibration) is also
-matched on the rows' `hstratum`. Threshold rows with a `borrowed_from`
-sd_class (a class without null rows,
+Adds `thr_<score>` and `call_<score>` (`score > max(thr, 0)`, strict: a
+call also needs a positive log-likelihood ratio; `thr_<score>` is the
+threshold itself, which can be negative). A row whose `fold` has a
+threshold in the table gets that fold's (cross-validated) threshold;
+other rows (no `fold` column, fold 0, or a fold the table does not have)
+get fold 0. A thresholds table whose `stratum` is all "all"
+(class-level, e.g. pooled) is matched on class only. A table with a
+non-NA `hstratum` column (vote calibration) is also matched on the rows'
+`hstratum`. Threshold rows with a `borrowed_from` sd_class (a class
+without null rows,
 [`budget_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/budget_thresholds.md))
 apply to the rows of that class whose `sd_class` is `borrowed_from`.
 

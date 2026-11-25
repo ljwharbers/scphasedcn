@@ -1,8 +1,11 @@
 # Per-cell calls table
 
 One row per scored cell x region whose class and best state
-(`state_comb`) the policy lists at `level`; `called = score > thr`. Rows
-with `eligible = FALSE` (regions that are not scored) are left out.
+(`state_comb`) the policy lists at `level`;
+`called = score > max(thr, 0)` (the threshold, and a positive
+log-likelihood ratio: a negative null threshold never lets a row be
+called while neutral is at least as likely). Rows with
+`eligible = FALSE` (regions that are not scored) are left out.
 
 ## Usage
 

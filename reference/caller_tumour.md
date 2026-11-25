@@ -28,7 +28,9 @@ calls. Each cell inherits its clone's non-neutral segments
 (`source = "inherited"`) and is `confirmed` when its own score under the
 clone state (depth + allele LLR vs neutral; allele term two-sided, or
 one-sided on the clone-oriented votes with `opts$confirm_sided = "one"`)
-is above the threshold of the tumour null: reference-pool cells x all
+is above the threshold of the tumour null and above 0
+(`score > max(thr, 0)`: a negative null threshold never confirms a row
+on which neutral is at least as likely): reference-pool cells x all
 pieces + all cells x control pieces, scored as the best of the loss /
 gain / CN-LOH / amp states (type-7 `null_q` quantile per stratum, strict
 `>`; pooled over strata below `min_null_rows`).

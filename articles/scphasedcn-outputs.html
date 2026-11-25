@@ -226,9 +226,11 @@ the clone)</td>
 <td>
 <code>score</code>, <code>thr</code>, <code>called</code>
 </td>
-<td>the region score, its null threshold and
-<code>score &gt; thr</code>
-</td>
+<td>the region score (a log-likelihood ratio against neutral), its null
+threshold and <code>score &gt; max(thr, 0)</code>: a call needs both the
+threshold and a positive score, so a negative null threshold (possible
+in classes with many allele votes) never calls a row on which neutral is
+at least as likely; <code>thr</code> is the null quantile itself</td>
 </tr>
 <tr class="odd">
 <td><code>level</code></td>

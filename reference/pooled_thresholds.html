@@ -6,7 +6,9 @@ quantile is taken per by (class). Random constructions are redrawn
 (seed + draw) until every class has at least n_draws null pool-regions;
 a deterministic construction (same pools twice, e.g. kNN) is used once.
 With cv one threshold per fold from the null cells of the other folds,
-plus fold 0 from all null cells. With loo the leave-one-out scores (s_rob) are computed and can be
+plus fold 0 from all null cells; the fold-0 rows and scale do not depend on cv. call_pools() applies
+fold 0 only (pools have no fold), so caller_normal() computes fold 0 only (cv = FALSE). With loo the
+leave-one-out scores (s_rob) are computed and can be
 thresholded, exactly as call_pools() scores the test pools."><meta property="og:description" content="Null pools are built with the same construction as the test pools
 (pools_fun, e.g. random pools within cell type of null cells, or kNN
 pools of null cells), scored per pool x region, and the type-7 q
@@ -14,7 +16,9 @@ quantile is taken per by (class). Random constructions are redrawn
 (seed + draw) until every class has at least n_draws null pool-regions;
 a deterministic construction (same pools twice, e.g. kNN) is used once.
 With cv one threshold per fold from the null cells of the other folds,
-plus fold 0 from all null cells. With loo the leave-one-out scores (s_rob) are computed and can be
+plus fold 0 from all null cells; the fold-0 rows and scale do not depend on cv. call_pools() applies
+fold 0 only (pools have no fold), so caller_normal() computes fold 0 only (cv = FALSE). With loo the
+leave-one-out scores (s_rob) are computed and can be
 thresholded, exactly as call_pools() scores the test pools."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
@@ -63,7 +67,9 @@ quantile is taken per <code>by</code> (class). Random constructions are redrawn
 (seed + draw) until every class has at least <code>n_draws</code> null pool-regions;
 a deterministic construction (same pools twice, e.g. kNN) is used once.
 With <code>cv</code> one threshold per fold from the null cells of the other folds,
-plus fold 0 from all null cells. With <code>loo</code> the leave-one-out scores (<code>s_rob</code>) are computed and can be
+plus fold 0 from all null cells; the fold-0 rows and scale do not depend on <code>cv</code>. <code><a href="call_pools.html">call_pools()</a></code> applies
+fold 0 only (pools have no fold), so <code><a href="caller_normal.html">caller_normal()</a></code> computes fold 0 only (<code>cv = FALSE</code>). With <code>loo</code> the
+leave-one-out scores (<code>s_rob</code>) are computed and can be
 thresholded, exactly as <code><a href="call_pools.html">call_pools()</a></code> scores the test pools.</p>
     </div>
 

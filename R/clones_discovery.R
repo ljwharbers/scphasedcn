@@ -1033,13 +1033,14 @@ subset_contrast_regions = function(cd, regs) {
 #' @param win_test,votes_test test halves for the re-fit (default: the full `inp$win` / `inp$votes`)
 #' @param ref_cells depth reference cells of the re-fit (used with >= `min_ref` cells)
 #' @param fit_states optional replacement of the re-fit's state fit (`function(profile, grid)`); default
-#'   [fit_clone_states()] with the `opts` of the run (`p_switch`, `min_win`, `ploidy`, `ploidy_tol`), as [caller_tumour()]
-#'   fits its clones (the caller passes its own fit, which also narrows the candidate baselines)
-#' @param opts [clone_defaults()] (`min_size`, `split_sep`, `split_max`, `split_cand`, `split_min_len`, `split_min_df`,
+#'   [fit_clone_states()] with the `opts` of the run (`p_switch`, `min_win`, `ploidy_tol`) at the parent clone's fitted
+#'   baseline (`par$base`, 2 without it), so the two parts are compared on the parent's scale ([caller_tumour()] passes
+#'   its own fit)
+#' @param opts [clone_defaults()], checked as [caller_tumour()] checks them (`min_size`, `split_sep`, `split_max`, `split_cand`, `split_min_len`, `split_min_df`,
 #'   `split_min_excess`, `q`, `n_perm`, `max_cells`, `depth_delta`, `same_dist`, `small_clone`, `size_small`, `min_ref`, `p_switch`,
 #'   `min_win`, `ploidy`, `ploidy_tol`, `min_llr` and the [segment_clone()] rules `min_excess`, `bal_frac`, `min_bal_len`,
 #'   `max_contra`, `gain_support`)
-#' @param params [caller_defaults()] (`sd_floor`, `eps`)
+#' @param params [caller_defaults()] (`sd_floor`, `eps`; and the input null fit when `inp` carries none)
 #' @param seed RNG seed
 #' @param frac fraction of the counts in the discovery half
 #' @return list(members = relabelled members (split clones get suffixes `a` / `b`, `b` = the part that prefers the
@@ -1054,14 +1055,13 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
                           ref_cells = character(), fit_states = NULL, opts = clone_defaults(), params = caller_defaults(),
                           seed = 1, frac = 0.5) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
-  inp = clone_input(inp)
-  opts = utils::modifyList(clone_defaults(), as.list(opts))
+  inp = clone_input(inp, params = params)
+  opts = check_clone_opts(opts)                       # as caller_tumour(): unknown keys / bad values stop here
   cells = inp$cells$cell
   members = copy(as.data.table(members))[, .(cell, clone = as.character(clone))]
   sg = as.data.table(segments)
   par = as.data.table(par)
   grid = cn_grid()
-  fit_states = fit_states %||% function(profile, grid) fit_states_opts(profile, grid, opts)
   inp_d = inp; inp_d$win = win_disc %||% inp$win
   vd = votes_disc %||% inp$votes
   win_t = win_test %||% inp$win; votes_t = votes_test %||% inp$votes
@@ -1135,13 +1135,17 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
   ord = tests[outcome == "candidate"][order(-excess, -sep), id]
   tests[ord, rank := seq_along(ord)]
   crg = as.data.table(inp$regions)[region %in% cdata$regions, .(region, chrom, start, end)]
-  refit = function(m2) {
+  # re-fit of the two parts of clone k: `fit_states`, by default the run's options at k's fitted baseline (par$base, 2
+  # without it), so the parts' copy numbers are compared on the parent clone's scale
+  refit = function(m2, k) {
     sz = m2[, .N, by = clone]
     size = stats::setNames(ifelse(sz$N < opts$small_clone, opts$size_small, 1e6), sz$clone)
     prof = clone_profiles(win_t, votes_t, inp$atoms, m2, ref_cells = if (length(ref_cells) >= opts$min_ref) ref_cells else NULL,
                           size = size, seed = seed, cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms,
                           haploid = inp$haploid, min_ref = opts$min_ref)
-    segment_states_opts(fit_states(prof, grid), grid, opts)
+    fit = if (is.null(fit_states)) fit_states_opts(prof, grid, utils::modifyList(opts, list(ploidy = clone_baseline(par, k)))) else
+      fit_states(prof, grid)
+    segment_states_opts(fit, grid, opts)
   }
   done = character(); n_tested = list(); moved = list()
   for (ii in ord) {
@@ -1163,7 +1167,7 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     tests[ii, `:=`(stat = tt$stat, thr = tt$thr, n_perm = tt$n_perm, p = tt$p, differ = tt$differ)]
     if (!tt$differ) { tests[ii, outcome := "not different on the test halves"]; next }
     ka = paste0(k, "a"); kb = paste0(k, "b")
-    sgr = refit(data.table(cell = c(cs$a, cs$b), clone = c(rep(ka, length(cs$a)), rep(kb, length(cs$b)))))
+    sgr = refit(data.table(cell = c(cs$a, cs$b), clone = c(rep(ka, length(cs$a)), rep(kb, length(cs$b)))), k)
     mid = (tk$start + tk$end) / 2
     at = function(kk) { y = sgr[clone == kk & chrom == tk$chrom & start <= mid & end > mid]; if (nrow(y)) y$state[1] else NA_character_ }
     clip = sgr[chrom == tk$chrom & end > tk$start & start < tk$end]

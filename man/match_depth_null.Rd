@@ -7,9 +7,9 @@
 match_depth_null(d, tpar, by = c("class", "stratum"))
 }
 \arguments{
-\item{d}{rows to score (with the \code{by} columns)}
+\item{d}{rows to score (with the \code{by} columns; \code{sd_class} used when \code{tpar} has that column)}
 
-\item{tpar}{output of \code{\link[=fit_depth_null]{fit_depth_null()}}}
+\item{tpar}{output of \code{\link[=fit_depth_null]{fit_depth_null()}} (completed for the classes without null rows by the callers)}
 
 \item{by}{grouping columns}
 }
@@ -18,5 +18,7 @@ data.table \code{t_m}, \code{t_s}, \code{t_df} with one row per row of \code{d} 
 }
 \description{
 Looks up the \code{\link[=fit_depth_null]{fit_depth_null()}} parameters of each row's group (default
-class x stratum), as the scorer does; stops when a group has no fit.
+class x stratum), as the scorer does; stops when a group has no fit. A completed table whose rows carry an
+\code{sd_class} (a class x stratum completed for several sd_classes, e.g. named events of different sizes in one
+stratum) gives a row of \code{d} with that \code{sd_class} the fit of its own sd_class.
 }

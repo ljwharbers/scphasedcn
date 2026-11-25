@@ -89,5 +89,5 @@ stay oriented, so that they match what the parametric thresholds simulate.
 A class x stratum left without null rows in an iteration (every cell of a stratum dropped) is thresholded with
 its class over strata (parametric: the class's simulated rows; empirical: the class fallback of
 \code{\link[=budget_thresholds]{budget_thresholds()}}); a cell with an eligible row that still has no threshold is not assessed (\code{n_calls} NA)
-and is never a null cell.
+and is never a null cell. Rows of classes without any null row (named events in \code{classes}) are ignored.
 }

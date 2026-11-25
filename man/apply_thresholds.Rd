@@ -20,8 +20,8 @@ copy of \code{d} with the threshold and call columns
 Adds \verb{thr_<score>} and \verb{call_<score>} (\code{score > max(thr, 0)}, strict: a call also needs a positive
 log-likelihood ratio; \verb{thr_<score>} is the threshold itself, which can be negative). A row
 whose \code{fold} has a threshold in the table gets that fold's (cross-validated)
-threshold; other rows (no \code{fold} column, fold 0, or a fold the table does
-not have) get fold 0. A thresholds table whose \code{stratum} is all "all"
+threshold; other rows (no \code{fold} column, fold 0, a fold the table does not have, or a fold whose threshold is NA
+because its training rows were empty) get fold 0. A thresholds table whose \code{stratum} is all "all"
 (class-level, e.g. pooled) is matched on class only. A table with a non-NA \code{hstratum} column (vote
 calibration) is also matched on the rows' \code{hstratum}. Threshold rows with a \code{borrowed_from} sd_class (a class
 without null rows, \code{\link[=budget_thresholds]{budget_thresholds()}}) apply to the rows of that class whose \code{sd_class} is \code{borrowed_from}.

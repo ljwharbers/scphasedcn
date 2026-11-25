@@ -1795,3 +1795,42 @@ test_that("caller_normal: cells without a cell type in cell_meta keep the featur
   expect_false("NA" %in% r$pools$group)
 })
 
+test_that("pooled_thresholds stops redrawing at the first draw where every class (and region) has enough null pools", {
+  ff = pool_fake(n = 200)
+  st = caller_states("normal")
+  sc = score_cells(ff, st, fit_depth_null(ff[null_cell == TRUE]), 0.002, keep_rows = TRUE)
+  dn = sc[null_cell == TRUE]
+  dn[, sexgrp := sex_group(chrom)]
+  ct = setNames(ff[, cell_type[1], by = cell]$V1, ff[, cell_type[1], by = cell]$cell)
+  rec = list()
+  fun = function(cc, seed) {
+    pl = make_pools(cc, ct[cc], 20, seed)
+    rec[[length(rec) + 1]] <<- list(cells = paste(sort(cc), collapse = ","), seed = seed, pl = pl)
+    pl
+  }
+  # the stopping rule as first written: counts over everything drawn so far, recomputed at every draw
+  old_stop = function(tr, pls, by, n_draws, min_region_pools) {
+    acc = list()
+    for (it in seq_along(pls)) {
+      acc[[it]] = pool_scores(tr, pls[[it]], st, by = unique(c("region", "class", by)), loo = TRUE)
+      cnt = rbindlist(acc)[, .N, by = setdiff(by, "sexgrp")]
+      enough = min(cnt$N) >= n_draws && min(rbindlist(lapply(acc, function(a) a[, .(region)]))[, .N, by = region]$N) >= min_region_pools
+      if (enough) return(it)
+    }
+    NA_integer_
+  }
+  for (cf in list(list(by = "class", tq = 0), list(by = c("class", "sexgrp"), tq = 0), list(by = "class", tq = 0.99))) {
+    rec = list()
+    p = modifyList(caller_defaults(), list(pool_tail_q = cf$tq))
+    pooled_thresholds(dn, fun, n_draws = 400, by = cf$by, cv = FALSE, loo = TRUE, standardize = TRUE, min_region_pools = 60, params = p)
+    runs = split(rec, vapply(rec, `[[`, "", "cells"))                   # one run per cell set (cross-fitted tail: two halves)
+    expect_length(runs, if (cf$tq > 0) 2L else 1L)
+    for (rn in runs) {
+      tr = dn[cell %in% strsplit(rn[[1]]$cells, ",")[[1]]]
+      expect_gt(length(rn), 3)
+      expect_identical(old_stop(tr, lapply(rn, `[[`, "pl"), cf$by, if (cf$tq > 0) 200 else 400, if (cf$tq > 0) 30 else 60),
+                       length(rn))
+    }
+  }
+})
+

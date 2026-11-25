@@ -1681,8 +1681,14 @@ pooled_thresholds = function(d_null, pools_fun, n_draws = 20000, by = "class", q
   tail_q = params$pool_tail_q %||% 0
   xfit = standardize && tail_q > 0 && isTRUE(params$pool_tail_xfit %||% TRUE)
   scale_fun = function(A, nc) pool_scale(A, states, tail_q = tail_q, tail_k = params$pool_tail_k %||% 30, n_eff = nc / params$n_pool)
+  # running counts of the null pool-regions drawn so far, per class (sex groups fall back) and per region
+  cby = setdiff(by, "sexgrp")
+  add_n = function(cnt, x, g) {
+    n = x[, .N, by = g]
+    if (is.null(cnt)) n else rbind(cnt, n)[, .(N = sum(N)), by = g]
+  }
   draw = function(tr, cells, seed0, n_draws, min_region_pools) {
-    acc = list(); prev = NULL
+    acc = list(); prev = NULL; cnt = NULL; rcnt = NULL
     for (it in seq_len(max_draws)) {
       pl = as.data.table(pools_fun(cells, seed0 + it))
       if (nrow(pl) == 0) break
@@ -1691,9 +1697,12 @@ pooled_thresholds = function(d_null, pools_fun, n_draws = 20000, by = "class", q
       prev = sig
       ps = pool_scores(tr, pl, states, by = unique(c("region", "class", by)), loo = loo)
       acc[[it]] = ps[, keep, with = FALSE]
-      cnt = rbindlist(acc)[, .N, by = setdiff(by, "sexgrp")]   # draws are counted per class (sex groups fall back)
+      cnt = add_n(cnt, ps, cby)                                   # draws are counted per class (sex groups fall back)
       enough = min(cnt$N) >= n_draws
-      if (standardize) enough = enough && min(rbindlist(lapply(acc, function(a) a[, .(region)]))[, .N, by = region]$N) >= min_region_pools
+      if (standardize) {
+        rcnt = add_n(rcnt, ps, "region")
+        enough = enough && min(rcnt$N) >= min_region_pools
+      }
       if (enough) break
     }
     rbindlist(acc)

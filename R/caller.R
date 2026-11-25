@@ -1509,11 +1509,11 @@ pool_combine = function(P, sn, loo, scale = NULL) {
 #' @param min_pools minimal null pools of a region
 #' @param mad_floor floor of a region's MAD relative to its class median
 #' @param tail_q quantile of the per-region tail factor (0 = no tail factor)
-#' @param tail_k shrinkage pseudo-count of the tail factor (effective pools)
+#' @param tail_k shrinkage pseudo-count of the tail factor (effective pools; 30, `caller_defaults()$pool_tail_k`)
 #' @param n_eff effective number of independent null pools per region (caps `n_pools` in the shrinkage weight)
 #' @return data.table region, class, n_pools, med, mad (+ `tail`, `u_tail` when `tail_q > 0`)
 #' @export
-pool_scale = function(ps, states = caller_states("normal"), min_pools = 30, mad_floor = 0.1, tail_q = 0, tail_k = 100, n_eff = Inf) {
+pool_scale = function(ps, states = caller_states("normal"), min_pools = 30, mad_floor = 0.1, tail_q = 0, tail_k = 30, n_eff = Inf) {
   ps = as.data.table(ps)
   sn = unique(as.data.table(states)[state != "neutral"]$state)
   s = do.call(pmax, unname(lapply(sn, function(x) ps[[paste0("cl_", x)]])))

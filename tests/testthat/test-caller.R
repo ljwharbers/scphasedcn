@@ -732,7 +732,7 @@ test_that("pool_scale tail_q: a heavier-tailed region gets tail > 1, homogeneous
   s2 = pool_scale(ps, st, tail_q = 0.99, n_eff = 50)
   expect_lt(s2[region == "10Mb|chr1:0", tail], heavy)
   expect_gt(s2[region == "10Mb|chr1:0", tail], 1)
-  w = 50 / 150
+  w = 50 / 80                                                   # tail_k 30 (the default)
   u_c = median(s2[n_pools >= 30, u_tail])
   expect_equal(s2[region == "10Mb|chr1:0", tail], exp(w * log(s2[region == "10Mb|chr1:0", u_tail] / u_c)))
   expect_true(all(pool_scale(ps, st, tail_q = 0.99, tail_k = Inf)$tail == 1))
@@ -1854,3 +1854,6 @@ test_that("partial parameter lists mean defaults for the rest (caller_normal, se
   expect_identical(pt(pp), pt(caller_defaults()))
 })
 
+test_that("pool_scale: the default tail shrinkage is caller_defaults()$pool_tail_k (30)", {
+  expect_identical(eval(formals(pool_scale)$tail_k), caller_defaults()$pool_tail_k)
+})

@@ -37,7 +37,9 @@ Rsamtools)}
 votes data.table \verb{cell, atom, ps, nA, nB} (passes \code{\link[=check_votes]{check_votes()}})
 }
 \description{
-Per chromosome: \verb{tabix <file> <chrom> | cut -f2,3,4,7,11,13} read with \code{fread(cmd = )} (an awk filter keeps hap 1 / 2 with \code{ps > 0} before R sees the rows), or
+Per chromosome: \verb{tabix <file> <chrom> | awk ... | cut -f2,3,4,7,11,13} (the awk filter keeps hap 1 / 2 with
+\code{ps > 0} before R sees the rows), run by \code{bash -c} under \verb{set -o pipefail} (\code{\link[=system2]{system2()}}) into a temporary file
+that is read with \code{\link[data.table:fread]{data.table::fread()}}, or
 \code{\link[=read_fragments]{read_fragments()}} when the tabix binary or index is missing; fragments of \code{cells} with haplotype
 A / B and a phase set are collapsed into molecules (\code{\link[=collapse_molecules]{collapse_molecules()}}), each molecule is assigned
 to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory

@@ -282,6 +282,8 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
     for (fo in unique(x$fold[tg])) {
       t_ = tg[x$fold[tg] %in% fo]
       cal = if (!is.na(fo) && fo %in% folds) which(!is.na(cf) & cf != fo) else seq_along(nul)
+      # no finite null score in the other folds: the fold threshold is NA and apply_thresholds() used fold 0
+      if (!any(is.finite(cp[cal]))) cal = seq_along(nul)
       set(x, i = t_, j = "p", value = conformal_p(x$s_[t_], cs[cal], cp[cal], tn))
     }
   }
@@ -455,7 +457,7 @@ utils::globalVariables(c("fin_", "top_null", "N", "score", "called", "thr"))
 #' The selection and the scoring of both halves use the run's normal-mode state set (`params$states_normal`,
 #' [normal_state_set()] with `phasing`), as [caller_normal()] does.
 #' @param feat features long table (as for [caller_normal()])
-#' @param params [caller_defaults()]
+#' @param params [caller_defaults()]; a partial list is completed with the defaults
 #' @param multiplets cells never selected as null cells
 #' @param regions regions table (default [regions_from_features()])
 #' @param depth_model "t" or "gauss"
@@ -477,6 +479,7 @@ null_selection_check = function(feat, params = caller_defaults(), multiplets = N
                                 select_args = list(), null_chroms = paste0("chr", 1:22), false_calls = NULL, conf = 0.95,
                                 phasing = NULL) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
+  params = fill_params(params)                                 # a partial list means the defaults for the rest
   depth_model = match.arg(depth_model)
   d = copy(as.data.table(feat))
   d[, cell := as.character(cell)]

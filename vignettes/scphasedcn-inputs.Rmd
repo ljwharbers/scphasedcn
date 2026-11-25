@@ -156,7 +156,9 @@ tables; a tandem-repeat BED (`--trf`) is optional (it adds the repeat fraction o
 
 `call_scn(dir)` reads three files of the directory:
 
-- `bins_100kb.h5ad` (AnnData): `X` = clean fragments per cell (rows) x 100 kb bin (columns). `var` per bin: `chrom`,
+- the bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad` (AnnData; the extractor names it after its bin size,
+  e.g. `bins_50kb.h5ad`, and the caller reads `bins_100kb.h5ad` when present, else the one `bins_*.h5ad` of the
+  directory, `bins_file()`): `X` = clean fragments per cell (rows) x bin (columns). `var` per bin: `chrom`,
   `start`, `end` (0-based, half-open), `gc`, `frac_blacklist`, `frac_trf`, `is_centromere`, `peak_bp`. `obs` per cell:
   the QC counts below.
 - `fragments.tsv.gz` + `.tbi` (bgzipped, tabix-indexed, one header line starting with `#`): one row per fragment
@@ -184,7 +186,7 @@ library(scphasedcn)
 sim = simulate_scn(n_cells = 40, seed = 1)
 d = file.path(tempdir(), "sim_extract")
 invisible(write_sim_dataset(sim, d))
-b = read_bins_h5ad(file.path(d, "bins_100kb.h5ad"))
+b = read_bins_h5ad(bins_file(d))
 dim(b$counts)
 head(b$bins)
 head(read_fragments(file.path(d, "fragments.tsv.gz")))

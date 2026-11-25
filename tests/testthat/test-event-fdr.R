@@ -339,3 +339,11 @@ test_that("event_fdr: the borrowed null accounting uses the calling rule score >
   expect_equal(nrow(ef), uniqueN(ef$state))                      # one chromosome group (chr1)
   expect_equal(sum(ef$n_null_called), sum(is.finite(s) & s > 0))
 })
+
+test_that("null_selection_check: a partial parameter list means defaults for the rest", {
+  rg = nsc_genome()
+  f = fake_features(300, rg, seed = 72)
+  pp = caller_defaults()[setdiff(names(caller_defaults()), c("n_folds", "null_q", "seed", "calib", "win_score"))]
+  run = function(p) null_selection_check(f, params = p, regions = rg, select_args = list(n_sim = 2e4))
+  expect_identical(run(pp), run(caller_defaults()))
+})

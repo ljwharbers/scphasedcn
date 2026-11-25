@@ -559,3 +559,14 @@ test_that("events: unnamed ones are named after their region, events without a r
                  "a \\(chromosome chr99 not in the usable bins\\), b \\(no whole usable bin inside\\)")
   expect_identical(r3[class == "event", region], "c")
 })
+
+test_that("allelic_features (mirrored, fitted rho) leaves the caller's RNG state as it was", {
+  atoms = fake_atoms()
+  regions = fake_regions()
+  v = fake_votes(20, atoms, clones = rep("a", 20), events = NULL, seed = 4)
+  set.seed(99)
+  s0 = .Random.seed
+  mi = allelic_features(v, atoms, regions[class == "chrom"], orientation = "mirrored")
+  expect_identical(.Random.seed, s0)
+  expect_true(is.finite(attr(mi, "rho")))
+})

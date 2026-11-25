@@ -732,7 +732,7 @@ test_that("pool_scale tail_q: a heavier-tailed region gets tail > 1, homogeneous
   s2 = pool_scale(ps, st, tail_q = 0.99, n_eff = 50)
   expect_lt(s2[region == "10Mb|chr1:0", tail], heavy)
   expect_gt(s2[region == "10Mb|chr1:0", tail], 1)
-  w = 50 / 150
+  w = 50 / 80                                                   # tail_k 30 (the default)
   u_c = median(s2[n_pools >= 30, u_tail])
   expect_equal(s2[region == "10Mb|chr1:0", tail], exp(w * log(s2[region == "10Mb|chr1:0", u_tail] / u_c)))
   expect_true(all(pool_scale(ps, st, tail_q = 0.99, tail_k = Inf)$tail == 1))
@@ -1679,4 +1679,252 @@ test_that("null_selection_check selects and scores under the run's state set (st
   for (nm in fns) for (st in s[[nm]]) expect_identical(st, caller_states("normal_att", pu), label = nm)
   s = chk(caller_defaults())
   for (nm in fns) for (st in s[[nm]]) expect_identical(st, caller_states("normal"), label = nm)
+})
+
+# ---- audit fixes (normal mode) ---------------------------------------------------------------------------------
+
+test_that("complete_tpar runs its fallbacks in order: sd_class x stratum, class over strata, sd_class over strata", {
+  tpar = data.table(class = c("arm", "arm", "10Mb", "10Mb"), stratum = c("<20k", "20-50k", "<20k", "20-50k"),
+                    t_m = c(0.1, 0.3, -0.2, 0.4), t_s = c(1, 1.2, 0.9, 1.1), t_df = c(5, 7, 9, 11), n = 100L)
+  d = data.table(class = c("arm", "arm", "event", "event", "ev2"), sd_class = c("arm", "arm", "10Mb", "10Mb", "1Mb"),
+                 stratum = c("<20k", ">=50k", "20-50k", ">=50k", "<20k"))
+  tp = complete_tpar(d, tpar)
+  g = function(cl, st) unlist(tp[class == cl & stratum == st, .(t_m, t_s, t_df)])
+  expect_identical(tp[1:4], tpar)                                       # fitted groups unchanged
+  expect_equal(g("event", "20-50k"), c(t_m = 0.4, t_s = 1.1, t_df = 11))  # 1. its sd_class in the stratum
+  expect_equal(g("arm", ">=50k"), c(t_m = 0.2, t_s = 1.1, t_df = 6))      # 2. its class over strata (medians)
+  expect_equal(g("event", ">=50k"), c(t_m = 0.1, t_s = 1.0, t_df = 10))   # 3. its sd_class over strata
+  expect_true(all(is.na(g("ev2", "<20k"))))                             # no fit anywhere: no depth null (never called)
+  expect_equal(tp[class %in% c("event", "ev2") | stratum == ">=50k", unique(n)], 0L)
+})
+
+test_that("a named event in a depth stratum without a fit of its sd_class is scored with the sd_class's fit over strata", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ev = copy(rg[region == "chr8"])[, `:=`(region = "ev8", class = "event", sd_class = "10Mb", null_region = FALSE)]
+  rg2 = rbind(rg, ev)
+  ff = fake_features(200, rg2, seed = 3)
+  big = ff[stratum == ">=50k", unique(cell)]
+  expect_gt(length(big), 5)
+  ff[cell %in% big, null_cell := FALSE]                                 # no null rows, so no t fit, in the >=50k stratum
+  run = function(f, r) caller_normal(f, regions = r, null_cells = "features", n_draws = 500, pool_classes = character())
+  r = run(ff, rg2)
+  e = r$scores[region == "ev8"]
+  expect_true(all(is.finite(e$s_comb)))
+  expect_true(all(is.finite(e[cell %in% big, dl_loss])))
+  tp = r$null_fit$tpar
+  expect_equal(unlist(tp[class == "event" & stratum == ">=50k", .(t_m, t_s, t_df)]),
+               unlist(tp[class == "10Mb" & n > 0, .(t_m = median(t_m), t_s = median(t_s), t_df = median(t_df))]))
+  # the other regions are scored and called as without the event
+  r0 = run(ff[region != "ev8"], rg)
+  expect_identical(r$scores[region != "ev8"], r0$scores)
+  expect_identical(r$calls[region != "ev8"], r0$calls)
+})
+
+test_that("select_null_cells (parametric): the cells of a stratum whose cells were all dropped stay out of the null set", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))[class %in% c("chrom", "arm")]
+  big = fake_features(300, rg, seed = 4)[stratum == ">=50k", unique(cell)]
+  expect_gt(length(big), 10)
+  ev = CJ(cell = big, region = c("chr1", "chr1p", "chr1q"))[, state := "loss"]
+  ff = fake_features(300, rg, events = ev, seed = 4)                     # every >=50k cell carries a chr1 loss
+  expect_identical(ff[stratum == ">=50k", unique(cell)], big)
+  s = select_null_cells(ff, n_iter = 2, n_sim = 2e4)
+  expect_false(any(big %in% s$previous))                                # the first iteration drops all of them
+  expect_false(any(big %in% s$null_cells))                              # and the second, without null rows there, too
+  expect_gt(length(s$null_cells), 150)
+  expect_identical(s$calls[cell %in% big, null], rep(FALSE, length(big)))
+})
+
+test_that("functions that seed the RNG leave the caller's RNG state as it was", {
+  chk = function(expr, label) {
+    set.seed(99)
+    s0 = .Random.seed
+    force(expr)
+    expect_identical(.Random.seed, s0, label = label)
+  }
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(120, rg, seed = 2)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  st = caller_states("normal")
+  cells = unique(ff$cell)
+  chk(assign_folds(cells, 4, seed = 3), "assign_folds")
+  chk(make_pools(cells, rep(c("a", "b"), 60), 20, seed = 3), "make_pools")
+  chk(fit_depth_null(ff, n_max = 50), "fit_depth_null")
+  x = ff[class == "chrom"]
+  chk(robust_rho(x$nA, x$n_hap, min_n = 1), "robust_rho")
+  tp = fit_depth_null(ff)
+  chk(param_thresholds(ff[class == "arm"], st, tp, 0.002, 0.999, caller_defaults(), n_sim = 2000), "param_thresholds")
+  chk(select_null_cells(ff, n_sim = 2e4), "select_null_cells")
+  sc = score_cells(ff, st, tp, 0.002, keep_rows = TRUE)
+  ct = setNames(ff[, cell_type[1], by = cell]$V1, cells)
+  fun = function(cc, seed) make_pools(cc, ct[cc], 20, seed)
+  chk(pooled_thresholds(sc, fun, n_draws = 100, cv = FALSE, loo = TRUE, standardize = TRUE, min_region_pools = 20), "pooled_thresholds")
+  # no RNG state before the call: none after it (then the state is put back for the tests that follow)
+  s1 = .Random.seed
+  rm(".Random.seed", envir = globalenv())
+  invisible(assign_folds(cells, 4, seed = 3))
+  expect_false(exists(".Random.seed", envir = globalenv()))
+  assign(".Random.seed", s1, envir = globalenv())
+})
+
+test_that("make_pools and chrom_rank: the same seed gives the same pools and order whatever the collation of the names", {
+  old = Sys.getlocale("LC_COLLATE")
+  on.exit(Sys.setlocale("LC_COLLATE", old), add = TRUE)
+  ok = nzchar(suppressWarnings(Sys.setlocale("LC_COLLATE", "en_US.UTF-8")))
+  skip_if_not(ok && !identical(sort(c("a", "B")), c("B", "a")), "no en_US.UTF-8 collation")
+  # non-ASCII names as a metadata file gives them (fread: native, "unknown" encoding; first in the data, which is where
+  # sort(method = "radix") checks the encoding) and one marked Latin-1
+  f = tempfile(fileext = ".tsv")
+  writeLines(c("ct", "M\u00fcller glia"), f, useBytes = TRUE)
+  nat = data.table::fread(f, sep = "\t")$ct
+  expect_identical(Encoding(nat), "unknown")
+  lat = iconv("Zo\u00eb", "UTF-8", "latin1")
+  expect_identical(Encoding(lat), "latin1")
+  cells = sprintf("c%03d", 1:180)
+  g = rep(c(nat, "b", "A", "a", "B", lat), each = 30)
+  ch = c(paste0("chrUn_", nat), "chrUn_a", "chr1", "chrUn_B", "chrX", "chrM")
+  pu = make_pools(cells, g, 20, seed = 4)
+  ru = chrom_rank(ch)
+  Sys.setlocale("LC_COLLATE", "C")
+  pc = make_pools(cells, g, 20, seed = 4)
+  expect_identical(pu, pc)
+  expect_identical(unique(pc$group), c("A", "B", "M\u00fcller glia", "Zo\u00eb", "a", "b"))
+  expect_identical(chrom_rank(ch), ru)
+  expect_identical(ch[order(ru)], c("chr1", "chrX", "chrM", "chrUn_B", paste0("chrUn_", nat), "chrUn_a"))
+  expect_identical(make_pools(cells[1:30], rep(nat, 30), 20, seed = 4)$group[1], nat)
+})
+
+test_that("caller_normal: cells without a cell type in cell_meta keep the features' cell type", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(120, rg, seed = 8)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  cells = unique(ff$cell)
+  cm = data.table(cell = cells[1:60], cell_type = c(rep("imm", 30), rep(NA, 30)))   # cells 61-120 absent
+  r = caller_normal(ff, cell_meta = cm, regions = rg, null_cells = "features", n_draws = 200, pool_classes = character())
+  ft = ff[, .(ft = cell_type[1]), by = cell]
+  expect_identical(r$cells$cell_type[match(ft$cell, r$cells$cell)], fifelse(ft$cell %in% cells[1:30], "imm", ft$ft))
+  expect_false(anyNA(r$pools$group))
+  expect_false("NA" %in% r$pools$group)
+})
+
+test_that("pooled_thresholds stops redrawing at the first draw where every class (and region) has enough null pools", {
+  ff = pool_fake(n = 200)
+  st = caller_states("normal")
+  sc = score_cells(ff, st, fit_depth_null(ff[null_cell == TRUE]), 0.002, keep_rows = TRUE)
+  dn = sc[null_cell == TRUE]
+  dn[, sexgrp := sex_group(chrom)]
+  ct = setNames(ff[, cell_type[1], by = cell]$V1, ff[, cell_type[1], by = cell]$cell)
+  rec = list()
+  fun = function(cc, seed) {
+    pl = make_pools(cc, ct[cc], 20, seed)
+    rec[[length(rec) + 1]] <<- list(cells = paste(sort(cc), collapse = ","), seed = seed, pl = pl)
+    pl
+  }
+  # the stopping rule as first written: counts over everything drawn so far, recomputed at every draw
+  old_stop = function(tr, pls, by, n_draws, min_region_pools) {
+    acc = list()
+    for (it in seq_along(pls)) {
+      acc[[it]] = pool_scores(tr, pls[[it]], st, by = unique(c("region", "class", by)), loo = TRUE)
+      cnt = rbindlist(acc)[, .N, by = setdiff(by, "sexgrp")]
+      enough = min(cnt$N) >= n_draws && min(rbindlist(lapply(acc, function(a) a[, .(region)]))[, .N, by = region]$N) >= min_region_pools
+      if (enough) return(it)
+    }
+    NA_integer_
+  }
+  for (cf in list(list(by = "class", tq = 0), list(by = c("class", "sexgrp"), tq = 0), list(by = "class", tq = 0.99))) {
+    rec = list()
+    p = modifyList(caller_defaults(), list(pool_tail_q = cf$tq))
+    pooled_thresholds(dn, fun, n_draws = 400, by = cf$by, cv = FALSE, loo = TRUE, standardize = TRUE, min_region_pools = 60, params = p)
+    runs = split(rec, vapply(rec, `[[`, "", "cells"))                   # one run per cell set (cross-fitted tail: two halves)
+    expect_length(runs, if (cf$tq > 0) 2L else 1L)
+    for (rn in runs) {
+      tr = dn[cell %in% strsplit(rn[[1]]$cells, ",")[[1]]]
+      expect_gt(length(rn), 3)
+      expect_identical(old_stop(tr, lapply(rn, `[[`, "pl"), cf$by, if (cf$tq > 0) 200 else 400, if (cf$tq > 0) 30 else 60),
+                       length(rn))
+    }
+  }
+})
+
+test_that("partial parameter lists mean defaults for the rest (caller_normal, select_null_cells, pooled_thresholds)", {
+  aw = att_win_features()
+  drop = c("calib", "win_min", "win_score", "null_win_guard", "pool_tail_q", "pool_tail_k", "n_folds", "seed")
+  pp = caller_defaults()[setdiff(names(caller_defaults()), drop)]
+  s1 = select_null_cells(aw$ff, n_sim = 2e4)
+  expect_identical(select_null_cells(aw$ff, params = pp, n_sim = 2e4), s1)
+  run = function(p) caller_normal(aw$ff, regions = aw$rg, n_draws = 500, params = p, select_args = list(n_sim = 2e4))
+  r1 = run(caller_defaults())
+  r0 = run(pp)
+  for (k in setdiff(names(r1), "params")) expect_identical(r0[[k]], r1[[k]], label = k)
+  expect_identical(r0$params[names(caller_defaults())], caller_defaults())
+  expect_identical(r1$params, caller_defaults())                       # a complete list is kept as it is
+  sc = r1$scores[is_null == TRUE]
+  ct = setNames(r1$cells$cell_type, r1$cells$cell)
+  fun = function(cc, seed) make_pools(cc, ct[cc], 20, seed)
+  pt = function(p) pooled_thresholds(sc, fun, n_draws = 300, cv = FALSE, loo = TRUE, standardize = TRUE, min_region_pools = 40,
+                                     states = caller_states("normal"), params = p)
+  expect_identical(pt(pp), pt(caller_defaults()))
+})
+
+test_that("pool_scale: the default tail shrinkage is that of the caller (pool_tail_k 30)", {
+  set.seed(23)
+  st = caller_states("normal")
+  ps = rbindlist(lapply(1:6, function(i) {
+    s = if (i == 1) stats::rt(400, 3) else rnorm(400)
+    data.table(pool = seq_len(400), region = sprintf("10Mb|chr%d:0", i), class = "10Mb", cl_loss = s, cl_gain = -Inf, cl_cnloh = -Inf)
+  }))
+  s_def = pool_scale(ps, st, tail_q = 0.99, n_eff = 50)
+  expect_identical(s_def, pool_scale(ps, st, tail_q = 0.99, n_eff = 50, tail_k = caller_defaults()$pool_tail_k))
+  expect_false(identical(s_def$tail, pool_scale(ps, st, tail_q = 0.99, n_eff = 50, tail_k = 100)$tail))
+})
+
+test_that("caller_states: a list without f_att takes its default (not f_att_normal by partial matching)", {
+  p = caller_defaults(); p$f_att = NULL
+  expect_identical(caller_states("tumour", p), caller_states("tumour"))
+})
+
+test_that("select_null_cells: rows of a class without any null row (named events in `classes`) are ignored", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))[class %in% c("chrom", "arm")]
+  ev = copy(rg[region == "chr8"])[, `:=`(region = "ev8", class = "event", sd_class = "chrom", null_region = FALSE)]
+  ff = fake_features(200, rbind(rg, ev), seed = 5)
+  s0 = select_null_cells(ff[class != "event"], n_sim = 2e4)
+  s1 = select_null_cells(ff, classes = c("chrom", "arm", "event"), n_sim = 2e4)
+  expect_gt(length(s0$null_cells), 150)
+  expect_identical(s1$null_cells, s0$null_cells)
+  expect_identical(s1$calls, s0$calls)
+})
+
+test_that("apply_thresholds: a fold whose threshold is NA (empty training set) takes fold 0; finite folds unchanged", {
+  thr = data.table(score = "s_comb", class = "arm", stratum = "all", fold = c(0L, 1L, 2L), q = 0.999,
+                   thr = c(5, NA, 7), n_null = c(10L, 0L, 5L), pooled_fallback = FALSE)
+  d = data.table(class = "arm", fold = c(1L, 2L, 0L, 3L), s_comb = c(6, 6, 6, 6))
+  a = apply_thresholds(d, thr, "s_comb")
+  expect_identical(a$thr_s_comb, c(5, 7, 5, 5))
+  expect_identical(a$call_s_comb, c(TRUE, FALSE, TRUE, TRUE))
+})
+
+test_that("select_null_cells (empirical): null cells all in one fold are thresholded with fold 0, not dropped", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))[class %in% c("chrom", "arm")]
+  ff = fake_features(200, rg, seed = 6)
+  s0 = select_null_cells(copy(ff)[, fold := 0L], threshold = "empirical", q = 0.999)
+  s1 = select_null_cells(copy(ff)[, fold := 1L], threshold = "empirical", q = 0.999)   # no training rows for fold 1
+  expect_gt(length(s0$null_cells), 150)
+  expect_identical(s1$null_cells, s0$null_cells)
+  expect_identical(s1$calls, s0$calls)
+})
+
+test_that("complete_tpar: two named events of different sd_class in one stratum each get their own sd_class's fit", {
+  tpar = data.table(class = c("10Mb", "20Mb"), stratum = "<20k", t_m = c(0.1, -0.3), t_s = c(1, 1.5), t_df = c(5, 9), n = 100L)
+  d = data.table(class = "event", sd_class = c("10Mb", "20Mb", "10Mb", "20Mb"), stratum = c("<20k", "<20k", ">=50k", ">=50k"),
+                 z = c(-3, -3, 2, 2), sd_null = 0.2, nA = 0, n_hap = 0)
+  tp = complete_tpar(d, tpar)
+  m = match_depth_null(d, tp)
+  expect_equal(m$t_m, c(0.1, -0.3, 0.1, -0.3))
+  expect_equal(m$t_df, c(5, 9, 5, 9))
+  # scored as the same rows under their sd_class
+  st = caller_states("normal")
+  s = score_cells(d, st, tp, 0.002)
+  s2 = score_cells(copy(d)[, class := sd_class], st, complete_tpar(copy(d)[, class := sd_class], tpar), 0.002)
+  expect_equal(s$s_comb, s2$s_comb)
+  # one sd_class per class x stratum: the table keeps its class x stratum layout
+  expect_false("sd_class" %in% names(complete_tpar(d[sd_class == "10Mb"], tpar)))
 })

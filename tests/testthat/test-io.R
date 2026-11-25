@@ -129,3 +129,113 @@ test_that("the fallback yaml parser handles the config subset", {
     expect_equal(unlist(cfg$samples$S1$chroms), ref$samples$S1$chroms)
   }
 })
+
+# ---- audit fixes ------------------------------------------------------------------------------------------------
+
+test_that("h5_read_df: a missing category (code -1) is NA in place; the values after it keep their category", {
+  f = tempfile(fileext = ".h5")
+  rhdf5::h5createFile(f)
+  rhdf5::h5createGroup(f, "obs")
+  rhdf5::h5createGroup(f, "obs/ct")
+  rhdf5::h5write(c("c1", "c2", "c3", "c4"), f, "obs/cell")
+  rhdf5::h5write(c(0L, -1L, 1L, 0L), f, "obs/ct/codes")
+  rhdf5::h5write(c("a", "b"), f, "obs/ct/categories")
+  fid = rhdf5::H5Fopen(f)
+  g = rhdf5::H5Gopen(fid, "obs")
+  rhdf5::h5writeAttribute("cell", g, "_index")
+  rhdf5::H5Gclose(g)
+  rhdf5::H5Fclose(fid)
+  df = scphasedcn:::h5_read_df(f, "obs")
+  expect_identical(df$ct, c("a", NA, "b", "a"))
+  expect_identical(df$cell, c("c1", "c2", "c3", "c4"))
+})
+
+test_that("cli_sample: without extract_dir and outputs.root the sample has no directory (NULL)", {
+  cfg = list(samples = list(s1 = list(sex = "female")))
+  expect_null(cli_sample(cfg, "s1")$dir)
+  cfg$outputs = list(root = "out_root")
+  expect_identical(cli_sample(cfg, "s1")$dir, file.path("out_root", "s1", "extract"))
+  cfg$samples$s1$extract_dir = "ex"
+  expect_identical(cli_sample(cfg, "s1")$dir, "ex")
+  expect_error(cli_sample(cfg, "s2"), "sample not in config")
+})
+
+test_that("call_scn.R --config --sample without an extraction directory gives the usage message", {
+  # the script loads the installed package: run it under R CMD check (or SCPHASEDCN_TEST_CLI=true after an install)
+  skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
+  script = system.file("scripts", "call_scn.R", package = "scphasedcn")
+  y = tempfile(fileext = ".yaml")
+  writeLines(c("samples:", "  s1:", "    sex: female"), y)
+  log = suppressWarnings(system2(file.path(R.home("bin"), "Rscript"), c(script, "--config", y, "--sample", "s1"),
+                                 stdout = TRUE, stderr = TRUE))
+  expect_false(is.null(attr(log, "status")))
+  expect_true(any(grepl("give --dir <extraction dir>", log, fixed = TRUE)))
+  expect_false(any(grepl("missing value|argument is of length zero|invalid 'y' type", log)))
+})
+
+test_that("make_cell_meta: an existing qc_pass column is used as it is; qc_args are then not applied and warn", {
+  qc = data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = c(40000, 25000, 900), qc_pass = c(FALSE, TRUE, TRUE))
+  expect_warning(make_cell_meta(qc, qc_args = list(min_frag = 10)), "qc_args")
+  m = suppressWarnings(make_cell_meta(qc, qc_args = list(min_frag = 10)))
+  expect_identical(m$qc_pass, c(FALSE, TRUE, TRUE))
+  expect_no_warning(make_cell_meta(qc))
+  expect_no_warning(make_cell_meta(qc[, !"qc_pass"], qc_args = list(min_frag = 30000)))
+  expect_identical(make_cell_meta(qc[, !"qc_pass"], qc_args = list(min_frag = 30000))$qc_pass, c(TRUE, FALSE, FALSE))
+})
+
+test_that("subset_scn: integer and character selectors keep the requested order; duplicates and unknown cells stop", {
+  m = matrix(as.numeric(1:12), 3, 4)
+  s = new_scn(m, data.table(chrom = "chr1", start = c(0, 100, 200), end = c(100, 200, 300)), data.table(cell = c("a", "b", "c", "d")),
+              obsm = list(e = matrix(1:8, 4, 2)))
+  for (sel in list(c(3L, 1L), c(3, 1), c("c", "a"))) {
+    x = subset_scn(s, cells = sel)
+    expect_identical(x$cells$cell, c("c", "a"))
+    expect_identical(as.matrix(x$counts), m[, c(3, 1)], ignore_attr = TRUE)
+    expect_identical(x$obsm$e, matrix(1:8, 4, 2)[c(3, 1), ])
+  }
+  expect_identical(subset_scn(s, cells = c(TRUE, FALSE, TRUE, FALSE))$cells$cell, c("a", "c"))
+  expect_identical(subset_scn(s, cells = -1)$cells$cell, c("b", "c", "d"))
+  expect_identical(subset_scn(s)$cells$cell, c("a", "b", "c", "d"))
+  expect_identical(subset_scn(s, cells = c(2, 1), bins = c(3, 1))$bins$start, c(200, 0))
+  expect_error(subset_scn(s, cells = c(1, 1)), "duplicate")
+  expect_error(subset_scn(s, cells = c("a", "a")), "duplicate")
+  expect_error(subset_scn(s, cells = c("a", "z")), "not in")
+})
+
+test_that("bins_file: bins_100kb.h5ad when present, else the one bins_<tag>.h5ad; none or several stop", {
+  d = file.path(tempdir(), "binsfile_test")
+  unlink(d, recursive = TRUE)
+  dir.create(d)
+  expect_error(bins_file(d), "no bins file")
+  file.create(file.path(d, c("bins_50kb.h5ad", "bins_100kb.h5ad", "alleles_dna.h5ad")))
+  expect_identical(bins_file(d), file.path(d, "bins_100kb.h5ad"))         # preferred when present
+  file.remove(file.path(d, "bins_100kb.h5ad"))
+  expect_identical(bins_file(d), file.path(d, "bins_50kb.h5ad"))
+  file.create(file.path(d, "bins_1Mb.h5ad"))
+  expect_error(bins_file(d), "2 bins files .*bins_1Mb.h5ad, bins_50kb.h5ad")
+})
+
+test_that("the sample reader reads an extraction directory whose bins file is bins_50kb.h5ad", {
+  d = file.path(tempdir(), "binsfile_50kb")
+  unlink(d, recursive = TRUE)
+  p = write_sim_dataset(simulate_scn(n_cells = 12, seed = 3), d)
+  ref = read_sample_depth(d)
+  file.rename(p$bins, file.path(d, "bins_50kb.h5ad"))
+  s = read_sample_depth(d)
+  expect_identical(s$cells, ref$cells)
+  expect_identical(s$bins, ref$bins)
+  expect_identical(s$counts, ref$counts)
+  file.copy(file.path(d, "bins_50kb.h5ad"), file.path(d, "bins_20kb.h5ad"))
+  expect_error(read_sample_depth(d), "2 bins files")
+})
+
+test_that("call_scn.R --dir without a bins file names what it looked for", {
+  skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
+  script = system.file("scripts", "call_scn.R", package = "scphasedcn")
+  d = file.path(tempdir(), "binsfile_cli_empty")
+  dir.create(d, showWarnings = FALSE)
+  log = suppressWarnings(system2(file.path(R.home("bin"), "Rscript"), c(script, "--dir", d, "--out", file.path(d, "out"),
+                                                                         "--sex", "female"), stdout = TRUE, stderr = TRUE))
+  expect_false(is.null(attr(log, "status")))
+  expect_true(any(grepl("no bins file (bins_<tag>.h5ad, by default bins_100kb.h5ad)", log, fixed = TRUE)))
+})

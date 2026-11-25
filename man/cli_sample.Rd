@@ -12,9 +12,9 @@ cli_sample(cfg, sample)
 \item{sample}{sample name}
 }
 \value{
-list with the sample fields plus \code{name}, \code{dir} (extraction output dir)
+list with the sample fields plus \code{name}, \code{dir} (extraction output dir, or NULL)
 }
 \description{
 The extraction directory is the sample's \code{extract_dir}, else \verb{<outputs.root>/<sample>/extract} (where
-\verb{scphasedcn run} writes it).
+\verb{scphasedcn run} writes it); NULL when the yaml gives neither.
 }

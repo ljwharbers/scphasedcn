@@ -21,6 +21,8 @@ check_sex = function(sex, where = "scphasedcn") {
 }
 
 #' Order chromosome names naturally (chr1..chr22, chrX, chrY, chrM, others)
+#'
+#' Other names (e.g. unplaced contigs) come last, in C-locale (byte) order whatever the session's collation.
 #' @param x character vector of chromosome names
 #' @return integer ranks usable with `order()`
 #' @export
@@ -29,8 +31,20 @@ chrom_rank = function(x) {
   num = suppressWarnings(as.integer(base))
   r = ifelse(!is.na(num), num,
              ifelse(base == "X", 100L, ifelse(base == "Y", 101L, ifelse(base == "M" | base == "MT", 102L, 200L))))
-  r + match(x, sort(unique(x))) / 1e6
+  r + match(x, c_sort(x)) / 1e6
 }
+
+# unique non-NA strings in C-locale (byte) order whatever the session's collation, for orders that feed seeded draws
+# or must not depend on the platform. data.table's ordering, not sort(method = "radix"): the latter stops on
+# non-ASCII strings of "unknown" (native) encoding, as fread() / read.delim() return them (e.g. a cell type
+# "Mueller glia" with an umlaut); data.table orders native, UTF-8 and Latin-1 strings alike
+c_sort = function(x) {
+  u = unique(as.character(x))
+  u = u[!is.na(u)]
+  if (length(u) < 2L) return(u)
+  setorder(data.table(u_ = u), u_)$u_
+}
+utils::globalVariables("u_")
 
 #' Parse a region string "chr20:28000000-" or "chr5" into a data.table
 #' @param x character vector of regions (`chrom`, `chrom:start-end`, `chrom:start-`)
@@ -168,6 +182,9 @@ budget_threshold = function(null_scores, budget_per_1000 = 1) {
 # The entry points (call_scn, cell_features, caller_normal, caller_tumour, simulate_scn) seed the RNG internally
 # for reproducibility. rng_save() / rng_restore() put the caller's global RNG state back when the outermost entry
 # point returns; nested entry points leave the stream alone, so a run draws exactly the numbers it always drew.
+# Every other function that calls set.seed() (assign_folds, make_pools, fit_depth_null, robust_rho, the null-cell
+# selection and pooled thresholds, the mirrored / windowed allele rho) does the same, so that called on its own it
+# does not reset the user's stream, and called inside an entry point it changes nothing.
 .scphasedcn_rng = new.env(parent = emptyenv())
 
 rng_save = function() {

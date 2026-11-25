@@ -10,7 +10,7 @@ pool_scale(
   min_pools = 30,
   mad_floor = 0.1,
   tail_q = 0,
-  tail_k = 100,
+  tail_k = 30,
   n_eff = Inf
 )
 }
@@ -25,7 +25,7 @@ pool_scale(
 
 \item{tail_q}{quantile of the per-region tail factor (0 = no tail factor)}
 
-\item{tail_k}{shrinkage pseudo-count of the tail factor (effective pools)}
+\item{tail_k}{shrinkage pseudo-count of the tail factor (effective pools; 30, \code{caller_defaults()$pool_tail_k})}
 
 \item{n_eff}{effective number of independent null pools per region (caps \code{n_pools} in the shrinkage weight)}
 }

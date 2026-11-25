@@ -24,11 +24,12 @@ header unless the first line is \code{cell}, or with a \code{cell} column)}
 
 \item{groups}{NULL, a path or table with \code{cell} and \code{group} (else the first two columns), or a vector named by cell}
 
-\item{qc_args}{named list of \code{\link[=cell_qc]{cell_qc()}} arguments for \code{qc_pass} (e.g. \code{list(min_frag = 10000)})}
+\item{qc_args}{named list of \code{\link[=cell_qc]{cell_qc()}} arguments for \code{qc_pass} (e.g. \code{list(min_frag = 10000)}). Not applied
+(with a warning) when \code{cells_qc} already has a \code{qc_pass} column, which is then used as it is}
 }
 \value{
-data.table \code{cell}, \code{cell_type}, \code{flat}, \code{group}, plus \code{qc_pass} (\code{\link[=cell_qc]{cell_qc()}} on \code{cells_qc}) when
-\code{cells_qc} is given
+data.table \code{cell}, \code{cell_type}, \code{flat}, \code{group}, plus \code{qc_pass} when \code{cells_qc} is given (its own
+\code{qc_pass} column, else \code{\link[=cell_qc]{cell_qc()}} on \code{cells_qc} with \code{qc_args})
 }
 \description{
 Builds the \code{cell_meta} table of \code{\link[=call_scn]{call_scn()}} (the \code{--cell-meta} TSV of \code{call_scn.R}). Every column but \code{cell} is

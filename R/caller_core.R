@@ -104,7 +104,8 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `pool_tail_xfit` cross-fit the pooled tail ([pooled_thresholds()]): the region scale and the
 #'     threshold are estimated on pools of two disjoint halves of the null cells (TRUE);
 #'   * `win_allelic` windowed, orientation-free allele term of [cell_features()] ([window_allelic_features()]):
-#'     `"auto"` (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never);
+#'     `"auto"` (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never); any other value
+#'     stops;
 #'   * `win_size` window size of that term (1e6 bp): the phase is trusted only inside one window x phase set;
 #'   * `win_f` fractions of the windowed term in addition to `1 - eps` (the loss / CN-LOH rows, always included); 0.98
 #'     by default (= `1 - eps`); gain fractions are not specific at window level ([win_f_grid()]);
@@ -174,6 +175,20 @@ caller_defaults = function() {
     win_min = 15,
     null_win_guard = TRUE
   )
+}
+
+# A parameter list completed with caller_defaults() for the keys it lacks, so that a hand-built partial list means
+# "the defaults for the rest" in the user-facing entry points (caller_normal(), select_null_cells(),
+# pooled_thresholds(), null_selection_check()). A complete list comes back unchanged (same values, same order);
+# missing keys are appended. A list with `f_att` but without `f_att_normal` keeps the documented fallback of the
+# normal_att grid to `f_att` ([caller_states()]).
+fill_params = function(params) {
+  def = caller_defaults()
+  if (is.null(params)) return(def)
+  miss = setdiff(names(def), names(params))
+  if ("f_att_normal" %in% miss && !is.null(params[["f_att"]])) miss = setdiff(miss, "f_att_normal")
+  if (length(miss)) params[miss] = def[miss]
+  params
 }
 
 #' Depth stratum of a cell
@@ -282,6 +297,7 @@ ll_allelic = function(nA, n, f, rho, eps = 0.02, two_sided = TRUE, per_row = FAL
 #' @return data.table with the `by` columns, `t_m`, `t_s`, `t_df`, `n` (finite null rows)
 #' @export
 fit_depth_null = function(d, by = c("class", "stratum"), n_max = 20000, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   d = as.data.table(d)
   d[is.finite(z), {
     set.seed(seed)
@@ -297,15 +313,23 @@ fit_depth_null = function(d, by = c("class", "stratum"), n_max = 20000, seed = 1
 #' Per-row Student-t null parameters
 #'
 #' Looks up the [fit_depth_null()] parameters of each row's group (default
-#' class x stratum), as the scorer does; stops when a group has no fit.
-#' @param d rows to score (with the `by` columns)
-#' @param tpar output of [fit_depth_null()]
+#' class x stratum), as the scorer does; stops when a group has no fit. A completed table whose rows carry an
+#' `sd_class` (a class x stratum completed for several sd_classes, e.g. named events of different sizes in one
+#' stratum) gives a row of `d` with that `sd_class` the fit of its own sd_class.
+#' @param d rows to score (with the `by` columns; `sd_class` used when `tpar` has that column)
+#' @param tpar output of [fit_depth_null()] (completed for the classes without null rows by the callers)
 #' @param by grouping columns
 #' @return data.table `t_m`, `t_s`, `t_df` with one row per row of `d` (pass to [ll_depth_shift()])
 #' @export
 match_depth_null = function(d, tpar, by = c("class", "stratum")) {
   key = function(x) do.call(paste, c(lapply(by, function(b) as.character(x[[b]])), sep = "\r"))
-  k = match(key(d), key(tpar))
+  kt = key(tpar)
+  k = match(key(d), kt)
+  if ("sd_class" %in% names(tpar) && "sd_class" %in% names(d) && any(!is.na(tpar$sd_class))) {
+    ks = match(paste(key(d), as.character(d$sd_class), sep = "\n"),
+               fifelse(is.na(tpar$sd_class), NA_character_, paste(kt, as.character(tpar$sd_class), sep = "\n")))
+    k = fifelse(is.na(ks), k, ks)
+  }
   if (anyNA(k)) stop(sprintf("match_depth_null: no t fit for %s", paste(head(unique(key(d)[is.na(k)]), 5), collapse = ", ")))
   data.table(t_m = tpar$t_m[k], t_s = tpar$t_s[k], t_df = tpar$t_df[k])
 }

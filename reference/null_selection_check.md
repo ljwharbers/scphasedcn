@@ -44,7 +44,8 @@ null_selection_check(
 
 - params:
 
-  [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md)
+  [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md);
+  a partial list is completed with the defaults
 
 - multiplets:
 

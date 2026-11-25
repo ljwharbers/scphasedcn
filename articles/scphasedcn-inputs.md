@@ -171,9 +171,11 @@ scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
 `run` extracts every chromosome in parallel (`--jobs`; a deep chromosome
 takes a few GB of memory) and merges. On a cluster, run
 `scphasedcn extract --chrom <chrom>` as one job per chromosome and
-`scphasedcn merge` after them, with the same options. A sample yaml
-keeps the paths in one place (`--config sample.yaml --sample <key>`,
-also read by the caller’s command line):
+`scphasedcn merge` after them, with the same options (without
+`--chroms`, `merge` merges the chromosomes that have a finished
+partial). A sample yaml keeps the paths in one place
+(`--config sample.yaml --sample <key>`, also read by the caller’s
+command line):
 
 ``` r
 cat(readLines(system.file("extdata", "sample_template.yaml", package = "scphasedcn")), sep = "\n")
@@ -213,10 +215,15 @@ the bin filter).
 
 `call_scn(dir)` reads three files of the directory:
 
-- `bins_100kb.h5ad` (AnnData): `X` = clean fragments per cell (rows) x
-  100 kb bin (columns). `var` per bin: `chrom`, `start`, `end` (0-based,
-  half-open), `gc`, `frac_blacklist`, `frac_trf`, `is_centromere`,
-  `peak_bp`. `obs` per cell: the QC counts below.
+- the bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad`
+  (AnnData; the extractor names it after its bin size,
+  e.g. `bins_50kb.h5ad`, and the caller reads `bins_100kb.h5ad` when
+  present, else the one `bins_*.h5ad` of the directory,
+  [`bins_file()`](https://ljwharbers.github.io/scphasedcn/reference/bins_file.md)):
+  `X` = clean fragments per cell (rows) x bin (columns). `var` per bin:
+  `chrom`, `start`, `end` (0-based, half-open), `gc`, `frac_blacklist`,
+  `frac_trf`, `is_centromere`, `peak_bp`. `obs` per cell: the QC counts
+  below.
 - `fragments.tsv.gz` + `.tbi` (bgzipped, tabix-indexed, one header line
   starting with `#`): one row per fragment with columns
   `chrom, start, end, cell, strand, mapq, flags, len, piece, npieces, hap, nsnp, ps, read_id`.
@@ -254,7 +261,7 @@ library(scphasedcn)
 sim = simulate_scn(n_cells = 40, seed = 1)
 d = file.path(tempdir(), "sim_extract")
 invisible(write_sim_dataset(sim, d))
-b = read_bins_h5ad(file.path(d, "bins_100kb.h5ad"))
+b = read_bins_h5ad(bins_file(d))
 dim(b$counts)
 #> [1] 2100   40
 head(b$bins)
@@ -335,5 +342,9 @@ data.table::fwrite(m, file.path(tempdir(), "cell_meta.tsv"), sep = "\t")
 ```
 
 Multiplets (barcodes holding more than one nucleus) inflate calls; pass
-a per-cell multiplet probability as `multiplets` (a table `cell, prob`)
-to leave them out of the null and the clone discovery.
+a per-cell multiplet probability as `multiplets` (a table `cell, prob`,
+or any form
+[`multiplet_table()`](https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.md)
+reads) to leave them out of the null (prob \> 0.5) and, in tumour mode,
+of the clone discovery and the clone pseudobulks (prob above the
+`multiplet_prob` option, 0.9 by default).

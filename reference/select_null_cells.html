@@ -96,7 +96,7 @@ null_region, eligible optional; chrom optional, else parsed from the region name
 
 
 <dt id="arg-params">params<a class="anchor" aria-label="anchor" href="#arg-params"></a></dt>
-<dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code></p></dd>
+<dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code>; a partial list is completed with the defaults</p></dd>
 
 
 <dt id="arg-n-iter">n_iter<a class="anchor" aria-label="anchor" href="#arg-n-iter"></a></dt>
@@ -138,7 +138,7 @@ null_region, eligible optional; chrom optional, else parsed from the region name
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
-candidate cell: n_calls, win_guard, null), tpar, rho, thresholds)</p>
+candidate cell: n_calls (NA: a row without a threshold), win_guard, null), tpar, rho, thresholds)</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
@@ -165,7 +165,11 @@ Bonferroni over the fractions): an allelic imbalance private to the cell, which 
 The bound is per row, without a correction over the about 60 scored rows of a cell: the guard errs towards leaving a
 cell out of the null set, which costs little (6 of 4,105 cells of a normal thyroid sample). It sees only chromosome
 and arm rows, so a null cell can still carry a windowed call on a smaller tile. The selection's scores themselves
-stay oriented, so that they match what the parametric thresholds simulate.</p>
+stay oriented, so that they match what the parametric thresholds simulate.
+A class x stratum left without null rows in an iteration (every cell of a stratum dropped) is thresholded with
+its class over strata (parametric: the class's simulated rows; empirical: the class fallback of
+<code><a href="budget_thresholds.html">budget_thresholds()</a></code>); a cell with an eligible row that still has no threshold is not assessed (<code>n_calls</code> NA)
+and is never a null cell. Rows of classes without any null row (named events in <code>classes</code>) are ignored.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

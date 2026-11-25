@@ -282,9 +282,10 @@ depend on phasing.</li>
 merges. On a cluster, run
 <code>scphasedcn extract --chrom &lt;chrom&gt;</code> as one job per
 chromosome and <code>scphasedcn merge</code> after them, with the same
-options. A sample yaml keeps the paths in one place
-(<code>--config sample.yaml --sample &lt;key&gt;</code>, also read by
-the caller’s command line):</p>
+options (without <code>--chroms</code>, <code>merge</code> merges the
+chromosomes that have a finished partial). A sample yaml keeps the paths
+in one place (<code>--config sample.yaml --sample &lt;key&gt;</code>,
+also read by the caller’s command line):</p>
 <div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">readLines</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_template.yaml"</span>, <span class="at">package =</span> <span class="st">"scphasedcn"</span>)), <span class="at">sep =</span> <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
 <span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a><span class="co"># Sample yaml shared by the extractor (`scphasedcn ... --config &lt;yaml&gt; --sample &lt;key&gt;`) and the caller</span></span>
 <span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a><span class="co"># (`call_scn.R --config &lt;yaml&gt; --sample &lt;key&gt;`). Copy it, fill in your paths, delete what you do not use.</span></span>
@@ -321,13 +322,17 @@ each bin, used by the bin filter).</p>
 </h2>
 <p><code>call_scn(dir)</code> reads three files of the directory:</p>
 <ul>
-<li>
-<code>bins_100kb.h5ad</code> (AnnData): <code>X</code> = clean
-fragments per cell (rows) x 100 kb bin (columns). <code>var</code> per
-bin: <code>chrom</code>, <code>start</code>, <code>end</code> (0-based,
-half-open), <code>gc</code>, <code>frac_blacklist</code>,
-<code>frac_trf</code>, <code>is_centromere</code>, <code>peak_bp</code>.
-<code>obs</code> per cell: the QC counts below.</li>
+<li>the bins file <code>bins_&lt;tag&gt;.h5ad</code>, by default
+<code>bins_100kb.h5ad</code> (AnnData; the extractor names it after its
+bin size, e.g. <code>bins_50kb.h5ad</code>, and the caller reads
+<code>bins_100kb.h5ad</code> when present, else the one
+<code>bins_*.h5ad</code> of the directory, <code><a href="../reference/bins_file.html">bins_file()</a></code>):
+<code>X</code> = clean fragments per cell (rows) x bin (columns).
+<code>var</code> per bin: <code>chrom</code>, <code>start</code>,
+<code>end</code> (0-based, half-open), <code>gc</code>,
+<code>frac_blacklist</code>, <code>frac_trf</code>,
+<code>is_centromere</code>, <code>peak_bp</code>. <code>obs</code> per
+cell: the QC counts below.</li>
 <li>
 <code>fragments.tsv.gz</code> + <code>.tbi</code> (bgzipped,
 tabix-indexed, one header line starting with <code>#</code>): one row
@@ -367,7 +372,7 @@ per-chromosome pieces).</p>
 <span><span class="va">sim</span> <span class="op">=</span> <span class="fu"><a href="../reference/simulate_scn.html">simulate_scn</a></span><span class="op">(</span>n_cells <span class="op">=</span> <span class="fl">40</span>, seed <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
 <span><span class="va">d</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"sim_extract"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/invisible.html" class="external-link">invisible</a></span><span class="op">(</span><span class="fu"><a href="../reference/write_sim_dataset.html">write_sim_dataset</a></span><span class="op">(</span><span class="va">sim</span>, <span class="va">d</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">b</span> <span class="op">=</span> <span class="fu"><a href="../reference/read_bins_h5ad.html">read_bins_h5ad</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">d</span>, <span class="st">"bins_100kb.h5ad"</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">b</span> <span class="op">=</span> <span class="fu"><a href="../reference/read_bins_h5ad.html">read_bins_h5ad</a></span><span class="op">(</span><span class="fu"><a href="../reference/bins_file.html">bins_file</a></span><span class="op">(</span><span class="va">d</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">b</span><span class="op">$</span><span class="va">counts</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 2100   40</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">b</span><span class="op">$</span><span class="va">bins</span><span class="op">)</span></span>
@@ -450,8 +455,11 @@ RNA clusters.</li>
 <span><span class="fu">data.table</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="va">m</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"cell_meta.tsv"</span><span class="op">)</span>, sep <span class="op">=</span> <span class="st">"\t"</span><span class="op">)</span></span></code></pre></div>
 <p>Multiplets (barcodes holding more than one nucleus) inflate calls;
 pass a per-cell multiplet probability as <code>multiplets</code> (a
-table <code>cell, prob</code>) to leave them out of the null and the
-clone discovery.</p>
+table <code>cell, prob</code>, or any form
+<code><a href="../reference/multiplet_table.html">multiplet_table()</a></code> reads) to leave them out of the null
+(prob &gt; 0.5) and, in tumour mode, of the clone discovery and the
+clone pseudobulks (prob above the <code>multiplet_prob</code> option,
+0.9 by default).</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

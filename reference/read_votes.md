@@ -1,8 +1,12 @@
 # Molecule votes per cell, atom and phase set
 
-Per chromosome: `tabix <file> <chrom> | cut -f2,3,4,7,11,13` read with
-`fread(cmd = )` (an awk filter keeps hap 1 / 2 with `ps > 0` before R
-sees the rows), or
+Per chromosome: `tabix <file> <chrom> | awk ... | cut -f2,3,4,7,11,13`
+(the awk filter keeps hap 1 / 2 with `ps > 0` before R sees the rows),
+run by `bash -c` under `set -o pipefail`
+([`system2()`](https://rdrr.io/r/base/system2.html)) into a temporary
+file that is read with
+[`data.table::fread()`](https://rdrr.io/pkg/data.table/man/fread.html),
+or
 [`read_fragments()`](https://ljwharbers.github.io/scphasedcn/reference/read_fragments.md)
 when the tabix binary or index is missing; fragments of `cells` with
 haplotype A / B and a phase set are collapsed into molecules

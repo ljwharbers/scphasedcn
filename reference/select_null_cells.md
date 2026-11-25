@@ -45,7 +45,8 @@ select_null_cells(
 
 - params:
 
-  [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md)
+  [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md);
+  a partial list is completed with the defaults
 
 - n_iter:
 
@@ -88,8 +89,8 @@ select_null_cells(
 ## Value
 
 list(null_cells, previous (the set the last iteration started from), log
-(per iteration), calls (per candidate cell: n_calls, win_guard, null),
-tpar, rho, thresholds)
+(per iteration), calls (per candidate cell: n_calls (NA: a row without a
+threshold), win_guard, null), tpar, rho, thresholds)
 
 ## Details
 
@@ -128,4 +129,11 @@ out of the null set, which costs little (6 of 4,105 cells of a normal
 thyroid sample). It sees only chromosome and arm rows, so a null cell
 can still carry a windowed call on a smaller tile. The selection's
 scores themselves stay oriented, so that they match what the parametric
-thresholds simulate.
+thresholds simulate. A class x stratum left without null rows in an
+iteration (every cell of a stratum dropped) is thresholded with its
+class over strata (parametric: the class's simulated rows; empirical:
+the class fallback of
+[`budget_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/budget_thresholds.md));
+a cell with an eligible row that still has no threshold is not assessed
+(`n_calls` NA) and is never a null cell. Rows of classes without any
+null row (named events in `classes`) are ignored.

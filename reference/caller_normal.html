@@ -111,11 +111,12 @@ events (<code><a href="consolidate_calls.html">consolidate_calls()</a></code>). 
 
 
 <dt id="arg-params">params<a class="anchor" aria-label="anchor" href="#arg-params"></a></dt>
-<dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code></p></dd>
+<dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code>; a partial list is completed with the defaults (keys it lacks take their default)</p></dd>
 
 
 <dt id="arg-cell-meta">cell_meta<a class="anchor" aria-label="anchor" href="#arg-cell-meta"></a></dt>
-<dd><p>optional table <code>cell</code> (+ <code>cell_type</code>) overriding the features' cell types</p></dd>
+<dd><p>optional table <code>cell</code> (+ <code>cell_type</code>) overriding the features' cell types; cells it gives no type
+(absent, or NA there) keep the features' cell type</p></dd>
 
 
 <dt id="arg-multiplets">multiplets<a class="anchor" aria-label="anchor" href="#arg-multiplets"></a></dt>

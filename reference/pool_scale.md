@@ -23,7 +23,7 @@ pool_scale(
   min_pools = 30,
   mad_floor = 0.1,
   tail_q = 0,
-  tail_k = 100,
+  tail_k = 30,
   n_eff = Inf
 )
 ```
@@ -54,7 +54,8 @@ pool_scale(
 
 - tail_k:
 
-  shrinkage pseudo-count of the tail factor (effective pools)
+  shrinkage pseudo-count of the tail factor (effective pools; 30,
+  `caller_defaults()$pool_tail_k`)
 
 - n_eff:
 

@@ -114,13 +114,14 @@ header unless the first line is <code>cell</code>, or with a <code>cell</code> c
 
 
 <dt id="arg-qc-args">qc_args<a class="anchor" aria-label="anchor" href="#arg-qc-args"></a></dt>
-<dd><p>named list of <code><a href="cell_qc.html">cell_qc()</a></code> arguments for <code>qc_pass</code> (e.g. <code>list(min_frag = 10000)</code>)</p></dd>
+<dd><p>named list of <code><a href="cell_qc.html">cell_qc()</a></code> arguments for <code>qc_pass</code> (e.g. <code>list(min_frag = 10000)</code>). Not applied
+(with a warning) when <code>cells_qc</code> already has a <code>qc_pass</code> column, which is then used as it is</p></dd>
 
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>data.table <code>cell</code>, <code>cell_type</code>, <code>flat</code>, <code>group</code>, plus <code>qc_pass</code> (<code><a href="cell_qc.html">cell_qc()</a></code> on <code>cells_qc</code>) when
-<code>cells_qc</code> is given</p>
+    <p>data.table <code>cell</code>, <code>cell_type</code>, <code>flat</code>, <code>group</code>, plus <code>qc_pass</code> when <code>cells_qc</code> is given (its own
+<code>qc_pass</code> column, else <code><a href="cell_qc.html">cell_qc()</a></code> on <code>cells_qc</code> with <code>qc_args</code>)</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>

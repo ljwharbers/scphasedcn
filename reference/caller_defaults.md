@@ -199,7 +199,7 @@ named list:
   [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md)
   ([`window_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.md)):
   `"auto"` (computed with chromosome-scale, i.e. hybrid, phasing), TRUE
-  (always) or FALSE (never);
+  (always) or FALSE (never); any other value stops;
 
 - `win_size` window size of that term (1e6 bp): the phase is trusted
   only inside one window x phase set;

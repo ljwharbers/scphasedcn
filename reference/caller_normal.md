@@ -58,12 +58,15 @@ caller_normal(
 
 - params:
 
-  [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md)
+  [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md);
+  a partial list is completed with the defaults (keys it lacks take
+  their default)
 
 - cell_meta:
 
   optional table `cell` (+ `cell_type`) overriding the features' cell
-  types
+  types; cells it gives no type (absent, or NA there) keep the features'
+  cell type
 
 - multiplets:
 

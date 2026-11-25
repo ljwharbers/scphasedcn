@@ -51,8 +51,10 @@ cell_features(
 
 - dir:
 
-  extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi,
-  cells_qc.tsv)
+  extraction directory (bins file `bins_<tag>.h5ad`, by default
+  `bins_100kb.h5ad`:
+  [`bins_file()`](https://ljwharbers.github.io/scphasedcn/reference/bins_file.md);
+  fragments.tsv.gz + .tbi, cells_qc.tsv)
 
 - cells:
 

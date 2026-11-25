@@ -1,6 +1,8 @@
-# Read `bins_100kb.h5ad` into an scn object (missing layers tolerated)
+# Read a bins file (`bins_<tag>.h5ad`, by default `bins_100kb.h5ad`; [`bins_file()`](https://ljwharbers.github.io/scphasedcn/reference/bins_file.md)) into an scn object (missing layers tolerated)
 
-Read `bins_100kb.h5ad` into an scn object (missing layers tolerated)
+Read a bins file (`bins_<tag>.h5ad`, by default `bins_100kb.h5ad`;
+[`bins_file()`](https://ljwharbers.github.io/scphasedcn/reference/bins_file.md))
+into an scn object (missing layers tolerated)
 
 ## Usage
 

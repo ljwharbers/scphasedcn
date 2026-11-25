@@ -1,6 +1,7 @@
 # Order chromosome names naturally (chr1..chr22, chrX, chrY, chrM, others)
 
-Order chromosome names naturally (chr1..chr22, chrX, chrY, chrM, others)
+Other names (e.g. unplaced contigs) come last, in C-locale (byte) order
+whatever the session's collation.
 
 ## Usage
 

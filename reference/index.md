@@ -48,6 +48,9 @@
 - [`bin_filter()`](https://ljwharbers.github.io/scphasedcn/reference/bin_filter.md)
   : Usable-bin flag
 
+- [`bins_file()`](https://ljwharbers.github.io/scphasedcn/reference/bins_file.md)
+  : The bins file of an extraction directory
+
 - [`budget_threshold()`](https://ljwharbers.github.io/scphasedcn/reference/budget_threshold.md)
   : Threshold at a false-call budget from null scores
 
@@ -333,7 +336,9 @@
 - [`read_bins_h5ad()`](https://ljwharbers.github.io/scphasedcn/reference/read_bins_h5ad.md)
   :
 
-  Read `bins_100kb.h5ad` into an scn object (missing layers tolerated)
+  Read a bins file (`bins_<tag>.h5ad`, by default `bins_100kb.h5ad`;
+  [`bins_file()`](https://ljwharbers.github.io/scphasedcn/reference/bins_file.md))
+  into an scn object (missing layers tolerated)
 
 - [`read_cells_qc()`](https://ljwharbers.github.io/scphasedcn/reference/read_cells_qc.md)
   :
@@ -489,7 +494,8 @@
 - [`write_bins_h5ad()`](https://ljwharbers.github.io/scphasedcn/reference/write_bins_h5ad.md)
   :
 
-  Write an scn object as `bins_100kb.h5ad` (anndata layout, gzip only)
+  Write an scn object as a bins file (`bins_<tag>.h5ad`, anndata layout,
+  gzip only)
 
 - [`write_fragments()`](https://ljwharbers.github.io/scphasedcn/reference/write_fragments.md)
   : Write a fragments table as bgzipped TSV with a tabix index

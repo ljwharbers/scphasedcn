@@ -9,16 +9,23 @@ the piece midpoint, as `piece_states()`) and keeps the pieces covered by
 every kept clone (gaps of any clone, e.g. missing windows or a
 clone-specific chromosome start, are dropped). Pieces shorter than
 `min_len` are then absorbed into an adjacent piece of the same
-chromosome (gap \<= `max_gap`): the neighbour whose states differ in the
-fewest clones, the longer one on ties; the neighbour keeps its states
-and extends over the short piece. A short piece without an eligible
-neighbour is dropped. Adjacent pieces with identical states are not
-merged here: merging needs the common haplotype orientation and is done
-by
+chromosome (gap \<= `max_gap`, by default 0: only a neighbour that
+touches it): the neighbour whose states differ in the fewest clones, the
+longer one on ties; the neighbour keeps its states and extends over the
+short piece. A short piece without an eligible neighbour is dropped. A
+neighbour across a gap (a dropped range, see `pieces_dropped`, or a
+range without any segment) is not eligible by default: the absorbing
+piece would extend over the gap and claim states where not every clone
+has one. Adjacent pieces with identical states are not merged here:
+merging needs the common haplotype orientation and is done by
 [`medicc2_table()`](https://ljwharbers.github.io/scphasedcn/reference/medicc2_table.md).
 Segments labelled `imbalance` (allelic imbalance without depth support,
-`segment_clone(gain_support = )`) enter as 1:1: MEDICC2 sees no extra
-copy where the clone's depth does not show one.
+`segment_clone(gain_support = )`) enter as the least imbalanced
+copy-neutral state at the clone's integer baseline nb (`clones$baseline`
+rounded; 2 without it): `ceiling(nb / 2):floor(nb / 2)` with the major
+haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2 at
+4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does
+not show one.
 
 ## Usage
 
@@ -27,7 +34,7 @@ medicc2_pieces(
   segments,
   clones = NULL,
   min_len = 1e+06,
-  max_gap = Inf,
+  max_gap = 0,
   min_assigned = 1,
   chroms = paste0("chr", c(1:22, "X")),
   normal = "N0"
@@ -43,8 +50,8 @@ medicc2_pieces(
 
 - clones:
 
-  clones table (`clone`, `doublet`, `n_assigned`); NULL keeps every
-  clone of `segments`
+  clones table (`clone`, `doublet`, `n_assigned`, `baseline` optional);
+  NULL keeps every clone of `segments`
 
 - min_len:
 
@@ -53,7 +60,8 @@ medicc2_pieces(
 - max_gap:
 
   maximal gap (bp) between a short piece and the neighbour it is
-  absorbed into
+  absorbed into (default 0: contiguous neighbours only; a larger value
+  lets the absorbing piece extend over the gap, i.e. claim states there)
 
 - min_assigned:
 

@@ -1,7 +1,8 @@
 # Sample entry of a sample yaml (with its extraction directory)
 
 The extraction directory is the sample's `extract_dir`, else
-`<outputs.root>/<sample>/extract` (where `scphasedcn run` writes it).
+`<outputs.root>/<sample>/extract` (where `scphasedcn run` writes it);
+NULL when the yaml gives neither.
 
 ## Usage
 
@@ -22,4 +23,5 @@ cli_sample(cfg, sample)
 
 ## Value
 
-list with the sample fields plus `name`, `dir` (extraction output dir)
+list with the sample fields plus `name`, `dir` (extraction output dir,
+or NULL)

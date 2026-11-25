@@ -136,7 +136,8 @@ null pools compared with the class (0 = off; e.g. 0.99);</p></li>
 <li><p><code>pool_tail_xfit</code> cross-fit the pooled tail (<code><a href="pooled_thresholds.html">pooled_thresholds()</a></code>): the region scale and the
 threshold are estimated on pools of two disjoint halves of the null cells (TRUE);</p></li>
 <li><p><code>win_allelic</code> windowed, orientation-free allele term of <code><a href="cell_features.html">cell_features()</a></code> (<code><a href="window_allelic_features.html">window_allelic_features()</a></code>):
-<code>"auto"</code> (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never);</p></li>
+<code>"auto"</code> (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never); any other value
+stops;</p></li>
 <li><p><code>win_size</code> window size of that term (1e6 bp): the phase is trusted only inside one window x phase set;</p></li>
 <li><p><code>win_f</code> fractions of the windowed term in addition to <code>1 - eps</code> (the loss / CN-LOH rows, always included); 0.98
 by default (= <code>1 - eps</code>); gain fractions are not specific at window level (<code><a href="win_f_grid.html">win_f_grid()</a></code>);</p></li>

@@ -24,7 +24,8 @@ scn_embedding(
 
 - dir:
 
-  extraction directory (bins_100kb.h5ad)
+  extraction directory (the bins file `bins_<tag>.h5ad`, by default
+  `bins_100kb.h5ad`)
 
 - cells:
 

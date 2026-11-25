@@ -60,10 +60,20 @@ caller_tumour(
 
 - multiplets:
 
-  optional data.table cell, prob
-  ([`multiplet_table()`](https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.md));
-  cells above `opts$multiplet_prob` are excluded from discovery and
-  pseudobulks but assigned and flagged
+  optional multiplet flags in any form of
+  [`multiplet_table()`](https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.md)
+  (a vector or file of cells, a table with `prob`, or with a logical
+  `multiplet` / `clean_singlet` column). Each cell's probability
+  (clipped to \[0, 1\]) raises its prior of the mixture (doublet)
+  hypotheses of the assignment (capped at `opts$max_mix_prior`); cells
+  above `opts$multiplet_prob` (default 0.9) are excluded from discovery
+  and the pseudobulks but assigned and flagged (`multiplet` in the
+  assignments). When `feat` carries no input null, the cells with prob
+  \> 0.5 are also left out of the input null fit
+  ([`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md)
+  `exclude`), as
+  [`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md)
+  does
 
 - control_regions:
 
@@ -83,7 +93,15 @@ caller_tumour(
 ## Value
 
 `scphasedcn` (mode tumour) with clones, assignments, segments, profiles,
-calls (plus `extra`: intermediate results in `null_fit$clones`)
+calls (plus `extra`: intermediate results in `null_fit$clones`).
+`clones` has one row per clone and one row per doublet clone of the
+final clone ids (`doublet` TRUE: flagged by an EM round since the clone
+ids were last numbered, and dissolved, so it has no segments, profiles
+or assigned cells); every clone id in it is unique. Every doublet flag
+of the run, with the round, the clone id at that time, the best pair,
+its members and its id set (`ids`: `global`, `trunk` or `split`), is in
+`null_fit$clones$doublet_log`; `null_fit$clones$doublet_clones` holds
+the ids of the `clones` rows
 
 ## Details
 
@@ -96,5 +114,7 @@ matrices, or a long table cell, chrom, start, end, x, e) and `null_fit`
 [`fit_depth_null()`](https://ljwharbers.github.io/scphasedcn/reference/fit_depth_null.md)
 table and `rho`; without it, or without its `rho`, the input null is
 [`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md)
-of the features, as in
-[`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md)).
+of the features with `params` and without the cells whose multiplet prob
+is above 0.5, as in
+[`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md);
+its note, and any caution, is the first run note).

@@ -78,7 +78,7 @@ medians; MADs are floored at <code>mad_floor</code> x the class median MAD.</p>
 <span>  min_pools <span class="op">=</span> <span class="fl">30</span>,</span>
 <span>  mad_floor <span class="op">=</span> <span class="fl">0.1</span>,</span>
 <span>  tail_q <span class="op">=</span> <span class="fl">0</span>,</span>
-<span>  tail_k <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>  tail_k <span class="op">=</span> <span class="fl">30</span>,</span>
 <span>  n_eff <span class="op">=</span> <span class="cn">Inf</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -108,7 +108,7 @@ medians; MADs are floored at <code>mad_floor</code> x the class median MAD.</p>
 
 
 <dt id="arg-tail-k">tail_k<a class="anchor" aria-label="anchor" href="#arg-tail-k"></a></dt>
-<dd><p>shrinkage pseudo-count of the tail factor (effective pools)</p></dd>
+<dd><p>shrinkage pseudo-count of the tail factor (effective pools; 30, <code>caller_defaults()$pool_tail_k</code>)</p></dd>
 
 
 <dt id="arg-n-eff">n_eff<a class="anchor" aria-label="anchor" href="#arg-n-eff"></a></dt>

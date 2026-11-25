@@ -1,6 +1,7 @@
-# Write an scn object as `bins_100kb.h5ad` (anndata layout, gzip only)
+# Write an scn object as a bins file (`bins_<tag>.h5ad`, anndata layout, gzip only)
 
-Write an scn object as `bins_100kb.h5ad` (anndata layout, gzip only)
+Write an scn object as a bins file (`bins_<tag>.h5ad`, anndata layout,
+gzip only)
 
 ## Usage
 

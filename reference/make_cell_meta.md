@@ -73,13 +73,16 @@ make_cell_meta(
 
   named list of
   [`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md)
-  arguments for `qc_pass` (e.g. `list(min_frag = 10000)`)
+  arguments for `qc_pass` (e.g. `list(min_frag = 10000)`). Not applied
+  (with a warning) when `cells_qc` already has a `qc_pass` column, which
+  is then used as it is
 
 ## Value
 
-data.table `cell`, `cell_type`, `flat`, `group`, plus `qc_pass`
-([`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md)
-on `cells_qc`) when `cells_qc` is given
+data.table `cell`, `cell_type`, `flat`, `group`, plus `qc_pass` when
+`cells_qc` is given (its own `qc_pass` column, else
+[`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md)
+on `cells_qc` with `qc_args`)
 
 ## Details
 

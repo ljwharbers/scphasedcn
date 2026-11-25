@@ -46,11 +46,12 @@ null_region, eligible optional; chrom optional, else parsed from the region name
 \item{chroms}{chromosomes whose rows are scored (default autosomes chr1-chr22); NULL = all}
 }
 \value{
-list(null_cells, log (per iteration), calls (per candidate cell: n_calls, null), tpar, rho, thresholds)
+list(null_cells, log (per iteration), calls (per candidate cell: n_calls, win_guard, null), tpar, rho,
+thresholds)
 }
 \description{
 Starts from all cells of \code{feat_long} minus \code{exclude} (e.g. multiplet-flagged
-barcodes). Each iteration fits the depth t null per class x stratum and the
+barcodes) and minus the cells of the windowed guard (see Details). Each iteration fits the depth t null per class x stratum and the
 allelic rho on the null rows of the current set, scores every candidate
 cell on the \code{classes} regions (chromosomes and arms) with \code{s_comb},
 thresholds at the selection quantile \code{q} and keeps the cells with at most
@@ -74,4 +75,14 @@ Only rows on \code{chroms} (default the autosomes) are scored: chrX in females
 carries X-inactivation driven allelic imbalance and male chrX / chrY are
 depth-only, so a chrX call says little about whether a cell's autosomes are
 a clean null.
+
+Guard (cells never in the set, whatever their calls): with window columns in \code{feat_long}
+(\code{\link[=window_allelic_features]{window_allelic_features()}}) and \code{params$null_win_guard} (default TRUE), cells with a scored row (\code{classes}, i.e.
+chromosome and arm rows on \code{chroms}) whose largest windowed allele LLR over the fraction grid exceeds
+\verb{log(1 / (1 - q)) + log(#fractions)} (about 9.2 at the default \code{q}; under the null model \code{P(W > t) <= exp(-t)},
+Bonferroni over the fractions): an allelic imbalance private to the cell, which the oriented scores can miss.
+The bound is per row, without a correction over the about 60 scored rows of a cell: the guard errs towards leaving a
+cell out of the null set, which costs little (6 of 4,105 cells of a normal thyroid sample). It sees only chromosome
+and arm rows, so a null cell can still carry a windowed call on a smaller tile. The selection's scores themselves
+stay oriented, so that they match what the parametric thresholds simulate.
 }

@@ -1031,6 +1031,16 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
               group = rep_c(meta$group), fold = rep_c(meta$fold), null_cell = rep_c(meta$flat),
               null_region = rep_r(regions$null_region), eligible = rep_r(regions$eligible),
               allelic_ok = rep_r(regions$allelic_ok))]
+  # windowed, orientation-free allele term (window_allelic_features()): chromosome-scale phasing only by default
+  wa_info = NULL
+  if (win_allelic_on(params, orientation)) {
+    wa = window_allelic_features(votes, atoms, ra, params = params, exclude_atoms = exclude_atoms)
+    add_window_columns(long, wa, keep)
+    wa_info = list(rho = attr(wa, "rho"), f_grid = attr(wa, "f_grid"), windows = attr(wa, "windows"),
+                   note = win_allelic_note(wa, params))
+    note(wa_info$note)
+  } else note(sprintf("windowed allele term: not computed (win_allelic %s, orientation %s)",
+                      format(params$win_allelic %||% "auto"), orientation))
   setkeyv(long, c("cell", "region"))
   note(sprintf("long: %d rows (%d cells x %d regions); %.1f min", nrow(long), nc, nr,
                as.numeric(difftime(Sys.time(), t0, units = "mins"))))
@@ -1038,7 +1048,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   check_regions(regions); check_atoms(atoms); check_votes(votes); check_features(long)
   structure(list(long = long, regions = regions, cells = cells_out, votes = if (keep_votes) votes else NULL, atoms = atoms,
                  win = win, params = params, notes = notes, use = use, phasing = c(detected = detected, orientation = orientation),
-                 phasing_chrom = pbc),
+                 phasing_chrom = pbc, win_allelic = wa_info),
             class = "scn_features")
 }
 
@@ -1070,6 +1080,14 @@ update_allelic_features = function(features, exclude_atoms, groups = NULL, param
   long[, n_hap := nA + nB]
   long[, n_blocks := pick(al$n_blocks, n_blocks)]
   long[, f := fifelse(aok, fifelse(is.na(k) | n_hap <= 0, NA_real_, as.numeric(al$f[k])), f)]
+  # the windowed allele term, when the features carry it, without the same atoms
+  if (any(grepl("^wal_f[0-9]+$", names(long)))) {
+    wa = window_allelic_features(features$votes, features$atoms, ra, params = params, exclude_atoms = exclude_atoms)
+    drop_window_columns(long)
+    add_window_columns(long, wa, cells)
+    features$win_allelic = list(rho = attr(wa, "rho"), f_grid = attr(wa, "f_grid"), windows = attr(wa, "windows"),
+                                note = win_allelic_note(wa, params))
+  }
   setkeyv(long, c("cell", "region"))
   features$long = long
   features$notes = c(features$notes, sprintf("allele features re-aggregated without %d masked atoms", length(exclude_atoms)))

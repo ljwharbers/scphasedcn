@@ -22,7 +22,8 @@ named character vector of the written paths, invisibly
 Flat tables: \code{cells.tsv} (cell, qc, stratum, fold, null_cell, n_calls, n_events, clone / posterior /
 doublet_like / ref_pool when present), \code{calls.tsv} (cell- and clone-level calls: called rows in normal mode,
 all inherited / confirmed rows in tumour mode), \code{pooled_calls.tsv} (called pool rows), \code{events.tsv},
-\code{thresholds.tsv}, \code{null_fit.tsv} (depth t rows + rho), \code{false_calls.tsv} + \code{false_events.tsv} (normal mode),
+\code{thresholds.tsv}, \code{null_fit.tsv} (depth t rows + rho), \code{false_calls.tsv} + \code{false_events.tsv} + \code{expected_false.tsv}
+(normal mode; \code{\link[=event_fdr]{event_fdr()}}), \code{null_selection_check.tsv} (normal mode with \code{call_scn(null_check = TRUE)}),
 tumour mode: \code{clones.tsv}, \code{assignments.tsv}, \code{clone_segments.tsv}, \code{clone_profiles.tsv.gz},
 \code{reference_pool.txt}; \code{regions.tsv}; \code{result.rds} (the object without scores and features), \code{params.yaml},
 \code{summary.tsv} (\code{\link[=scphasedcn_summary]{scphasedcn_summary()}}) and \code{NOTES.md}. Optional: \code{scores.tsv.gz}, \code{features.tsv.gz}.

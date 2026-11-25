@@ -20,6 +20,7 @@ call_scn(
   embedding = TRUE,
   verbose = TRUE,
   keep_scores = TRUE,
+  null_check = FALSE,
   caller_args = list(),
   phasing = "auto",
   ...
@@ -74,6 +75,9 @@ or a cells x components matrix with cell row names}
 
 \item{keep_scores}{keep the per cell x region scores in the result (normal mode; large)}
 
+\item{null_check}{normal mode: also run the selection-free check of the per-cell null (\code{\link[=null_selection_check]{null_selection_check()}};
+about doubles the scoring time), stored as \code{null_check} and written as \code{null_selection_check.tsv}}
+
 \item{caller_args}{extra arguments for \code{\link[=caller_normal]{caller_normal()}} / \code{caller_tumour()} (e.g. \code{n_draws}, \code{opts}); they take
 precedence over \code{params$normal} / \code{params$tumour} (tumour: \code{opts} merged key by key)}
 
@@ -92,7 +96,10 @@ chromosome-scale phasing (read-based blocks, oriented per clone, are preferable 
 \code{scphasedcn} with \code{features} (the long table), \code{feature_info} (path, cells, phasing, phasing_chrom (the
 per-chromosome phasing regimes, \code{\link[=phasing_by_chrom]{phasing_by_chrom()}}), notes), \code{scores}
 (normal, \code{keep_scores}), \code{thresholds}, \code{calls}, \code{events}, \code{pools}, \code{null_fit}, \code{false_calls} (normal:
-\code{\link[=null_false_calls]{null_false_calls()}}), \code{embedding}, clone components (tumour), \code{params} (the caller parameters plus the
+\code{\link[=null_false_calls]{null_false_calls()}}), normal mode: \code{p}, \code{q}, \code{null_borrowed} on the per-cell calls and \code{null_cell}, \code{p}, \code{q},
+\code{null_borrowed} on the events (\code{\link[=event_fdr]{event_fdr()}}; \code{q} is descriptive: not a false discovery rate, not a filter),
+\code{expected_false} (expected false calls / events per class x state, \code{\link[=event_fdr]{event_fdr()}}), \code{null_check} (\code{\link[=null_selection_check]{null_selection_check()}}, with \code{null_check = TRUE}), \code{embedding}, clone
+components (tumour), \code{params} (the caller parameters plus the
 arguments used: \code{normal} = every \code{\link[=caller_normal]{caller_normal()}} argument of the run, \code{tumour} = the full tumour options) and
 \code{notes} (run time, host, inputs, git revision)
 }

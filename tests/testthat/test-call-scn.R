@@ -155,6 +155,17 @@ test_that("call_scn runs end to end on sim_norm_f (normal mode) in under 2 minut
   expect_true("all" %in% res$false_calls$stratum)
   expect_equal(res$false_events$state, c("any", "loss", "gain", "cnloh"))
   expect_true(any(grepl("^call_scn normal", res$notes)))
+  # false-event accounting (event_fdr): p / q on the tested cell rows, null_cell / q on the events, expected false
+  expect_true(all(c("p", "q", "null_borrowed") %in% names(res$calls)))
+  expect_true(all(is.na(res$calls[level == "pool", q])))
+  expect_true(all(c("null_cell", "p", "q", "null_borrowed") %in% names(res$events)))
+  ce = res$events[level == "cell"]
+  expect_false(anyNA(ce$q))
+  expect_equal(ce$null_cell, ce$cell %in% res$cells[null_cell == TRUE, cell])
+  expect_true(all(ce[chrom == "chrX", null_borrowed]))
+  expect_true(all(c("class", "state", "chrom_group", "expected_false_calls", "expected_false_events") %in% names(res$expected_false)))
+  expect_equal(sum(res$expected_false$n_events), nrow(ce))
+  expect_null(res$null_check)
 })
 
 test_that("write_scphasedcn writes every file, read_scphasedcn round-trips, scphasedcn_summary has the headline rows", {
@@ -163,7 +174,7 @@ test_that("write_scphasedcn writes every file, read_scphasedcn round-trips, scph
   unlink(out, recursive = TRUE)
   files = write_scphasedcn(res, out, write_scores = TRUE)
   want = c("cells.tsv", "calls.tsv", "pooled_calls.tsv", "events.tsv", "thresholds.tsv", "null_fit.tsv", "false_calls.tsv",
-           "false_events.tsv", "regions.tsv", "summary.tsv", "result.rds", "params.yaml", "NOTES.md", "scores.tsv.gz")
+           "false_events.tsv", "expected_false.tsv", "regions.tsv", "summary.tsv", "result.rds", "params.yaml", "NOTES.md", "scores.tsv.gz")
   expect_true(all(file.exists(file.path(out, want))))
   expect_setequal(names(files), want)
   ct = fread(file.path(out, "cells.tsv"))
@@ -214,6 +225,19 @@ test_that("write_scphasedcn writes every file, read_scphasedcn round-trips, scph
   expect_equal(sm[section == "calls", sum(value)], res$calls[called == TRUE, .N])
   expect_equal(sm[item == "arm_calls_per_null_cell|any", value], res$false_events[state == "any", arm_calls_per_cell])
   expect_true(all(c("pooled_calls|type", "pooled_calls|knn") %in% sm$item))
+  # the false-event headline rows
+  expect_true(all(c("cell_events_in_null_cells", "expected_false_cell_events", "expected_false_cell_event_fraction",
+                    "cell_events_q_below_0.05", "empirical_p_floor") %in% sm[section == "events", item]))
+  expect_equal(sm[item == "expected_false_cell_events", value], sum(res$expected_false$expected_false_events))
+  expect_equal(sm[item == "cell_events_in_null_cells", value], res$events[level == "cell", sum(null_cell)])
+  # the q count is of events at a row-level q, and its note says so
+  expect_equal(sm[item == "cell_events_q_below_0.05", value], res$events[level == "cell", sum(q < 0.05, na.rm = TRUE)])
+  expect_match(sm[item == "cell_events_q_below_0.05", note], "descriptive only: not a false discovery rate and not a filter", fixed = TRUE)
+  expect_equal(sm[item == "expected_false_reportable_cell_calls", section], "calls")
+  ef = fread(file.path(out, "expected_false.tsv"))
+  expect_equal(nrow(ef), nrow(res$expected_false))
+  expect_true(all(c("null_cell", "q") %in% names(fread(file.path(out, "events.tsv")))))
+  expect_false(file.exists(file.path(out, "null_selection_check.tsv")))
 })
 
 test_that("call_scn takes precomputed features, explicit null cells and multiplets", {
@@ -238,6 +262,139 @@ test_that("call_scn takes precomputed features, explicit null cells and multiple
   expect_false(r3$params$normal$pool_loo)
   expect_true(any(grepl("called on s_comb", r3$notes)))
   expect_null(r3$params$tumour)
+})
+
+test_that("call_scn with mask_f0 runs the bias mask pass and records it; depth is untouched", {
+  res = norm_result()
+  expect_null(res$null_fit$allelic_mask)                                  # default: no mask pass
+  r = call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE,
+               params = modifyList(caller_defaults(), list(mask_f0 = TRUE)))
+  am = r$null_fit$allelic_mask
+  expect_true(all(c("f0", "d0", "z_f0", "masked_rho", "masked_f0") %in% names(am)))
+  expect_identical(am$masked, am$masked_f0)                               # mask_allelic off: the bias rule alone
+  expect_true(all(am$chrom %in% AUTOSOMES_CALLER))
+  expect_true(any(grepl("allelic mask: .*bias rule .*: \\d+", r$notes)))
+  # sim_norm_f has no shared allelic bias: nothing is masked at the default thresholds and the calls are those of
+  # the default run
+  expect_equal(sum(am$masked), 0)
+  expect_identical(r$features$z, res$features$z)
+  expect_identical(r$calls, res$calls)
+  # both rules on, the bias rule forced to fire (thresholds below the simulation's noise): the union is masked,
+  # the run notes give the count per rule, the allele votes of the masked tiles are gone, depth is untouched and
+  # the truth checks of the default run still hold
+  prm = modifyList(caller_defaults(), list(mask_allelic = TRUE, mask_f0 = TRUE, mask_f0_mad = 1.5, mask_f0_min = 0.005))
+  r2 = call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE,
+                params = prm)
+  am2 = r2$null_fit$allelic_mask
+  expect_gt(sum(am2$masked_f0), 0)
+  expect_identical(am2$masked, am2$masked_rho | am2$masked_f0)
+  nt = regmatches(r2$notes, regexpr("overdispersion rule [^;]*: \\d+; bias rule [^;]*: \\d+", r2$notes))
+  expect_length(nt, 1)
+  expect_equal(as.integer(regmatches(nt, gregexpr("\\d+(?=$|;)", nt, perl = TRUE))[[1]]), c(sum(am2$masked_rho), sum(am2$masked_f0)))
+  mt = am2[masked == TRUE, tile]
+  expect_true(all(r2$features[region %in% mt, n_hap] == 0))
+  expect_gt(res$features[region %in% mt, sum(n_hap)], 0)
+  expect_identical(r2$features$z, res$features$z)
+  tr = sim_norm_f$truth
+  cells = sim_norm_f$scn$cells$cell
+  car = lapply(tr$carriers, function(n) unique(cells[tr$nuclei$cell[n]]))
+  cl = r2$calls[level == "cell" & called & reportable]
+  for (k in list(list("chr1p", "loss", 1), list("chr8", "gain", 2), list("chr21", "gain", 4))) {
+    got = unique(cl[region == k[[1]] & state == k[[2]], cell])
+    expect_true(all(got %in% car[[k[[3]]]]), info = k[[1]])
+    expect_gte(length(intersect(got, car[[k[[3]]]])) / length(car[[k[[3]]]]), 0.7)
+  }
+  # the reportable cell calls on chromosomes without a masked tile are those of the default run (here 5 tiles of
+  # chr1, chr2 and chr22 are masked; the 56 calls elsewhere are unchanged)
+  key = function(x) x[level == "cell" & called & reportable & !chrom %in% am2[masked == TRUE, chrom], paste(cell, region, state)]
+  expect_gt(length(key(res$calls)), 0)
+  expect_setequal(key(r2$calls), key(res$calls))
+})
+
+test_that("call_scn does not apply the bias rule (mask_f0) under mirrored orientation: noted, warned, results unchanged", {
+  cen = cs_centromeres(sim_norm_f$scn$bins)
+  f = suppressWarnings(cell_features(sim_dir("sim_norm_f"), sex = "female", centromeres = cen, phasing = "mirrored"))
+  expect_identical(features_orientation(f), "mirrored")
+  # thresholds at zero: under mirrored orientation about half the tiles would be bias outliers if the rule ran
+  prm = modifyList(caller_defaults(), list(mask_f0 = TRUE, mask_f0_mad = 0, mask_f0_min = 0))
+  # every normal-mode run on mirrored features also warns that this orientation is a diagnostic; collect the warnings
+  run = function(p) call_w(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE)
+  x1 = run(prm); r1 = x1$r
+  expect_length(grep("mask_f0.*mirrored", x1$w), 1L)
+  x0 = run(caller_defaults()); r0 = x0$r
+  expect_false(any(grepl("mask_f0", x0$w)))
+  expect_null(r1$null_fit$allelic_mask)                                   # no tile masked, no mask pass
+  expect_equal(sum(grepl("bias rule \\(mask_f0\\) not applied: under mirrored orientation", r1$notes)), 1)
+  expect_false(any(grepl("mask_f0", r0$notes)))
+  for (k in c("features", "scores", "thresholds", "calls", "events", "pools", "null_fit", "false_calls", "false_events"))
+    expect_identical(r1[[k]], r0[[k]], info = k)
+  # the overdispersion rule still runs under mirrored orientation; the bias rule is not part of it
+  x2 = run(modifyList(prm, list(mask_allelic = TRUE))); r2 = x2$r
+  expect_equal(sum(grepl("mask_f0", x2$w)), 1)                             # warned once
+  expect_identical(r2$null_fit$allelic_mask$masked, r2$null_fit$allelic_mask$masked_rho)
+  # the orientation of a features object without `phasing`: from its long table
+  expect_identical(features_orientation(list(long = f$long)), "mirrored")
+  l2 = copy(f$long)[allelic_ok %in% TRUE, orient := "pseudobulk"]
+  expect_true(is.na(features_orientation(list(long = l2))))
+})
+
+test_that("call_scn with both allelic masks on a run without any allele votes: nothing masked, depth-only with one warning", {
+  # an unphased extraction: no molecule vote and nA = nB = n_hap = 0 on every row; caller_normal warns and runs
+  # depth-only, and the mask pass (mask_allelic, mask_f0) has no tile to assess
+  f = suppressWarnings(cell_features(sim_dir("sim_norm_f"), sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins)))
+  f$long[, `:=`(nA = 0, nB = 0, n_hap = 0)]
+  if ("f" %in% names(f$long)) f$long[, f := NA_real_]
+  f$votes = f$votes[0]
+  run = function(p) {
+    ws = character()
+    r = withCallingHandlers(call_scn(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE),
+                            warning = function(w) { ws <<- c(ws, conditionMessage(w)); invokeRestart("muffleWarning") })
+    list(r = r, ws = ws)
+  }
+  x = run(modifyList(caller_defaults(), list(mask_allelic = TRUE, mask_f0 = TRUE)))
+  x0 = run(caller_defaults())
+  expect_length(grep("no allele votes", x$ws), 1)
+  expect_false(any(grepl("mask", x$ws)))
+  am = x$r$null_fit$allelic_mask
+  expect_gt(nrow(am), 0)
+  expect_false(any(am$assessed))
+  expect_false(any(am$masked))
+  expect_true(any(grepl("allelic mask: 0 of 0 assessed 5 Mb tiles masked", x$r$notes)))
+  expect_true(any(grepl("no allele votes", x$r$notes)))
+  expect_gt(nrow(x$r$calls), 0)
+  expect_identical(x$r$calls, x0$r$calls)
+})
+
+test_that("call_scn(null_check = TRUE) adds the selection check and changes no call, event, threshold or cell", {
+  res = norm_result()
+  fe = list(long = copy(res$features), regions = res$regions, cells = res$feature_info$cells, use = res$feature_info$use,
+            phasing = res$feature_info$phasing, notes = character())
+  nulls = res$cells[null_cell == TRUE, cell]
+  ra = call_scn(sim_dir("sim_norm_f"), "normal", features = fe, null_cells = nulls, embedding = FALSE, verbose = FALSE)
+  # no warning: a class without null rows on one half has no threshold in that half's pass by design
+  expect_no_warning({
+    rb = call_scn(sim_dir("sim_norm_f"), "normal", features = fe, null_cells = nulls, embedding = FALSE, verbose = FALSE,
+                  null_check = TRUE)
+  })
+  for (k in c("calls", "events", "thresholds", "cells", "expected_false", "false_calls")) expect_equal(rb[[k]], ra[[k]], info = k)
+  nc = rb$null_check
+  expect_true(all(c("class", "stratum", "per_1000", "lo_per_1000", "hi_per_1000", "insample_per_1000", "cv_per_1000") %in% names(nc)))
+  expect_equal(nrow(attr(nc, "halves")), 2)
+  expect_equal(nc[class == "arm" & stratum == "all", cv_per_1000], rb$false_calls[class == "arm" & stratum == "all", per_1000])
+  expect_true(any(grepl("^null selection check", rb$notes)))
+  # the pre-existing columns equal a plain caller_normal() run on the same inputs (event_fdr only adds columns)
+  long = copy(fe$long)[, null_cell := cell %in% nulls]
+  direct = caller_normal(long, params = caller_defaults(), regions = fe$regions, null_cells = "features")
+  expect_equal(rb$calls[, names(direct$calls), with = FALSE], direct$calls)
+  expect_equal(rb$events[, names(direct$events), with = FALSE], direct$events)
+  expect_equal(rb$thresholds, direct$thresholds)
+  expect_equal(rb$cells[, names(direct$cells), with = FALSE], direct$cells)
+  out = file.path(tempdir(), "callscn_nullcheck")
+  unlink(out, recursive = TRUE)
+  write_scphasedcn(rb, out)
+  expect_equal(nrow(fread(file.path(out, "null_selection_check.tsv"))), nrow(nc))
+  sm = scphasedcn_summary(rb)
+  expect_true(all(paste0(nc[stratum == "all", class], "|per_1000") %in% sm[section == "null_check", item]))
 })
 
 test_that("normal mode warns on block-only phasing (loo orientation), not on chromosome-wide phasing", {
@@ -464,6 +621,7 @@ test_that("inst/scripts/call_scn.R --help exits 0 without data", {
   expect_null(attr(out, "status"))
   expect_true(any(grepl("--sample", out)))
   expect_true(any(grepl("--null-cells", out)))
+  expect_true(any(grepl("--null-check", out)))
   expect_true(any(grepl("--phasing", out)))
 })
 
@@ -639,11 +797,14 @@ test_that("write_scphasedcn clears the files of a previous result and nothing el
   res = call_scn(tempdir(), "normal", features = fe, embedding = FALSE, verbose = FALSE, caller_args = list(n_draws = 500))
   out = file.path(tempdir(), "write_clear")
   unlink(out, recursive = TRUE); dir.create(out)
-  stale = c("clones.tsv", "assignments.tsv", "scores.tsv.gz", "reference_pool.txt")
+  # null_selection_check.tsv: of an earlier run with null_check = TRUE; this result has no null check
+  stale = c("clones.tsv", "assignments.tsv", "scores.tsv.gz", "reference_pool.txt", "null_selection_check.tsv")
   for (f in c(stale, "my_notes.txt")) writeLines("old", file.path(out, f))
   dir.create(file.path(out, "plots"))
+  expect_null(res$null_check)
   files = write_scphasedcn(res, out)
   expect_false(any(file.exists(file.path(out, stale))))
+  expect_true("expected_false.tsv" %in% basename(files))
   expect_true(file.exists(file.path(out, "my_notes.txt")))                 # not ours: kept
   expect_true(dir.exists(file.path(out, "plots")))
   expect_setequal(list.files(out), c(basename(files), "my_notes.txt", "plots"))

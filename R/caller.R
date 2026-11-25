@@ -107,6 +107,12 @@ allelic_classes = function(ns) {
 #'   orientation); `"one"` = `f` on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
 #'   clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
 #'   every allelic row, including the per-row columns of `keep_rows`
+#' @param window windowed allele term ([window_allelic_features()], columns `wal_f<fff>` of `d`): `"none"` (default)
+#'   = the oriented term only; `"max"` = per allelic row the better of the oriented LLR and the windowed LLR `W(f)` at
+#'   the row's f, where `W(f)` exceeds `params$win_min` (below it the row keeps the oriented term, so that null-level
+#'   window values do not enter the scores and thresholds); `"only"` = `W(f)` alone. Rows whose window column is NA, and rows of fractions without a column,
+#'   keep the oriented term. The per-row columns of `keep_rows` (`ar_<row_id>`, used by the pooled scores) stay
+#'   oriented. Ignored with `sided = "one"`
 #' @return copy of `d` with `dl_<state>`, `al_<state>`, `cl_<state>` per
 #'   non-neutral state, `s_comb` (best combined LLR), `state_comb` (argmax,
 #'   ties to the first state in table order), `s_depth` (|z|), `state_depth`
@@ -114,9 +120,12 @@ allelic_classes = function(ns) {
 #'   class, e.g. `loss_or_cnloh`)
 #' @export
 score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, eps = params$eps,
-                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE, sided = c("two", "one")) {
+                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE, sided = c("two", "one"),
+                       window = c("none", "max", "only")) {
   depth_model = match.arg(depth_model)
   two = match.arg(sided) == "two"
+  window = match.arg(window)
+  if (!two) window = "none"                                  # one-sided (clone-oriented) votes: no windowed term
   d = copy(as.data.table(d))
   n = nrow(d)
   if (!"z" %in% names(d)) d[, z := NA_real_]
@@ -148,6 +157,23 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
   }
   ar = lapply(seq_len(nrow(ns)), function(i) acache[[fk(ns$f[i])]])
   names(ar) = ns$row_id
+  ar_out = ar                                                # per-row columns (pools): always the oriented term
+  # windowed allele term (window_allelic_features()): per allelic row with a `wal_<f>` column, the better of the
+  # oriented and the windowed LLR where the windowed LLR exceeds `win_min` ("max"), or the windowed LLR alone ("only");
+  # rows where the column is NA keep the oriented term
+  if (window != "none") {
+    wmin = params$win_min %||% 0
+    wcache = list()
+    for (f in unique(ns$f)) {
+      wc = win_col(f)
+      if (!wc %in% names(d)) next
+      w = as.numeric(d[[wc]]); a = acache[[fk(f)]]
+      ok = if (window == "max") !is.na(w) & w > wmin else !is.na(w)
+      a[ok] = if (window == "max") pmax(a[ok], w[ok]) else w[ok]
+      wcache[[fk(f)]] = a
+    }
+    if (length(wcache)) for (i in seq_len(nrow(ns))) if (!is.null(wcache[[fk(ns$f[i])]])) ar[[i]] = wcache[[fk(ns$f[i])]]
+  }
   cl = list()
   for (s in sn) {
     r = which(ns$state == s)
@@ -189,7 +215,7 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
   }))
   set(d, j = "state_allelic", value = unname(ac$label)[max.col(A, ties.method = "first")])
   if (keep_rows) {
-    for (i in seq_len(nrow(ns))) set(d, j = paste0("ar_", ns$row_id[i]), value = ar[[i]])
+    for (i in seq_len(nrow(ns))) set(d, j = paste0("ar_", ns$row_id[i]), value = ar_out[[i]])
     for (s in sn) {
       r = which(ns$state == s)
       if (length(unique(ns$shift[r])) > 1) for (i in r) set(d, j = paste0("dr_", ns$row_id[i]), value = dcache[[fk(ns$shift[i])]])
@@ -243,6 +269,46 @@ group_key = function(d, by) {
   do.call(paste, c(lapply(by, function(b) as.character(d[[b]])), sep = "\r"))
 }
 
+# The null rows a group's threshold is trained on ([budget_thresholds()]; also the calibration rows of [event_fdr()]).
+# Levels: 1 = the `by` group, then `by` without the vote stratum (`hstratum`), then without the depth stratum
+# (`stratum`). A group with fewer than `min_null` null rows at level 1 takes the first coarser level with `min_null`
+# rows, else the coarsest (by = class x stratum: the class). `isn` = null flag per row of `d`. A class without null
+# rows whose rows have an `sd_class` with null rows (named events; when `d` has `sd_class`) borrows the null rows
+# (and the fallback levels) of that sd_class: its groups carry `borrowed_from`.
+# Returns list(levels = the `by` columns per level, groups = unique `by` rows of d (+ `borrowed_from` when a class
+#              borrows) with key_ (their level-1 key; that of the sd_class for borrowed groups), level = the level
+#              used per group, use = per group the indices (rows of d) of its null rows, borrowed = a class borrows)
+threshold_null_rows = function(d, by, isn, min_null) {
+  levs = list(by); cur = by
+  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
+  # classes without null rows (named events) borrow the null rows of their sd_class
+  src = NULL
+  if ("class" %in% by && "sd_class" %in% names(d)) {
+    cls = as.character(d$class); sdc = as.character(d$sd_class)
+    has = unique(cls[isn])
+    b = !cls %in% has & !is.na(sdc) & sdc != cls & sdc %in% has
+    if (any(b)) src = fifelse(b, sdc, NA_character_)
+  }
+  groups = if (is.null(src)) unique(d[, by, with = FALSE]) else unique(cbind(d[, by, with = FALSE], borrowed_from = src))
+  gsrc = groups
+  if (!is.null(src)) gsrc = copy(groups)[!is.na(borrowed_from), class := borrowed_from]
+  groups[, key_ := group_key(gsrc, by)]
+  ni = which(isn)
+  idx_l = lapply(levs, function(l) split(ni, group_key(d, l)[ni]))
+  key_l = lapply(levs, function(l) group_key(gsrc, l))
+  level = integer(nrow(groups)); use = vector("list", nrow(groups))
+  for (g in seq_len(nrow(groups))) {
+    l = 1L
+    u = idx_l[[1]][[key_l[[1]][g]]] %||% integer()
+    while (length(u) < min_null && l < length(levs)) {
+      l = l + 1L
+      u = idx_l[[l]][[key_l[[l]][g]]] %||% integer()
+    }
+    level[g] = l; use[[g]] = u
+  }
+  list(levels = levs, groups = groups, level = level, use = use, borrowed = !is.null(src))
+}
+
 #' Null thresholds at the false-call budget
 #'
 #' Type-7 quantile `q` of each score on the null rows ([budget_threshold()]
@@ -281,36 +347,12 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
   isn = null_flag(d, null)
   fold = if (cv && "fold" %in% names(d)) as.integer(d$fold) else rep(0L, nrow(d))
   folds = setdiff(sort(unique(fold[!is.na(fold)])), 0L)
-  gk = group_key(d, by)
-  # fallback levels for groups with fewer than min_null null rows: drop the vote stratum, then the depth stratum;
-  # the first level with min_null rows is used, else the coarsest (by = class x stratum: the class, as before)
-  levs = list(); cur = by
-  for (drop in c("hstratum", "stratum")) if (drop %in% cur) { cur = setdiff(cur, drop); levs[[length(levs) + 1]] = cur }
-  # classes without null rows (named events) borrow the null rows of their sd_class
-  src = NULL
-  if ("class" %in% by && "sd_class" %in% names(d)) {
-    cls = as.character(d$class); sdc = as.character(d$sd_class)
-    has = unique(cls[isn])
-    b = !cls %in% has & !is.na(sdc) & sdc != cls & sdc %in% has
-    if (any(b)) src = fifelse(b, sdc, NA_character_)
-  }
-  groups = if (is.null(src)) unique(d[, by, with = FALSE]) else unique(cbind(d[, by, with = FALSE], borrowed_from = src))
-  gsrc = groups
-  if (!is.null(src)) gsrc = copy(groups)[!is.na(borrowed_from), class := borrowed_from]
-  groups[, key_ := group_key(gsrc, by)]
-  ni = which(isn)
-  idx_g = split(ni, gk[ni])
-  idx_l = lapply(levs, function(l) split(ni, group_key(d, l)[ni]))
-  key_l = lapply(levs, function(l) group_key(gsrc, l))
+  tg = threshold_null_rows(d, by, isn, min_null)
+  groups = tg$groups
   out = list()
   for (g in seq_len(nrow(groups))) {
-    ig = idx_g[[groups$key_[g]]] %||% integer()
-    fb = length(ig) < min_null && length(levs) > 0
-    use = ig
-    if (fb) for (l in seq_along(levs)) {
-      use = idx_l[[l]][[key_l[[l]][g]]] %||% integer()
-      if (length(use) >= min_null) break
-    }
+    use = tg$use[[g]]
+    fb = tg$level[g] > 1L
     fu = fold[use]
     for (fo in c(0L, folds)) {
       tr = if (fo == 0L) rep(TRUE, length(use)) else !is.na(fu) & fu != fo
@@ -320,7 +362,7 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
     }
   }
   res = rbindlist(out)
-  res = cbind(groups[res$g, c(by, if (!is.null(src)) "borrowed_from"), with = FALSE], res[, !"g"])
+  res = cbind(groups[res$g, c(by, if (tg$borrowed) "borrowed_from"), with = FALSE], res[, !"g"])
   if (!"stratum" %in% by) res[, stratum := "all"]
   if (!"class" %in% by) res[, class := "all"]
   res[, `:=`(q = q, n_null = as.integer(n_null), fold = as.integer(fold))]
@@ -532,36 +574,96 @@ utils::globalVariables("sexgrp")
 #' genome median of 0.011 over 5 Mb tiles) and that inflates the chromosome-level allelic LLRs of the cells. The votes of the
 #' atoms in masked tiles ([atoms_in_tiles()]) are then left out of the allele features
 #' ([update_allelic_features()], `call_scn(params$mask_allelic = TRUE)`).
+#'
+#' Shared allelic bias (`params$mask_f0`): per tile also the vote-weighted haplotype fraction of the null rows
+#' `f0 = sum nA / sum n_hap`, its deviation `d0 = |f0 - 0.5|` and `z_f0` = (d0 - median) / MAD of d0 over the
+#' assessed tiles. A tile is a bias outlier (`masked_f0`) when it is assessed, `z_f0 > f0_mad` and
+#' `d0 > f0_min`: a stretch whose allele fraction is off 1:1 in the null cells for reasons that are not somatic
+#' copy number (germline CNV or segmental duplication, imprinted or allele-specific accessible regions, mapping
+#' bias, false heterozygous SNPs), against which the 1:1 allele null of every cell is wrong. The rule sees only
+#' the null rows, but it cannot tell such a shared bias from a real clonal event whose carriers remain among the
+#' null cells: an event frequent enough for that looks the same and can be masked (in a simulation with a focal
+#' event in 35 % of cells, 60 of 96 carriers stayed in the null set and all four event tiles were masked). The
+#' mask is a diagnostic to be read with the list of masked tiles, not a filter to apply blindly to samples that
+#' may carry clonal events.
+#' `|f0 - 0.5|` covers two orientations of the allele features: under `loo` (block) orientation the fraction is
+#' major-oriented (a biased tile sits above 0.5), under chromosome-anchored orientation it sits at f0 or 1 - f0.
+#' Under `mirrored` orientation each block counts its major allele, so f0 is above 0.5 in every tile by an amount
+#' set by the votes per block: the statistic measures coverage, not shared bias, and `call_scn()` does not apply
+#' the bias rule (it says so in the run notes and warns).
+#' [allelic_bias_tiles()] gives the same table over all cells before calling.
+#'
+#' `rules` selects which flags make up `masked` (the tiles whose atoms are dropped): `"rho"` (the default and
+#' the behaviour of earlier versions: `masked` = `masked_rho`), `"f0"`, or both (union).
 #' @param feat_long features long table (class, region, chrom, nA, n_hap) with a null definition
 #' @param null optional logical null flag per row
 #' @param size tile class
 #' @param k_mad threshold in MADs of log rho (`params$mask_rho_mad`)
 #' @param min_votes minimal mean votes per null row of a tile for it to be assessed (`params$mask_min_votes`)
 #' @param params [caller_defaults()]
-#' @return data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked (one row per tile)
+#' @param f0_mad bias threshold in MADs of d0 (`params$mask_f0_mad`)
+#' @param f0_min minimal deviation d0 of a bias outlier (`params$mask_f0_min`)
+#' @param rules the rules that define `masked`: any of `"rho"`, `"f0"`
+#' @return data.table tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked, f0, d0, z_f0,
+#'   masked_rho, masked_f0 (one row per tile)
 #' @export
 allelic_noisy_tiles = function(feat_long, null = NULL, size = "5Mb", k_mad = params$mask_rho_mad, min_votes = params$mask_min_votes,
-                               params = caller_defaults()) {
+                               params = caller_defaults(), f0_mad = params$mask_f0_mad, f0_min = params$mask_f0_min,
+                               rules = "rho") {
+  rules = unique(as.character(rules))
+  if (!length(rules) || !all(rules %in% c("rho", "f0"))) stop("allelic_noisy_tiles: `rules` must be \"rho\", \"f0\" or both")
+  if ("f0" %in% rules && (is.null(f0_mad) || is.null(f0_min))) stop("allelic_noisy_tiles: the f0 rule needs f0_mad and f0_min (params$mask_f0_mad, mask_f0_min)")
+  if (is.null(f0_mad)) f0_mad = 3
+  if (is.null(f0_min)) f0_min = 0.03
   d = as.data.table(feat_long)
   isn = null_flag(d, null)
   ch = if ("chrom" %in% names(d)) d$chrom else region_chrom(d$region, d$class)
   i = which(isn & d$class == size)
   x = data.table(tile = d$region[i], chrom = ch[i], a = as.numeric(d$nA[i]), n = as.numeric(d$n_hap[i]))
   x[is.na(n), `:=`(n = 0, a = 0)]
-  t = x[, .(n_rows = .N, votes = sum(n), S = sum((a - n / 2)^2), N4 = sum(n / 4), P = sum(n * (n - 1) / 4)), by = .(tile, chrom)]
+  t = x[, .(n_rows = .N, votes = sum(n), S = sum((a - n / 2)^2), N4 = sum(n / 4), P = sum(n * (n - 1) / 4), A = sum(a)), by = .(tile, chrom)]
   t[, rho := fifelse(P > 0, pmax((S - N4) / P, 1e-6), NA_real_)]
   t[, assessed := !is.na(rho) & votes / n_rows >= min_votes]
   lr = log(t$rho[t$assessed])
   m = if (length(lr)) stats::median(lr) else NA_real_
   s = if (length(lr) > 1) stats::mad(lr) else NA_real_
   t[, z_rho := (log(rho) - m) / s]
-  t[, masked := assessed & is.finite(z_rho) & z_rho > k_mad]
+  t[, masked_rho := assessed & is.finite(z_rho) & z_rho > k_mad]
+  # shared allelic bias: vote-weighted null fraction, robust z of its deviation from 1:1 over the assessed tiles
+  t[, f0 := fifelse(votes > 0, A / votes, NA_real_)]
+  t[, d0 := abs(f0 - 0.5)]
+  dv = t$d0[t$assessed]
+  m0 = if (length(dv)) stats::median(dv) else NA_real_
+  s0 = if (length(dv) > 1) stats::mad(dv) else NA_real_
+  t[, z_f0 := (d0 - m0) / s0]
+  t[, masked_f0 := assessed & !is.na(z_f0) & z_f0 > f0_mad & d0 > f0_min]
+  t[, masked := ("rho" %in% rules & masked_rho) | ("f0" %in% rules & masked_f0)]
   t[, start := suppressWarnings(as.numeric(sub("^.*:", "", tile)))]
   t[, end := start + unname(params$tile_sizes[size])]
-  t = t[, .(tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked)]
+  t = t[, .(tile, chrom, start, end, n_rows, votes, rho, z_rho, assessed, masked, f0, d0, z_f0, masked_rho, masked_f0)]
   t[order(match(chrom, paste0("chr", c(1:22, "X", "Y"))), start)]
 }
-utils::globalVariables(c("assessed", "masked", "z_rho", "N4", "P", "tile", "votes"))
+utils::globalVariables(c("assessed", "masked", "z_rho", "N4", "P", "tile", "votes", "A", "f0", "d0", "z_f0", "masked_rho", "masked_f0"))
+
+#' Shared allelic bias per tile over all cells (diagnostic)
+#'
+#' The per-tile table of [allelic_noisy_tiles()] computed over every cell (not only null cells) and every
+#' eligible row of a features object, before any caller run: the vote-weighted haplotype fraction `f0`, its
+#' deviation `d0 = |f0 - 0.5|`, the robust z `z_f0` and the bias flag `masked_f0` (here also `masked`), next to
+#' the overdispersion columns (`rho`, `z_rho`, `masked_rho`). Over all cells a frequent clonal event also shows up
+#' as a bias; the caller's mask (`params$mask_f0`, `call_scn()`) uses the null cells only, which does not keep
+#' an event out of the mask when its carriers remain among the null cells ([allelic_noisy_tiles()]).
+#' @param features `scn_features` ([cell_features()]) or its features long table
+#' @param size tile class
+#' @param params [caller_defaults()] (`mask_min_votes`, `mask_rho_mad`, `mask_f0_mad`, `mask_f0_min`)
+#' @return data.table as [allelic_noisy_tiles()], one row per tile, `masked` = `masked_f0`
+#' @export
+allelic_bias_tiles = function(features, size = "5Mb", params = caller_defaults()) {
+  d = if (is.data.frame(features)) as.data.table(features) else as.data.table(features$long)
+  if (is.null(d) || !nrow(d)) stop("allelic_bias_tiles: `features` must be an scn_features object or a features long table")
+  use = if ("eligible" %in% names(d)) d$eligible %in% TRUE else rep(TRUE, nrow(d))
+  allelic_noisy_tiles(d, null = use, size = size, params = params, rules = "f0")
+}
 
 #' Atoms whose start lies in the masked tiles
 #' @param atoms atoms table (atom, chrom, start, end)
@@ -658,7 +760,7 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' Self-calibrated null cell set (normal tissue)
 #'
 #' Starts from all cells of `feat_long` minus `exclude` (e.g. multiplet-flagged
-#' barcodes). Each iteration fits the depth t null per class x stratum and the
+#' barcodes) and minus the cells of the windowed guard (see Details). Each iteration fits the depth t null per class x stratum and the
 #' allelic rho on the null rows of the current set, scores every candidate
 #' cell on the `classes` regions (chromosomes and arms) with `s_comb`,
 #' thresholds at the selection quantile `q` and keeps the cells with at most
@@ -694,7 +796,17 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' @param q selection quantile per row
 #' @param n_sim simulated rows per class x stratum (parametric; default max(2e4, 20 / (1 - q)))
 #' @param chroms chromosomes whose rows are scored (default autosomes chr1-chr22); NULL = all
-#' @return list(null_cells, log (per iteration), calls (per candidate cell: n_calls, null), tpar, rho, thresholds)
+#' @details Guard (cells never in the set, whatever their calls): with window columns in `feat_long`
+#' ([window_allelic_features()]) and `params$null_win_guard` (default TRUE), cells with a scored row (`classes`, i.e.
+#' chromosome and arm rows on `chroms`) whose largest windowed allele LLR over the fraction grid exceeds
+#' `log(1 / (1 - q)) + log(#fractions)` (about 9.2 at the default `q`; under the null model `P(W > t) <= exp(-t)`,
+#' Bonferroni over the fractions): an allelic imbalance private to the cell, which the oriented scores can miss.
+#' The bound is per row, without a correction over the about 60 scored rows of a cell: the guard errs towards leaving a
+#' cell out of the null set, which costs little (6 of 4,105 cells of a normal thyroid sample). It sees only chromosome
+#' and arm rows, so a null cell can still carry a windowed call on a smaller tile. The selection's scores themselves
+#' stay oriented, so that they match what the parametric thresholds simulate.
+#' @return list(null_cells, log (per iteration), calls (per candidate cell: n_calls, win_guard, null), tpar, rho,
+#'   thresholds)
 #' @export
 select_null_cells = function(feat_long, states = caller_states("normal", params), params = caller_defaults(), n_iter = 2,
                              max_calls = 0, exclude = NULL, classes = c("chrom", "arm"), depth_model = "t",
@@ -710,8 +822,22 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
   if (!"eligible" %in% names(d)) d[, eligible := TRUE]
   if (!"fold" %in% names(d) || anyNA(d$fold)) d[, fold := assign_folds(cell, params$n_folds, params$seed, if ("origin" %in% names(d)) origin else NULL)]
   cand = unique(d$cell)
-  cur = cand
   ok_row = !is.na(d$null_region) & d$null_region & !is.na(d$eligible) & d$eligible
+  # guard that does not depend on the iteration (windowed allele term, window_allelic_features()): a row whose largest
+  # windowed LLR over the fraction grid exceeds log(1 / (1 - q)) + log(#fractions), the exp(-t) bound of the null model
+  # with a Bonferroni factor over the fractions
+  guard_win = character()
+  if (isTRUE(params$null_win_guard %||% TRUE)) {
+    gs = win_guard_stat(d, params)
+    if (!is.null(gs)) {
+      t_w = log(1 / (1 - q)) + log(gs$n_f)
+      guard_win = unique(d$cell[gs$stat > t_w & d$eligible %in% TRUE])
+    } else if (any(grepl("^wal_f[0-9]+$", names(d))))
+      warning("select_null_cells: the window columns (", paste(grep("^wal_f[0-9]+$", names(d), value = TRUE), collapse = ", "),
+              ") match no fraction of win_f_grid() (", paste(win_f_grid(params), collapse = ", "), "): no windowed null-cell guard",
+              call. = FALSE)
+  }
+  cur = setdiff(cand, guard_win)                       # guarded cells are out from the first fit on (also with n_iter = 1)
   log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL
   for (it in seq_len(n_iter)) {
     isn = ok_row & d$cell %in% cur
@@ -725,12 +851,14 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
     } else budget_thresholds(sc, "s_comb", q = q, cv = TRUE, min_null = params$min_null_rows, params = params, null = isn)
     sc = apply_thresholds(sc, thr, "s_comb")
     nc = sc[, .(n_calls = sum(call_s_comb & eligible, na.rm = TRUE)), by = cell]
-    new = nc[n_calls <= max_calls, cell]
+    new = nc[n_calls <= max_calls & !cell %in% guard_win, cell]
     fr = 1000 * mean(sc$call_s_comb[isn], na.rm = TRUE)
     log[[it]] = data.table(iter = it, n_in = length(cur), n_out = length(new), n_dropped = length(setdiff(cur, new)),
-                           n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr)
+                           n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr,
+                           n_win_guard = length(guard_win))
     cur = new
   }
+  nc[, win_guard := cell %in% guard_win]
   nc[, null := cell %in% cur]
   list(null_cells = cur, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)
 }
@@ -1697,7 +1825,26 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   # 3-5. scores, thresholds, per-cell calls
   states = caller_states("normal", params)
   scores = c("s_depth", "s_allelic", "s_comb")
-  sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE)
+  win_score = params$win_score %||% "none"
+  if (!identical(length(win_score), 1L) || !win_score %in% c("none", "max", "only"))
+    stop("caller_normal: params$win_score must be 'none', 'max' or 'only', not '", paste(win_score, collapse = ", "), "'",
+         call. = FALSE)
+  has_win = any(grepl("^wal_f[0-9]+$", names(d)))
+  # the window columns must match the fractions of the allelic rows (e.g. features computed with another eps)
+  win_rows = unique(states$f[states$state != "neutral" & win_col(states$f) %in% names(d)])
+  win_note = NULL
+  if (win_score != "none" && has_win && !length(win_rows)) {
+    win_note = sprintf("per-cell allele term: oriented only (window columns %s match no allelic row fraction (%s): features computed with another eps or win_f?)",
+                       paste(grep("^wal_f[0-9]+$", names(d), value = TRUE), collapse = ", "),
+                       paste(round(unique(states$f[states$state != "neutral"]), 3), collapse = ", "))
+    warning("caller_normal: ", win_note, call. = FALSE)
+    has_win = FALSE
+  } else if (win_score != "none" && has_win) {
+    win_note = sprintf("per-cell allele term: %s (rows at f %s)", if (win_score == "max") sprintf("the better of the oriented and the windowed LLR where the windowed LLR is above win_min %g", params$win_min %||% 0) else "the windowed LLR only",
+                       paste(round(win_rows, 3), collapse = ", "))
+  } else if (win_score != "none") win_note = "per-cell allele term: oriented only (no window columns in the features; they need chromosome-scale phasing)"
+  sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE,
+                   window = if (has_win) win_score else "none")
   thr = budget_thresholds(sc, scores, q = params$null_q, cv = TRUE, min_null = params$min_null_rows, params = params)
   sc = apply_thresholds(sc, thr, scores)
   if (is.null(sex)) sex = infer_sex(d)
@@ -1785,7 +1932,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                               pool_scale = if (length(pscale)) rbindlist(lapply(names(pscale), function(k) copy(pscale[[k]])[, kind := k])) else NULL, sex = sex,
                               vote_bins = vbins, rho_chrom = rho_tab),
               params = params,
-              notes = c(sprintf("null cells: %s (%d)", if (use_sel) "select_null_cells" else "features", sum(cells$null_cell)),
+              notes = c(sprintf("null cells: %s (%d)%s", if (use_sel) "select_null_cells" else "features", sum(cells$null_cell),
+                                if (!is.null(sel) && "win_guard" %in% names(sel$calls))
+                                  sprintf("; %d cells kept out by the windowed allele term (null_win_guard)", sum(sel$calls$win_guard)) else ""),
+                        win_note,
                         sprintf("rho %.5g", rho), novotes_note,
                         if (!is.null(rho_tab)) sprintf("allelic rho per chromosome (rho_chrom_k %g): %.3g-%.3g (global %.3g)", params$rho_chrom_k %||% 100,
                                                        min(rho_tab$rho), max(rho_tab$rho), rho),
@@ -1810,4 +1960,4 @@ infer_sex = function(d) {
   if ("allelic_ok" %in% names(x) && !all(is.na(x$allelic_ok))) return(if (any(x$allelic_ok %in% TRUE)) "female" else "male")
   if (mean(x$n_hap > 0, na.rm = TRUE) > 0.5) "female" else "male"
 }
-utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_"))
+utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_", "win_guard"))

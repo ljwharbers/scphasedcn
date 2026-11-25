@@ -157,7 +157,8 @@ not keyed: reuse it only with the same features, seed and discovery options.</p>
 <code>ref_null</code> = "none" (the input rho / depth t of <code>feat$null_fit</code>) or "rho" (opt-in: beta-binomial rho refitted on the
 clean reference pool's piece votes as the confirmation scores them, oriented leave-one-out by a clone pseudobulk;
 the <code>call_scn</code> recipe on the pool's feature votes is kept as <code>null_fit$rho_pool_features</code>); needs &gt;= <code>min_ref</code>
-pool cells. <code>confirm_null</code> = "generic" (null rows scored as the best of the
+pool cells. The depth t of the confirmation is always the input one (<code>null_fit$tpar_confirm</code> = <code>null_fit$tpar</code>;
+<code>depth_t_confirm</code> rows of <code>null_fit.tsv</code>); only rho can be refitted. <code>confirm_null</code> = "generic" (null rows scored as the best of the
 tumour state set, one threshold per stratum) or "matched" (each clone hypothesis clone | label | shift | f scored on
 the null rows oriented by that clone's pseudobulk under the same two-state set as the cells; one threshold per
 hypothesis x stratum, hypothesis-wide below <code>min_null_rows</code>; held-out fold-CV false-confirmation rates per

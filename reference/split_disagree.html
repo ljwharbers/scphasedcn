@@ -4,7 +4,8 @@ a haplotype imbalance but differ by one copy in one clone (e.g. a chr21 loss sub
 a chr21 3:0 / 4:0 LOH-gain subclone inside a 2:1 clone, fitted 3:1). For each clone with &amp;gt;= 2 min_size
 members and each of its non-neutral segments (ploidy 2, &amp;gt;= split_min_len; the copy-neutral 2:0 included), every
 member is scored on the discovery halves (win_disc, votes_disc) under the clone state and under each alternative of
-split_alt_states(). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
+split_alt_states() on the clone's state grid (the diploid cn_grid() at baseline 2, else the grid of its fitted
+baseline par$base, as fit_clone_states() uses it). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
 profiles are relative to the clone baseline), in units of its sd_null scaled to the half depth and inflated by the
 members' own robust spread, t density at c * log2(cn / cn_state) (clone c from par). Alleles: the cell's votes
 oriented by the clone's leave-one-out pseudobulk, beta-binomial at 0.5 + a_eff (f - 0.5), a_eff = the attenuation of
@@ -26,7 +27,8 @@ a haplotype imbalance but differ by one copy in one clone (e.g. a chr21 loss sub
 a chr21 3:0 / 4:0 LOH-gain subclone inside a 2:1 clone, fitted 3:1). For each clone with &amp;gt;= 2 min_size
 members and each of its non-neutral segments (ploidy 2, &amp;gt;= split_min_len; the copy-neutral 2:0 included), every
 member is scored on the discovery halves (win_disc, votes_disc) under the clone state and under each alternative of
-split_alt_states(). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
+split_alt_states() on the clone's state grid (the diploid cn_grid() at baseline 2, else the grid of its fitted
+baseline par$base, as fit_clone_states() uses it). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
 profiles are relative to the clone baseline), in units of its sd_null scaled to the half depth and inflated by the
 members' own robust spread, t density at c * log2(cn / cn_state) (clone c from par). Alleles: the cell's votes
 oriented by the clone's leave-one-out pseudobulk, beta-binomial at 0.5 + a_eff (f - 0.5), a_eff = the attenuation of
@@ -89,7 +91,8 @@ a haplotype imbalance but differ by one copy in one clone (e.g. a chr21 loss sub
 a chr21 3:0 / 4:0 LOH-gain subclone inside a 2:1 clone, fitted 3:1). For each clone with &gt;= 2 <code>min_size</code>
 members and each of its non-neutral segments (ploidy 2, &gt;= <code>split_min_len</code>; the copy-neutral 2:0 included), every
 member is scored on the discovery halves (<code>win_disc</code>, <code>votes_disc</code>) under the clone state and under each alternative of
-<code><a href="split_alt_states.html">split_alt_states()</a></code>. Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
+<code><a href="split_alt_states.html">split_alt_states()</a></code> on the clone's state grid (the diploid <code><a href="cn_grid.html">cn_grid()</a></code> at baseline 2, else the grid of its fitted
+baseline <code>par$base</code>, as <code><a href="fit_clone_states.html">fit_clone_states()</a></code> uses it). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
 profiles are relative to the clone baseline), in units of its <code>sd_null</code> scaled to the half depth and inflated by the
 members' own robust spread, t density at <code>c * log2(cn / cn_state)</code> (clone c from <code>par</code>). Alleles: the cell's votes
 oriented by the clone's leave-one-out pseudobulk, beta-binomial at <code>0.5 + a_eff (f - 0.5)</code>, a_eff = the attenuation of
@@ -143,7 +146,7 @@ state of a mixture is an average: e.g. a fitted 4:1 / 3:1 clone that is a mix of
 
 
 <dt id="arg-par">par<a class="anchor" aria-label="anchor" href="#arg-par"></a></dt>
-<dd><p>data.table clone, c, a (<code><a href="fit_clone_states.html">fit_clone_states()</a></code> <code>par</code>)</p></dd>
+<dd><p>data.table clone, c, a and optionally base (the clone baseline; 2 without it) (<code><a href="fit_clone_states.html">fit_clone_states()</a></code> <code>par</code>)</p></dd>
 
 
 <dt id="arg-inp">inp<a class="anchor" aria-label="anchor" href="#arg-inp"></a></dt>
@@ -167,17 +170,21 @@ state of a mixture is an average: e.g. a fitted 4:1 / 3:1 clone that is a mix of
 
 
 <dt id="arg-fit-states">fit_states<a class="anchor" aria-label="anchor" href="#arg-fit-states"></a></dt>
-<dd><p>optional replacement of <code><a href="fit_clone_states.html">fit_clone_states()</a></code> (<code>function(profile, grid)</code>)</p></dd>
+<dd><p>optional replacement of the re-fit's state fit (<code>function(profile, grid)</code>); default
+<code><a href="fit_clone_states.html">fit_clone_states()</a></code> with the <code>opts</code> of the run (<code>p_switch</code>, <code>min_win</code>, <code>ploidy_tol</code>) at the parent clone's fitted
+baseline (<code>par$base</code>, 2 without it), so the two parts are compared on the parent's scale (<code><a href="caller_tumour.html">caller_tumour()</a></code> passes
+its own fit)</p></dd>
 
 
 <dt id="arg-opts">opts<a class="anchor" aria-label="anchor" href="#arg-opts"></a></dt>
-<dd><p><code><a href="clone_defaults.html">clone_defaults()</a></code> (<code>min_size</code>, <code>split_sep</code>, <code>split_max</code>, <code>split_cand</code>, <code>split_min_len</code>, <code>split_min_df</code>,
+<dd><p><code><a href="clone_defaults.html">clone_defaults()</a></code>, checked as <code><a href="caller_tumour.html">caller_tumour()</a></code> checks them (<code>min_size</code>, <code>split_sep</code>, <code>split_max</code>, <code>split_cand</code>, <code>split_min_len</code>, <code>split_min_df</code>,
 <code>split_min_excess</code>, <code>q</code>, <code>n_perm</code>, <code>max_cells</code>, <code>depth_delta</code>, <code>same_dist</code>, <code>small_clone</code>, <code>size_small</code>, <code>min_ref</code>, <code>p_switch</code>,
-<code>min_win</code>, <code>min_llr</code>)</p></dd>
+<code>min_win</code>, <code>ploidy</code>, <code>ploidy_tol</code>, <code>min_llr</code> and the <code><a href="segment_clone.html">segment_clone()</a></code> rules <code>min_excess</code>, <code>bal_frac</code>, <code>min_bal_len</code>,
+<code>max_contra</code>, <code>gain_support</code>)</p></dd>
 
 
 <dt id="arg-params">params<a class="anchor" aria-label="anchor" href="#arg-params"></a></dt>
-<dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code> (<code>sd_floor</code>, <code>eps</code>)</p></dd>
+<dd><p><code><a href="caller_defaults.html">caller_defaults()</a></code> (<code>sd_floor</code>, <code>eps</code>; and the input null fit when <code>inp</code> carries none)</p></dd>
 
 
 <dt id="arg-seed">seed<a class="anchor" aria-label="anchor" href="#arg-seed"></a></dt>

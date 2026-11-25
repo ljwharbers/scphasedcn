@@ -92,12 +92,15 @@ list of class `medicc2_orientation`:
   module: one row per piece x phase set with reference votes:
   `piece, chrom, start, end` (the piece; a molecule belongs to it when
   its atom start is in `[start, end)`), `ps` (phase set of the votes
-  table), `ref` (reference clone), `nA_ref, nB_ref` and `sign` (+1:
+  table), `ref` (reference clone), `nA_ref, nB_ref` (the reference
+  clone's pooled votes of phase-set haplotypes A and B), `sign` (+1:
   phase-set haplotype A is cn_a; -1: haplotype B is cn_a; 0: tie,
-  unoriented). Blocks absent from the table are unoriented. A cell's
-  oriented votes on a piece are `a = sum(sign > 0 ? nA : nB)`,
-  `b = sum(sign > 0 ? nB : nA)` over its blocks with `sign != 0`;
-  `a / (a + b)` estimates `cn_a / (cn_a + cn_b)` (attenuated).
+  unoriented) and `flipped` (the piece's labels were flipped by
+  chaining: `sign` is then minus the sign of `nA_ref - nB_ref`). Blocks
+  absent from the table are unoriented. A cell's oriented votes on a
+  piece are `a = sum(sign > 0 ? nA : nB)`, `b = sum(sign > 0 ? nB : nA)`
+  over its blocks with `sign != 0`; `a / (a + b)` estimates
+  `cn_a / (cn_a + cn_b)` (attenuated).
 
 - `params`: `use`, `near`, `chain`, `min_link`.
 

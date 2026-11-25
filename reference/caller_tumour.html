@@ -107,8 +107,12 @@ CN-LOH / amp states (type-7 <code>null_q</code> quantile per stratum, strict <co
 
 
 <dt id="arg-multiplets">multiplets<a class="anchor" aria-label="anchor" href="#arg-multiplets"></a></dt>
-<dd><p>optional data.table cell, prob (<code><a href="multiplet_table.html">multiplet_table()</a></code>); cells above <code>opts$multiplet_prob</code> are excluded from
-discovery and pseudobulks but assigned and flagged</p></dd>
+<dd><p>optional multiplet flags in any form of <code><a href="multiplet_table.html">multiplet_table()</a></code> (a vector or file of cells, a table with
+<code>prob</code>, or with a logical <code>multiplet</code> / <code>clean_singlet</code> column). Each cell's probability (clipped to [0, 1]) raises
+its prior of the mixture (doublet) hypotheses of the assignment (capped at <code>opts$max_mix_prior</code>); cells above
+<code>opts$multiplet_prob</code> (default 0.9) are excluded from discovery and the pseudobulks but assigned and flagged
+(<code>multiplet</code> in the assignments). When <code>feat</code> carries no input null, the cells with prob &gt; 0.5 are also left out of
+the input null fit (<code><a href="tumour_null_fit.html">tumour_null_fit()</a></code> <code>exclude</code>), as <code><a href="call_scn.html">call_scn()</a></code> does</p></dd>
 
 
 <dt id="arg-control-regions">control_regions<a class="anchor" aria-label="anchor" href="#arg-control-regions"></a></dt>
@@ -127,7 +131,12 @@ confirmation null and of the reference cleaning, <code><a href="clean_reference.
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p><code>scphasedcn</code> (mode tumour) with clones, assignments, segments, profiles, calls (plus <code>extra</code>:
-intermediate results in <code>null_fit$clones</code>)</p>
+intermediate results in <code>null_fit$clones</code>). <code>clones</code> has one row per clone and one row per doublet clone of the
+final clone ids (<code>doublet</code> TRUE: flagged by an EM round since the clone ids were last numbered, and dissolved, so it
+has no segments, profiles or assigned cells); every clone id in it is unique. Every doublet flag of the run, with
+the round, the clone id at that time, the best pair, its members and its id set (<code>ids</code>: <code>global</code>, <code>trunk</code> or
+<code>split</code>), is in <code>null_fit$clones$doublet_log</code>; <code>null_fit$clones$doublet_clones</code> holds the ids of the <code>clones</code>
+rows</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
@@ -135,7 +144,8 @@ intermediate results in <code>null_fit$clones</code>)</p>
 <code>regions</code>, <code>votes</code>, <code>atoms</code>, <code>cells</code> (data.table with <code>cell</code>, in vote index order; <code>n_frag</code> / <code>stratum</code>),
 <code>win</code> (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
 start, end, x, e) and <code>null_fit</code> (list with <code>tpar</code> = <code><a href="fit_depth_null.html">fit_depth_null()</a></code> table and <code>rho</code>; without it, or without its
-<code>rho</code>, the input null is <code><a href="tumour_null_fit.html">tumour_null_fit()</a></code> of the features, as in <code><a href="call_scn.html">call_scn()</a></code>).</p>
+<code>rho</code>, the input null is <code><a href="tumour_null_fit.html">tumour_null_fit()</a></code> of the features with <code>params</code> and without the cells whose multiplet
+prob is above 0.5, as in <code><a href="call_scn.html">call_scn()</a></code>; its note, and any caution, is the first run note).</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

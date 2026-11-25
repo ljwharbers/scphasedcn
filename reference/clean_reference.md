@@ -16,7 +16,10 @@ candidate cells of the same maximum over the control regions (neutral in
 every clone; orientation by the same clones), so the multiplicity of the
 maximum is in the null as well; `null = "region"` is the quantile of the
 single-region control scores (the first build's rule, which flags too
-many cells when there are many events).
+many cells when there are many events). As every call of the caller, a
+flag needs a positive score as well (`score > max(thr, 0)`): a negative
+threshold does not remove cells without evidence of a tumour haplotype
+(score \<= 0, e.g. cells without votes on the events).
 
 ## Usage
 

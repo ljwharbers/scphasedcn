@@ -131,9 +131,10 @@ by chaining), <code>link</code> (<code>first</code>, <code>phase</code>, <code>p
 <code>ref_votes</code>, <code>n_swapped</code>, <code>n_low_conf</code>.</p></li>
 <li><p><code>blocks</code>: the reference orientation per block, reusable by a per-cell module: one row per piece x phase set
 with reference votes: <code>piece, chrom, start, end</code> (the piece; a molecule belongs to it when its atom start is in
-<code>[start, end)</code>), <code>ps</code> (phase set of the votes table), <code>ref</code> (reference clone), <code>nA_ref, nB_ref</code> and <code>sign</code>
-(+1: phase-set haplotype A is cn_a; -1: haplotype B is cn_a; 0: tie, unoriented). Blocks absent from the table
-are unoriented. A cell's oriented votes on a piece are <code>a = sum(sign &gt; 0 ? nA : nB)</code>, <code>b = sum(sign &gt; 0 ? nB : nA)</code> over its blocks with <code>sign != 0</code>; <code>a / (a + b)</code> estimates <code>cn_a / (cn_a + cn_b)</code> (attenuated).</p></li>
+<code>[start, end)</code>), <code>ps</code> (phase set of the votes table), <code>ref</code> (reference clone), <code>nA_ref, nB_ref</code> (the reference
+clone's pooled votes of phase-set haplotypes A and B), <code>sign</code> (+1: phase-set haplotype A is cn_a; -1: haplotype B
+is cn_a; 0: tie, unoriented) and <code>flipped</code> (the piece's labels were flipped by chaining: <code>sign</code> is then minus the
+sign of <code>nA_ref - nB_ref</code>). Blocks absent from the table are unoriented. A cell's oriented votes on a piece are <code>a = sum(sign &gt; 0 ? nA : nB)</code>, <code>b = sum(sign &gt; 0 ? nB : nA)</code> over its blocks with <code>sign != 0</code>; <code>a / (a + b)</code> estimates <code>cn_a / (cn_a + cn_b)</code> (attenuated).</p></li>
 <li><p><code>params</code>: <code>use</code>, <code>near</code>, <code>chain</code>, <code>min_link</code>.</p></li>
 </ul></div>
     <div class="section level2">

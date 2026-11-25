@@ -91,7 +91,8 @@ the flagged null cells, else of the cells without a call on the null rows (<code
 
 
 <dl><dt id="arg-dir">dir<a class="anchor" aria-label="anchor" href="#arg-dir"></a></dt>
-<dd><p>extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)</p></dd>
+<dd><p>extraction directory (the bins file <code>bins_&lt;tag&gt;.h5ad</code>, by default <code>bins_100kb.h5ad</code>; fragments.tsv.gz +
+.tbi, cells_qc.tsv)</p></dd>
 
 
 <dt id="arg-mode">mode<a class="anchor" aria-label="anchor" href="#arg-mode"></a></dt>
@@ -135,9 +136,11 @@ copy-number-normal cells give the better null</p></dd>
 
 <dt id="arg-multiplets">multiplets<a class="anchor" aria-label="anchor" href="#arg-multiplets"></a></dt>
 <dd><p>NULL or multiplet flags (<code><a href="multiplet_table.html">multiplet_table()</a></code> forms); normal mode: cells with prob &gt; 0.5
-are never null cells and never pooled; tumour mode: passed to <code><a href="caller_tumour.html">caller_tumour()</a></code>, which sets aside the cells
-above its <code>multiplet_prob</code> option (default 0.9). The <code>multiplet</code> column of the cells table flags the cells each
-mode set aside</p></dd>
+are never null cells and never pooled; tumour mode: cells with prob &gt; 0.5 are left out of the input null fit
+(<code><a href="tumour_null_fit.html">tumour_null_fit()</a></code>), and <code><a href="caller_tumour.html">caller_tumour()</a></code> sets aside the cells above its <code>multiplet_prob</code> option (default 0.9)
+from clone discovery and the clone pseudobulks (a higher cut: a cell set aside there no longer shapes the clone
+states, while the null fit only needs enough clean cells) and uses every cell's prob as its doublet prior. The
+<code>multiplet</code> column of the cells table flags the cells each mode set aside (tumour mode: above <code>multiplet_prob</code>)</p></dd>
 
 
 <dt id="arg-control-regions">control_regions<a class="anchor" aria-label="anchor" href="#arg-control-regions"></a></dt>

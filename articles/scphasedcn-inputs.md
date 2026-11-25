@@ -171,9 +171,11 @@ scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
 `run` extracts every chromosome in parallel (`--jobs`; a deep chromosome
 takes a few GB of memory) and merges. On a cluster, run
 `scphasedcn extract --chrom <chrom>` as one job per chromosome and
-`scphasedcn merge` after them, with the same options. A sample yaml
-keeps the paths in one place (`--config sample.yaml --sample <key>`,
-also read by the caller’s command line):
+`scphasedcn merge` after them, with the same options (without
+`--chroms`, `merge` merges the chromosomes that have a finished
+partial). A sample yaml keeps the paths in one place
+(`--config sample.yaml --sample <key>`, also read by the caller’s
+command line):
 
 ``` r
 cat(readLines(system.file("extdata", "sample_template.yaml", package = "scphasedcn")), sep = "\n")
@@ -340,5 +342,9 @@ data.table::fwrite(m, file.path(tempdir(), "cell_meta.tsv"), sep = "\t")
 ```
 
 Multiplets (barcodes holding more than one nucleus) inflate calls; pass
-a per-cell multiplet probability as `multiplets` (a table `cell, prob`)
-to leave them out of the null and the clone discovery.
+a per-cell multiplet probability as `multiplets` (a table `cell, prob`,
+or any form
+[`multiplet_table()`](https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.md)
+reads) to leave them out of the null (prob \> 0.5) and, in tumour mode,
+of the clone discovery and the clone pseudobulks (prob above the
+`multiplet_prob` option, 0.9 by default).

@@ -1770,3 +1770,57 @@ test_that("split_disagree (direct call): checks its options, fits a missing inpu
   expect_true(all(seen == 2))                                         # ... at the parent clone's baseline, not opts$ploidy (3)
   expect_error(split_disagree(members, sg, par, inp, inp$win, inp$votes, cd, opts = list(bogus = 1)), "unknown option")
 })
+
+test_that("matched_null_confirm (one hypothesis at a time) equals the whole-table matched null", {
+  # the confirmation inputs of caller_tumour() rebuilt on sim_tri (near-triploid clone, several hypotheses)
+  inp = clone_input(clone_cached("clones_tri_input", function() clone_sim_input(sim_tri)))
+  r0 = clone_cached("clones_tri_result", function() caller_tumour(clone_cached("clones_tri_input", function() clone_sim_input(sim_tri)),
+                                                                verbose = FALSE))
+  params = caller_defaults()
+  sg = copy(r0$segments); asg = copy(r0$assignments); par = as.data.table(r0$null_fit$clones$par)
+  members = asg[confident == TRUE, .(cell, clone)]
+  ev = sg[label != "neutral"]
+  ev_reg = scphasedcn:::seg_regions(ev[, .(clone, chrom, start, end)], inp$regions)
+  ev[, region := ev_reg$region]
+  rows = asg[, .(cell, clone)][ev[, .(clone, region, cn, ploidy, f_state = fifelse(cn > 0, scphasedcn:::nA_of(state) / cn, 0.5), label)],
+                               on = "clone", allow.cartesian = TRUE, nomatch = NULL]
+  rows[par, `:=`(c = i.c, a = i.a), on = "clone"]
+  rows[, `:=`(base_b = scphasedcn:::clone_baseline(par, clone), oclone = clone)]
+  pieces = segment_pieces(sg, inp$regions)
+  ref = asg[ref_pool == TRUE, cell]
+  nr = scphasedcn:::confirm_null_rows(ref, pieces, asg, members, par, intersect(unique(ev$clone), members$clone), TRUE,
+                                      inp$haploid)
+  nr[, kind := "pool"]
+  nx = scphasedcn:::cell_state_scores(inp, pieces, nr, members, inp$tpar, inp$rho, params, ref)
+  nsc = unique(nx[, intersect(c("cell", "region", "stratum", "kind", "oclone", "sd_class", "z", "sd_null", "shift0_", "nA_o", "n_o"),
+                              names(nx)), with = FALSE], by = c("cell", "region", "oclone"))
+  sc0 = scphasedcn:::cell_state_scores(inp, ev_reg, rows, members, inp$tpar, inp$rho, params, ref)
+  bs = scphasedcn:::b_score(sc0, inp$tpar, inp$rho, params)
+  sc0[bs, score := i.s_comb, on = .(cell, region)]
+  # the whole table (the code up to this version)
+  sc1 = copy(sc0)
+  mn = scphasedcn:::b_matched_null(sc1, copy(nsc), inp$tpar, inp$rho, params)
+  nb = mn$nb
+  nb[, class := hyp]
+  bt1 = budget_thresholds(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params, null = rep(TRUE, nrow(nb)))
+  bw1 = budget_thresholds(nb, scores = "s_comb", by = "class", cv = FALSE, params = params, null = rep(TRUE, nrow(nb)))
+  nb[, fold := assign_folds(cell, seed = params$seed)]
+  btc = budget_thresholds(nb, scores = "s_comb", by = c("class", "stratum"), cv = TRUE, params = params, null = rep(TRUE, nrow(nb)))
+  nbc = apply_thresholds(nb, btc, "s_comb")
+  rt = function(x) x[, .(n_null = sum(!is.na(call_s_comb)), n_called = sum(call_s_comb, na.rm = TRUE))]
+  nc1 = rbind(nbc[, rt(.SD), by = .(hyp, kind)], nbc[, rt(.SD), by = kind][, hyp := "all"],
+              rt(nbc)[, `:=`(hyp = "all", kind = "all")], use.names = TRUE)
+  # one hypothesis at a time
+  sc2 = copy(sc0)
+  mc = scphasedcn:::matched_null_confirm(sc2, copy(nsc), inp$tpar, inp$rho, params)
+  expect_gt(uniqueN(nb$hyp), 2)
+  expect_identical(mc$sc, mn$sc)
+  expect_identical(mc$bt, bt1)
+  expect_identical(mc$bw, bw1)
+  expect_identical(mc$null_confirm, nc1)
+  tb = table(factor(nb$hyp, levels = unique(nb$hyp)))
+  expect_identical(mc$n_null, stats::setNames(as.integer(tb), names(tb)))
+  # no hypothesis with null rows: NULL (the caller then takes the whole-table path)
+  expect_null(scphasedcn:::matched_null_confirm(copy(sc0), copy(nsc)[0], inp$tpar, inp$rho, params))
+})
+

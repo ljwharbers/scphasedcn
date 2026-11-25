@@ -172,10 +172,11 @@ scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
 takes a few GB of memory) and merges. On a cluster, run
 `scphasedcn extract --chrom <chrom>` as one job per chromosome and
 `scphasedcn merge` after them, with the same options (without
-`--chroms`, `merge` merges the chromosomes that have a finished
-partial). A sample yaml keeps the paths in one place
-(`--config sample.yaml --sample <key>`, also read by the caller’s
-command line):
+`--chroms`, `merge` merges the chromosomes `run` would extract, those of
+the BAM header, and fails naming any without a finished partial, e.g. a
+job that died; `--allow-missing` merges without them). A sample yaml
+keeps the paths in one place (`--config sample.yaml --sample <key>`,
+also read by the caller’s command line):
 
 ``` r
 cat(readLines(system.file("extdata", "sample_template.yaml", package = "scphasedcn")), sep = "\n")
@@ -217,7 +218,8 @@ the bin filter).
 
 - the bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad`
   (AnnData; the extractor names it after its bin size,
-  e.g. `bins_50kb.h5ad`, and the caller reads `bins_100kb.h5ad` when
+  e.g. `bins_50kb.h5ad`, and removes any other `bins_*.h5ad` of the
+  directory when it merges; the caller reads `bins_100kb.h5ad` when
   present, else the one `bins_*.h5ad` of the directory,
   [`bins_file()`](https://ljwharbers.github.io/scphasedcn/reference/bins_file.md)):
   `X` = clean fragments per cell (rows) x bin (columns). `var` per bin:

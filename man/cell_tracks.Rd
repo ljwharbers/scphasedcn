@@ -41,6 +41,8 @@ copy-number baseline (\code{base}, the copy number at log2 0) is the chromosome'
 to other cells of the sample (a reference pool, or the features' \code{celltype} / \code{loo} depth, normal mode's), else 2
 (\code{model} depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
 take the ploidy.
+When the result's \code{clones} has a \code{baseline} column (the clone's ploidy baseline B, with absolute copy-number
+states), \code{base} is scaled by B / 2 for the cell's clone (NA or no column: 2, i.e. unchanged).
 \item \code{baf}: per cell and \code{agg} window the oriented haplotype-A fraction \code{nA / (nA + nB)} of the cell's molecule votes.
 Phase blocks are oriented with \code{\link[=orient_blocks]{orient_blocks()}} (ties dropped) by a leave-one-out pseudobulk: of the cell's
 clone (\code{orient = "clone"}, the confirmation's orientation) or of all cells (\code{"pseudobulk"}); \code{"none"} keeps

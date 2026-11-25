@@ -192,6 +192,31 @@ test_that("cell_tracks takes partial tumour results (no calls, clones without c 
   expect_identical(cell_tracks(feat, res, cells = c(cb, cb))$meta$cell, cb)
 })
 
+test_that("expected log2 lines are relative to the clone's ploidy baseline (clones$baseline)", {
+  feat = pc_features()
+  res = pc_result(feat)
+  ca = res$assignments[clone == "CA", cell][1:2]
+  # CA: baseline 3 copies; its chr21 2:1 then sits at the cell's median, a 2:2 on chr22 above it
+  res$clones = copy(res$clones)[, baseline := c(2, 3, NA)]
+  res$segments = copy(res$segments)[clone == "CA" & chrom == "chr22", state := "2:2"]
+  for (pool in c(TRUE, FALSE)) {
+    r = res
+    if (!pool) r$assignments = copy(r$assignments)[, ref_pool := FALSE]   # model depth, no reference pool
+    tr = cell_tracks(feat, r, cells = c(ca, res$assignments[clone == "CB", cell][1]))
+    f = tr$fit[cell %in% ca]
+    expect_equal(unique(f[chrom == "chr21", log2_exp]), 0, info = paste("pool", pool))
+    expect_equal(unique(f[chrom == "chr22", log2_exp]), 0.8 * log2(4 / 3), info = paste("pool", pool))
+    expect_equal(unique(f[chrom == "chr1", log2_exp]), 0.8 * log2(2 / 3), info = paste("pool", pool))
+    # male chrX (one copy): against a pool of the same sex the baseline is 1 x 3 / 2 copies, on model depth 3
+    expect_equal(unique(f[chrom == "chrX", log2_exp]), 0.8 * log2(1 / if (pool) 1.5 else 3), info = paste("pool", pool))
+    # a clone with baseline NA keeps the diploid baseline
+    expect_equal(unique(tr$fit[!cell %in% ca & chrom == "chr2", log2_exp]), 0)
+  }
+  # without the column: as before
+  r0 = pc_result(feat)
+  expect_equal(unique(cell_tracks(feat, r0, cells = ca)$fit[chrom == "chr21", log2_exp]), 0.8 * log2(3 / 2))
+})
+
 test_that("plots colour every state label, including imbalance and labels the palette does not know", {
   skip_if_not_installed("ggplot2")
   skip_if_not_installed("patchwork")

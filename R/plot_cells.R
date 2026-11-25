@@ -59,6 +59,8 @@ genome_layout = function(windows) {
 #'   to other cells of the sample (a reference pool, or the features' `celltype` / `loo` depth, normal mode's), else 2
 #'   (`model` depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
 #'   take the ploidy.
+#'   When the result's `clones` has a `baseline` column (the clone's ploidy baseline B, with absolute copy-number
+#'   states), `base` is scaled by B / 2 for the cell's clone (NA or no column: 2, i.e. unchanged).
 #' - `baf`: per cell and `agg` window the oriented haplotype-A fraction `nA / (nA + nB)` of the cell's molecule votes.
 #'   Phase blocks are oriented with [orient_blocks()] (ties dropped) by a leave-one-out pseudobulk: of the cell's
 #'   clone (`orient = "clone"`, the confirmation's orientation) or of all cells (`"pseudobulk"`); `"none"` keeps
@@ -111,7 +113,7 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
   ref = if ("ref_pool" %in% names(asg)) intersect(asg[ref_pool %in% TRUE, cell], fcells) else character()
   use_ref = length(ref) >= min_ref
   cl = if (!is.null(result$clones)) as.data.table(result$clones) else data.table(clone = character())
-  for (k in c("c", "a")) if (!k %in% names(cl)) cl[, (k) := rep(NA_real_, .N)]
+  for (k in c("c", "a", "baseline")) if (!k %in% names(cl)) cl[, (k) := rep(NA_real_, .N)]
   # copy-number baseline of the depth: the ploidy when the depth is relative to cells of the sample
   dm = features_depth_method(features)
   rel_depth = use_ref || (if (is.na(dm)) mode == "normal" else dm %in% c("celltype", "loo"))
@@ -207,7 +209,10 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
   }
   fit[, cn := nA_of(state) + nB_of(state)]
   fit[, f := fifelse(cn > 0, nA_of(state) / cn, 0.5)]
-  fit[, base := base_of(ploidy)]
+  # clone ploidy baseline B (clones$baseline; NA / absent: 2): the cell's median depth is B copies, so every baseline
+  # scales by B / 2 (relative depth: ploidy x B / 2, e.g. a male chrX against a same-sex reference; model depth: B)
+  fit[, b_ := as.numeric(cl$baseline[match(clone, cl$clone)])][is.na(b_), b_ := 2]
+  fit[, base := base_of(ploidy) * b_ / 2][, b_ := NULL]
   fit[, c_ := as.numeric(cl$c[match(clone, cl$clone)])][is.na(c_), c_ := 1]
   fit[, a_ := as.numeric(cl$a[match(clone, cl$clone)])][is.na(a_), a_ := 1]
   fit[, log2_exp := c_ * log2(pmax(cn, 0.2) / base)]   # 0.2: the floor of the clone-state depth emission
@@ -233,7 +238,7 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
             orient = orient, mode = mode, class = c("cell_tracks", "list"))
 }
 utils::globalVariables(c("src", "i.src", "c_", "a_", "log2_exp", "f_exp", "n_confirmed", "n_inherited", "baf", "se",
-                         "shade", "offset", "len", "mid", "gx", "gx0", "gx1", "lt", "size", "cs", "cend", "i.cs", "i.cend"))
+                         "shade", "offset", "len", "mid", "gx", "gx0", "gx1", "lt", "size", "cs", "cend", "i.cs", "i.cend", "b_"))
 
 # one neutral segment per chromosome and cell
 neutral_baseline = function(cells, windows, haploid) {

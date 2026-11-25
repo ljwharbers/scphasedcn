@@ -33,6 +33,7 @@ jobs:
       r: ${{ steps.filter.outputs.r }}
       python: ${{ steps.filter.outputs.python }}
       io: ${{ steps.filter.outputs.io }}
+      site: ${{ steps.filter.outputs.site }}
     steps:
       - uses: actions/checkout@v4
       - id: filter
@@ -57,6 +58,14 @@ jobs:
             io:
               - 'tools/tiny_extraction.py'
               - 'tools/check_extraction_io.R'
+            site:
+              - '_pkgdown.yml'
+              - 'man/**'
+              - 'vignettes/**'
+              - 'DESCRIPTION'
+              - 'NEWS.md'
+              - 'README.md'
+              - '.github/workflows/check.yaml'
 
   python:
     needs: changes
@@ -140,10 +149,29 @@ jobs:
           args: 'c("--no-manual", "--as-cran")'
           error-on: '"warning"'
 
+  pkgdown-check:
+    # the site configuration (reference index, articles, URLs) before merging; the site itself is built after merge
+    # (pkgdown.yaml). check_pkgdown() reads DESCRIPTION, _pkgdown.yml, man/ and vignettes/: only pkgdown is installed.
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: any::pkgdown
+      - run: pkgdown::check_pkgdown()
+        shell: Rscript {0}
+
   ci-ok:
     # one status check for branch protection: fails when a job failed or was cancelled; skipped jobs count as passed
     if: always()
-    needs: [consistency, changes, python, extraction-io, r-cmd-check]
+    needs: [consistency, changes, python, extraction-io, r-cmd-check, pkgdown-check]
     runs-on: ubuntu-latest
     steps:
       - name: all jobs passed or were skipped

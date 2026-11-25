@@ -69,6 +69,12 @@ test_that("cell_tracks returns depth, oriented BAF and fitted segments that foll
   # an inherited call that is not reportable (clone not confident) stays a plain clone segment
   r_nr = res; r_nr$calls = copy(res$calls)[called == FALSE, reportable := FALSE]
   expect_false("inherited" %in% cell_tracks(feat, r_nr, cells = ct("CB"))$fit$source)
+  # ... and so does a confirmed call that is not reportable (it is not among the result's events)
+  r_cn = res; r_cn$calls = copy(res$calls)[called == TRUE, reportable := FALSE]
+  t_cn = cell_tracks(feat, r_cn, cells = ct("CB"))
+  expect_false("confirmed" %in% t_cn$fit$source)
+  expect_true(all(t_cn$meta$n_confirmed == 0L))
+  expect_equal(sum(t_cn$meta$n_inherited), sum(!res$calls$called))
   expect_equal(unique(f$f_exp), 0.5 + 0.9 * 0.5)
   expect_equal(unique(f$log2_exp), 0)   # 2:0 keeps the copy number
   g = tr$fit[chrom == "chr21" & cell %in% ct("CA")]
@@ -307,13 +313,18 @@ test_that("cell_tracks and the plots run on call_scn() results, the same after w
   tr = cell_tracks(feat, res)
   expect_identical(attr(tr, "orient"), "clone")
   expect_true(all(tr$fit$source %in% c("confirmed", "inherited", "clone")))
-  cc = as.data.table(res$calls)[level == "cell" & called %in% TRUE]
+  cc = as.data.table(res$calls)[level == "cell" & called %in% TRUE & reportable %in% TRUE]
   if (nrow(cc) && "source" %in% names(cc)) {
-    # every called cell-level row of an assigned cell is found among the cell's fitted segments
+    # every called reportable cell-level row of an assigned cell is found among the cell's fitted segments
     cc = cc[cell %in% tr$meta[!is.na(clone), cell]]
     hit = tr$fit[source != "clone"][cc, on = .(cell, chrom, start, end), nomatch = NULL]
     expect_equal(nrow(unique(hit[, .(cell, chrom, start, end)])), nrow(unique(cc[, .(cell, chrom, start, end)])))
   }
+  # the confirmed segments of each cell are its reported events (the reportable confirmed calls)
+  ev = as.data.table(res$events)[level == "cell", .(n_ev = .N), by = cell]
+  nc = ev[tr$meta[, .(cell, n_confirmed)], on = "cell"][is.na(n_ev), n_ev := 0L]
+  expect_gt(sum(nc$n_ev), 0)
+  expect_identical(nc$n_confirmed, nc$n_ev)
   # reportable inherited calls (called FALSE by construction) are drawn as inherited segments
   inh = as.data.table(res$calls)[level == "cell" & source == "inherited" & reportable %in% TRUE &
                                    cell %in% tr$meta[!is.na(clone), cell]]

@@ -47,8 +47,9 @@ clone (\code{orient = "clone"}, the confirmation's orientation) or of all cells 
 the phased haplotypes as they are (meaningful with chromosome-wide phasing). \code{"auto"}: \code{"clone"} in tumour mode,
 \code{"none"} in normal mode with chromosome-wide phasing, else \code{"pseudobulk"}.
 \item \code{fit}: the fitted segments of each cell. Tumour mode: the segments of the cell's clone, with \code{source}
-\code{confirmed} (called in the cell), \code{inherited} (the clone's call carried to the cell), or \code{clone} (neutral, or a
-clone call not reported in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
+\code{confirmed} (the cell's call has \code{source} confirmed), \code{inherited} (a reportable call with \code{source} inherited:
+the clone's segment carried to the cell without its own confirmation), or \code{clone} (neutral, or a clone segment
+without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
 cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0; on a haploid chromosome loss 0:0, gain 2:0, amp 3:0) on a
 neutral baseline; events without coordinates take those of their \code{top_region}, else the whole chromosome.
 Expected log2 \code{c * log2(max(cn, 0.2) / base)} (\code{c} the clone's depth contrast, 1 in normal mode or when the

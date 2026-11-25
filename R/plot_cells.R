@@ -65,8 +65,9 @@ genome_layout = function(windows) {
 #'   the phased haplotypes as they are (meaningful with chromosome-wide phasing). `"auto"`: `"clone"` in tumour mode,
 #'   `"none"` in normal mode with chromosome-wide phasing, else `"pseudobulk"`.
 #' - `fit`: the fitted segments of each cell. Tumour mode: the segments of the cell's clone, with `source`
-#'   `confirmed` (called in the cell), `inherited` (the clone's call carried to the cell), or `clone` (neutral, or a
-#'   clone call not reported in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
+#'   `confirmed` (the cell's call has `source` confirmed), `inherited` (a reportable call with `source` inherited:
+#'   the clone's segment carried to the cell without its own confirmation), or `clone` (neutral, or a clone segment
+#'   without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
 #'   cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0; on a haploid chromosome loss 0:0, gain 2:0, amp 3:0) on a
 #'   neutral baseline; events without coordinates take those of their `top_region`, else the whole chromosome.
 #'   Expected log2 `c * log2(max(cn, 0.2) / base)` (`c` the clone's depth contrast, 1 in normal mode or when the
@@ -169,12 +170,14 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
     seg = seg[, .(clone, chrom, start, end, state, label, ploidy)]
     fit = data.table(cell = cells, clone = cl_of)[!is.na(clone)][seg, on = "clone", allow.cartesian = TRUE, nomatch = NULL]
     calls = if (is.null(result$calls)) data.table() else as.data.table(result$calls)
-    need = c("cell", "chrom", "start", "end", "level", "called", "source")
-    calls = if (nrow(calls) && all(need %in% names(calls))) calls[level == "cell" & called %in% TRUE & cell %in% cells] else data.table()
+    # caller_tumour() gives every cell its clone's segments: `source` "confirmed" (and `called`) when the cell's own
+    # score passes, else "inherited" with `called` FALSE; an inherited row counts when it is reportable
+    need = c("cell", "chrom", "start", "end", "level", "source")
+    calls = if (nrow(calls) && all(need %in% names(calls))) calls[level == "cell" & cell %in% cells] else data.table()
     if (nrow(calls)) {
       if (!"reportable" %in% names(calls)) calls[, reportable := TRUE]
       calls = calls[, .(src = fifelse(any(source == "confirmed"), "confirmed",
-                                      fifelse(any(reportable %in% TRUE), "inherited", "clone"))),
+                                      fifelse(any(source == "inherited" & reportable %in% TRUE), "inherited", NA_character_))),
                     by = .(cell, chrom, start, end)]
       fit[calls, src := i.src, on = .(cell, chrom, start, end)]
     } else fit[, src := NA_character_]

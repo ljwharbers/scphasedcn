@@ -32,9 +32,12 @@ pc_result = function(feat) {
              ploidy = fifelse(chrom == "chrX", 1L, 2L))]
   cb = ct[clone == "CB", cell]
   c1 = chroms[chrom == "chr1"]
+  # as caller_tumour() writes them: every cell carries its clone's segments; `called` (score above the confirmation
+  # threshold) exactly when `source` is "confirmed", the others are "inherited" (reportable when the clone is confident)
+  sc = c(10, 0.5)[seq_along(cb) %% 2 + 1]
   calls = data.table(cell = cb, region = "seg|CB|chr1", class = "segment", chrom = "chr1", start = c1$start,
-                     end = c1$end, state = "cnloh", score = 10, thr = 1, called = TRUE, level = "cell",
-                     source = c("confirmed", "inherited")[seq_along(cb) %% 2 + 1], reportable = TRUE)
+                     end = c1$end, state = "cnloh", score = sc, thr = 1, called = sc > 1, level = "cell",
+                     source = fifelse(sc > 1, "confirmed", "inherited"), reportable = TRUE)
   asg = ct[, .(cell, clone, posterior = 1, assigned = TRUE, ref_pool = clone == "N0")]
   clones = data.table(clone = c("N0", "CA", "CB"), c = c(1, 0.8, 0.8), a = c(1, 0.9, 0.9))
   regs = feat$regions
@@ -62,6 +65,10 @@ test_that("cell_tracks returns depth, oriented BAF and fitted segments that foll
   # fitted segments: sources from the calls, expected values from the clone parameters
   f = tr$fit[chrom == "chr1" & cell %in% ct("CB")]
   expect_setequal(unique(f$source), c("confirmed", "inherited"))
+  expect_equal(tr$meta[cell %in% ct("CB"), sum(n_inherited)], sum(!res$calls$called))
+  # an inherited call that is not reportable (clone not confident) stays a plain clone segment
+  r_nr = res; r_nr$calls = copy(res$calls)[called == FALSE, reportable := FALSE]
+  expect_false("inherited" %in% cell_tracks(feat, r_nr, cells = ct("CB"))$fit$source)
   expect_equal(unique(f$f_exp), 0.5 + 0.9 * 0.5)
   expect_equal(unique(f$log2_exp), 0)   # 2:0 keeps the copy number
   g = tr$fit[chrom == "chr21" & cell %in% ct("CA")]
@@ -257,6 +264,14 @@ test_that("cell_tracks and the plots run on call_scn() results, the same after w
     hit = tr$fit[source != "clone"][cc, on = .(cell, chrom, start, end), nomatch = NULL]
     expect_equal(nrow(unique(hit[, .(cell, chrom, start, end)])), nrow(unique(cc[, .(cell, chrom, start, end)])))
   }
+  # reportable inherited calls (called FALSE by construction) are drawn as inherited segments
+  inh = as.data.table(res$calls)[level == "cell" & source == "inherited" & reportable %in% TRUE &
+                                   cell %in% tr$meta[!is.na(clone), cell]]
+  inh = unique(inh[, .(cell, chrom, start, end)])
+  inh = inh[!tr$fit[source == "confirmed"], on = .(cell, chrom, start, end)]
+  expect_gt(nrow(inh), 0)
+  expect_equal(nrow(tr$fit[source == "inherited"]), nrow(inh))
+  expect_equal(sum(tr$meta$n_inherited), nrow(inh))
   out = file.path(tempdir(), "plotcells_tum_out")
   write_scphasedcn(res, out)
   tr2 = cell_tracks(feat, read_scphasedcn(out))

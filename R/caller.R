@@ -764,8 +764,8 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' allelic rho on the null rows of the current set, scores every candidate
 #' cell on the `classes` regions (chromosomes and arms) with `s_comb`,
 #' thresholds at the selection quantile `q` and keeps the cells with at most
-#' `max_calls` calls (it stops early, with no null cell, when every candidate
-#' has more). Every iteration re-evaluates all candidates (a cell
+#' `max_calls` calls (it stops early, with no null cell, when no candidate is
+#' left: every candidate guarded, or with more calls). Every iteration re-evaluates all candidates (a cell
 #' dropped earlier can come back), so the set does not ratchet.
 #'
 #' Thresholds (`threshold`): "parametric" (default) re-draws the null rows
@@ -841,6 +841,7 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
   cur = setdiff(cand, guard_win)                       # guarded cells are out from the first fit on (also with n_iter = 1)
   log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL; prev = cur
   for (it in seq_len(n_iter)) {
+    if (!length(cur)) break   # no cell left (every candidate guarded, or called in the last iteration): nothing to fit on
     isn = ok_row & d$cell %in% cur
     tpar = if (depth_model == "t") complete_tpar(d, fit_depth_null(d[isn])) else NULL
     arm = isn & d$class == "arm"
@@ -859,8 +860,8 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
                            n_win_guard = length(guard_win))
     prev = cur
     cur = new
-    if (!length(cur)) break   # every candidate has a call: nothing to fit the next iteration on
   }
+  if (is.null(nc)) nc = data.table(cell = cand, n_calls = NA_integer_)   # no iteration ran: every candidate guarded
   nc[, win_guard := cell %in% guard_win]
   nc[, null := cell %in% cur]
   list(null_cells = cur, previous = prev, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)

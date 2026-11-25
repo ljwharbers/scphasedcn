@@ -40,7 +40,8 @@ simulate_scn(
 \item{depth}{lognormal parameters (meanlog, sdlog) of fragments per nucleus}
 
 \item{events}{data.table (chrom, start, end, cnA, cnB, type); \code{type} may be a
-cell type name or "private" (then \code{private_frac} of the nuclei carry it)}
+cell type name, "private" (then \code{private_frac} of the nuclei carry it) or "nucleus:\if{html}{\out{<i>}},\if{html}{\out{<j>}},..." (exactly the
+given nuclei carry it, e.g. several events in one nucleus: a highly aneuploid cell)}
 
 \item{private_frac}{fraction of nuclei carrying a "private" event}
 

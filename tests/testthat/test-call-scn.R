@@ -264,6 +264,107 @@ test_that("call_scn takes precomputed features, explicit null cells and multiple
   expect_null(r3$params$tumour)
 })
 
+test_that("call_scn with mask_f0 runs the bias mask pass and records it; depth is untouched", {
+  res = norm_result()
+  expect_null(res$null_fit$allelic_mask)                                  # default: no mask pass
+  r = call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE,
+               params = modifyList(caller_defaults(), list(mask_f0 = TRUE)))
+  am = r$null_fit$allelic_mask
+  expect_true(all(c("f0", "d0", "z_f0", "masked_rho", "masked_f0") %in% names(am)))
+  expect_identical(am$masked, am$masked_f0)                               # mask_allelic off: the bias rule alone
+  expect_true(all(am$chrom %in% AUTOSOMES_CALLER))
+  expect_true(any(grepl("allelic mask: .*bias rule .*: \\d+", r$notes)))
+  # sim_norm_f has no shared allelic bias: nothing is masked at the default thresholds and the calls are those of
+  # the default run
+  expect_equal(sum(am$masked), 0)
+  expect_identical(r$features$z, res$features$z)
+  expect_identical(r$calls, res$calls)
+  # both rules on, the bias rule forced to fire (thresholds below the simulation's noise): the union is masked,
+  # the run notes give the count per rule, the allele votes of the masked tiles are gone, depth is untouched and
+  # the truth checks of the default run still hold
+  prm = modifyList(caller_defaults(), list(mask_allelic = TRUE, mask_f0 = TRUE, mask_f0_mad = 1.5, mask_f0_min = 0.005))
+  r2 = call_scn(sim_dir("sim_norm_f"), "normal", sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins), verbose = FALSE,
+                params = prm)
+  am2 = r2$null_fit$allelic_mask
+  expect_gt(sum(am2$masked_f0), 0)
+  expect_identical(am2$masked, am2$masked_rho | am2$masked_f0)
+  nt = regmatches(r2$notes, regexpr("overdispersion rule [^;]*: \\d+; bias rule [^;]*: \\d+", r2$notes))
+  expect_length(nt, 1)
+  expect_equal(as.integer(regmatches(nt, gregexpr("\\d+(?=$|;)", nt, perl = TRUE))[[1]]), c(sum(am2$masked_rho), sum(am2$masked_f0)))
+  mt = am2[masked == TRUE, tile]
+  expect_true(all(r2$features[region %in% mt, n_hap] == 0))
+  expect_gt(res$features[region %in% mt, sum(n_hap)], 0)
+  expect_identical(r2$features$z, res$features$z)
+  tr = sim_norm_f$truth
+  cells = sim_norm_f$scn$cells$cell
+  car = lapply(tr$carriers, function(n) unique(cells[tr$nuclei$cell[n]]))
+  cl = r2$calls[level == "cell" & called & reportable]
+  for (k in list(list("chr1p", "loss", 1), list("chr8", "gain", 2), list("chr21", "gain", 4))) {
+    got = unique(cl[region == k[[1]] & state == k[[2]], cell])
+    expect_true(all(got %in% car[[k[[3]]]]), info = k[[1]])
+    expect_gte(length(intersect(got, car[[k[[3]]]])) / length(car[[k[[3]]]]), 0.7)
+  }
+  # the reportable cell calls on chromosomes without a masked tile are those of the default run (here 5 tiles of
+  # chr1, chr2 and chr22 are masked; the 56 calls elsewhere are unchanged)
+  key = function(x) x[level == "cell" & called & reportable & !chrom %in% am2[masked == TRUE, chrom], paste(cell, region, state)]
+  expect_gt(length(key(res$calls)), 0)
+  expect_setequal(key(r2$calls), key(res$calls))
+})
+
+test_that("call_scn does not apply the bias rule (mask_f0) under mirrored orientation: noted, warned, results unchanged", {
+  cen = cs_centromeres(sim_norm_f$scn$bins)
+  f = suppressWarnings(cell_features(sim_dir("sim_norm_f"), sex = "female", centromeres = cen, phasing = "mirrored"))
+  expect_identical(features_orientation(f), "mirrored")
+  # thresholds at zero: under mirrored orientation about half the tiles would be bias outliers if the rule ran
+  prm = modifyList(caller_defaults(), list(mask_f0 = TRUE, mask_f0_mad = 0, mask_f0_min = 0))
+  # every normal-mode run on mirrored features also warns that this orientation is a diagnostic; collect the warnings
+  run = function(p) call_w(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE)
+  x1 = run(prm); r1 = x1$r
+  expect_length(grep("mask_f0.*mirrored", x1$w), 1L)
+  x0 = run(caller_defaults()); r0 = x0$r
+  expect_false(any(grepl("mask_f0", x0$w)))
+  expect_null(r1$null_fit$allelic_mask)                                   # no tile masked, no mask pass
+  expect_equal(sum(grepl("bias rule \\(mask_f0\\) not applied: under mirrored orientation", r1$notes)), 1)
+  expect_false(any(grepl("mask_f0", r0$notes)))
+  for (k in c("features", "scores", "thresholds", "calls", "events", "pools", "null_fit", "false_calls", "false_events"))
+    expect_identical(r1[[k]], r0[[k]], info = k)
+  # the overdispersion rule still runs under mirrored orientation; the bias rule is not part of it
+  x2 = run(modifyList(prm, list(mask_allelic = TRUE))); r2 = x2$r
+  expect_equal(sum(grepl("mask_f0", x2$w)), 1)                             # warned once
+  expect_identical(r2$null_fit$allelic_mask$masked, r2$null_fit$allelic_mask$masked_rho)
+  # the orientation of a features object without `phasing`: from its long table
+  expect_identical(features_orientation(list(long = f$long)), "mirrored")
+  l2 = copy(f$long)[allelic_ok %in% TRUE, orient := "pseudobulk"]
+  expect_true(is.na(features_orientation(list(long = l2))))
+})
+
+test_that("call_scn with both allelic masks on a run without any allele votes: nothing masked, depth-only with one warning", {
+  # an unphased extraction: no molecule vote and nA = nB = n_hap = 0 on every row; caller_normal warns and runs
+  # depth-only, and the mask pass (mask_allelic, mask_f0) has no tile to assess
+  f = suppressWarnings(cell_features(sim_dir("sim_norm_f"), sex = "female", centromeres = cs_centromeres(sim_norm_f$scn$bins)))
+  f$long[, `:=`(nA = 0, nB = 0, n_hap = 0)]
+  if ("f" %in% names(f$long)) f$long[, f := NA_real_]
+  f$votes = f$votes[0]
+  run = function(p) {
+    ws = character()
+    r = withCallingHandlers(call_scn(sim_dir("sim_norm_f"), "normal", features = f, params = p, embedding = FALSE, verbose = FALSE),
+                            warning = function(w) { ws <<- c(ws, conditionMessage(w)); invokeRestart("muffleWarning") })
+    list(r = r, ws = ws)
+  }
+  x = run(modifyList(caller_defaults(), list(mask_allelic = TRUE, mask_f0 = TRUE)))
+  x0 = run(caller_defaults())
+  expect_length(grep("no allele votes", x$ws), 1)
+  expect_false(any(grepl("mask", x$ws)))
+  am = x$r$null_fit$allelic_mask
+  expect_gt(nrow(am), 0)
+  expect_false(any(am$assessed))
+  expect_false(any(am$masked))
+  expect_true(any(grepl("allelic mask: 0 of 0 assessed 5 Mb tiles masked", x$r$notes)))
+  expect_true(any(grepl("no allele votes", x$r$notes)))
+  expect_gt(nrow(x$r$calls), 0)
+  expect_identical(x$r$calls, x0$r$calls)
+})
+
 test_that("call_scn(null_check = TRUE) adds the selection check and changes no call, event, threshold or cell", {
   res = norm_result()
   fe = list(long = copy(res$features), regions = res$regions, cells = res$feature_info$cells, use = res$feature_info$use,

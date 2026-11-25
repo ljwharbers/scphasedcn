@@ -23,7 +23,8 @@ assign_cells(
   mix_pairs = NULL,
   mult_prior = NULL,
   trunks = NULL,
-  max_mix_prior = 0.5
+  max_mix_prior = 0.5,
+  same_groups = NULL
 )
 }
 \arguments{
@@ -73,6 +74,11 @@ mixture prior is max(\code{mix_prior}, prior), capped at \code{max_mix_prior}}
 over the clones of the best clone's trunk)}
 
 \item{max_mix_prior}{cap of the per-cell mixture prior}
+
+\item{same_groups}{optional named clone -> group vector (e.g. the caller's same-state groups): \code{posterior} (and so
+\code{assigned} / \code{confident}) is then summed over the clones of the best clone's group, and the single best clone's
+posterior is kept as \code{post_clone}. Two clones with the same states otherwise share each cell's posterior and
+neither reaches \code{min_post}}
 }
 \value{
 data.table cell, clone (the likelihood-best single clone, for every cell), posterior, ll_margin,

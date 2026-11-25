@@ -124,6 +124,8 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
     a_rid, a_hap, a_nsnp, a_ps = array("Q"), array("b"), array("h"), array("q")
 
     with pysam.AlignmentFile(bam_path, "rb", index_filename=index_filename) as bam:
+        if chrom not in bam.references:
+            raise SystemExit(f"{chrom} is not a reference of the BAM {bam_path}")
         length = bam.get_reference_length(chrom)
         rstart, rend = (region if region else (None, None))
         it = bam.fetch(chrom, rstart, rend) if region else bam.fetch(chrom)

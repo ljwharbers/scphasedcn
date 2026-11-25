@@ -320,3 +320,49 @@ def test_piece_numbers_beyond_int16(genome, bam, tmp_path):
     f = pd.read_csv(tmp_path / "o" / "partials" / "chr1" / "fragments.tsv.gz", sep="\t", header=None)
     row = f[(f[1] == 10000) & (f[3] == CELL_A)].iloc[0]
     assert row[8] == 40000 and row[9] == 40000
+
+
+# --------------------------------------------------------------------------------------------- reference consistency
+def _fasta(path, seqs):
+    with open(path, "w") as fh:
+        for c, n in seqs:
+            fh.write(f">{c}\n" + "".join("ACGT"[i % 4] for i in range(n)) + "\n")
+    pysam.faidx(str(path))
+    return path
+
+
+def test_chromosome_missing_from_the_bam_fails_before_the_bam_pass(genome, bam, tmp_path):
+    sizes = tmp_path / "sizes"
+    sizes.write_text((genome / "chrom.sizes").read_text() + "chr5\t181538259\n")
+    args = ["extract", "--chrom", "chr5"] + _common(genome, bam, tmp_path / "o") + ["--chrom-sizes", str(sizes)]
+    with pytest.raises(SystemExit, match="chr5 is not a reference of the BAM"):
+        main(args)
+    assert not (tmp_path / "o" / "partials").exists()
+
+
+def test_chromosome_missing_from_the_fasta_fails(genome, bam, tmp_path):
+    fa = _fasta(tmp_path / "one.fa", [("1", 1_000_000)])           # other naming, chr2 absent
+    base = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(tmp_path / "o"),
+            "--chrom-sizes", str(genome / "chrom.sizes"), "--no-masks", "--fasta", str(fa)]
+    with pytest.raises(SystemExit, match="chr2 is not in the FASTA"):
+        main(["extract", "--chrom", "chr2"] + base)
+    with pytest.raises(SystemExit, match="chr1 is not in the FASTA .*`chr` prefix"):
+        main(["extract", "--chrom", "chr1"] + base)
+    assert not (tmp_path / "o" / "partials").exists()
+
+
+def test_chromosome_lengths_must_agree(genome, bam, tmp_path):
+    sizes = tmp_path / "sizes"
+    sizes.write_text((genome / "chrom.sizes").read_text().replace("chr1\t1000000", "chr1\t2000000"))
+    base = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(tmp_path / "o"), "--no-masks"]
+    with pytest.raises(SystemExit, match=r"chr1 .*2000000 bp in the chromosome sizes .* 1000000 bp in the BAM"):
+        main(["extract", "--chrom", "chr1", "--no-gc", "--chrom-sizes", str(sizes)] + base)
+    fa = _fasta(tmp_path / "short.fa", [("chr1", 900_000), ("chr2", 500_000)])
+    with pytest.raises(SystemExit, match=r"chr1 .*900000 bp in the FASTA .* 1000000 bp in the BAM"):
+        main(["extract", "--chrom", "chr1", "--fasta", str(fa), "--chrom-sizes", str(genome / "chrom.sizes")] + base)
+    assert not (tmp_path / "o" / "partials").exists()
+    # run: one error for all chromosomes, before any worker starts
+    sizes.write_text("chr1\t2000000\nchr2\t600000\nchrM\t16569\nchrX\t300000\n")
+    with pytest.raises(SystemExit, match=r"(?s)chr1 .*2000000.*chr2 .*600000"):
+        main(["run", "--chroms", "chr1,chr2,chrX", "--jobs", "2", "--no-gc", "--chrom-sizes", str(sizes)] + base)
+    assert not (tmp_path / "o" / "partials").exists()

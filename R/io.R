@@ -191,8 +191,10 @@ h5_read_df = function(file, name) {
       if (all(c("codes", "categories") %in% sub)) {
         codes = as.integer(rhdf5::h5read(file, paste0(path, "/codes"), bit64conversion = "double"))
         cats = as.character(rhdf5::h5read(file, paste0(path, "/categories")))
-        v = cats[codes + 1L]
-        v[codes < 0] = NA
+        # a missing value is code -1: NA in place (indexing cats[0] would drop the element and shift the rest)
+        v = rep(NA_character_, length(codes))
+        ok = !is.na(codes) & codes >= 0
+        v[ok] = cats[codes[ok] + 1L]
       } else if (all(c("values", "mask") %in% sub)) {
         # nullable integer / boolean / string array: values with a mask of the missing entries
         v = h5_plain(rhdf5::h5read(file, paste0(path, "/values"), bit64conversion = "double"))

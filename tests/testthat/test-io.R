@@ -129,3 +129,24 @@ test_that("the fallback yaml parser handles the config subset", {
     expect_equal(unlist(cfg$samples$S1$chroms), ref$samples$S1$chroms)
   }
 })
+
+# ---- audit fixes ------------------------------------------------------------------------------------------------
+
+test_that("h5_read_df: a missing category (code -1) is NA in place; the values after it keep their category", {
+  f = tempfile(fileext = ".h5")
+  rhdf5::h5createFile(f)
+  rhdf5::h5createGroup(f, "obs")
+  rhdf5::h5createGroup(f, "obs/ct")
+  rhdf5::h5write(c("c1", "c2", "c3", "c4"), f, "obs/cell")
+  rhdf5::h5write(c(0L, -1L, 1L, 0L), f, "obs/ct/codes")
+  rhdf5::h5write(c("a", "b"), f, "obs/ct/categories")
+  fid = rhdf5::H5Fopen(f)
+  g = rhdf5::H5Gopen(fid, "obs")
+  rhdf5::h5writeAttribute("cell", g, "_index")
+  rhdf5::H5Gclose(g)
+  rhdf5::H5Fclose(fid)
+  df = scphasedcn:::h5_read_df(f, "obs")
+  expect_identical(df$ct, c("a", NA, "b", "a"))
+  expect_identical(df$cell, c("c1", "c2", "c3", "c4"))
+})
+

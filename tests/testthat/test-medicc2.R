@@ -55,6 +55,17 @@ test_that("medicc2_pieces: clone filter, coverage, short-piece absorption", {
   expect_equal(pc[chrom == "chrX", unique(imbalanced)], FALSE)
 })
 
+test_that("medicc2_pieces: an imbalance segment without depth support enters as 1:1", {
+  x = m2_toy()
+  x$segments[clone == "B" & chrom == "chr2" & start == 20e6, label := "imbalance"]
+  pc = medicc2_pieces(x$segments, x$clones, min_len = 1e6)
+  b = pc[chrom == "chr2" & start == 20e6 & clone == "B"]
+  expect_equal(b$state, "1:1"); expect_equal(b$cn, 2); expect_false(b$imbalanced)
+  # every other row as without the label
+  p0 = medicc2_pieces(m2_toy()$segments, x$clones, min_len = 1e6)
+  expect_equal(pc[!(chrom == "chr2" & clone == "B"), .(piece, clone, state)], p0[!(chrom == "chr2" & clone == "B"), .(piece, clone, state)])
+})
+
 test_that("orient_clone_states: opposite haplotype losses are swapped, balanced and haploid pass through", {
   x = m2_toy()
   pc = medicc2_pieces(x$segments, x$clones)

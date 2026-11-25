@@ -133,8 +133,12 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
-      # testthat runs the test files in parallel (DESCRIPTION Config/testthat/parallel): one worker per runner core
-      TESTTHAT_CPUS: ${{ startsWith(matrix.os, 'macos') && 3 || 4 }}
+      # testthat runs the test files in parallel (DESCRIPTION Config/testthat/parallel). Memory bounds the workers: the
+      # suite peaks at about 7 GB serially, 9 GB with 2 workers and 16 GB with 4 (each worker builds its own simulated
+      # fixtures). Ubuntu runners (16 GB): 3 workers (the call-scn file alone takes ~19 min and bounds the run anyway);
+      # macOS runners (7 GB): serial.
+      TESTTHAT_PARALLEL: ${{ startsWith(matrix.os, 'macos') && 'FALSE' || 'TRUE' }}
+      TESTTHAT_CPUS: 3
       # one BLAS / OpenMP / data.table thread per worker; with multithreaded libraries the workers oversubscribe the
       # cores (measured: slower than serial)
       OMP_NUM_THREADS: 1

@@ -369,6 +369,28 @@ def test_chromosome_lengths_must_agree(genome, bam, tmp_path):
     assert not (tmp_path / "o" / "partials").exists()
 
 
+def test_fasta_without_chrm_or_with_another_chrm(genome, bam, tmp_path, capsys):
+    """chrM only: a FASTA without it, or with another chrM length, is a warning and chrM's bins have no GC (NaN, as
+    the caller tolerates); the run goes on and merges. Any other chromosome keeps the hard error."""
+    main_chroms = [("chr1", 1_000_000), ("chr2", 500_000), ("chrX", 300_000)]
+    for x, extra in (("nochrM", []), ("otherchrM", [("chrM", 16_571)])):
+        fa = _fasta(tmp_path / f"{x}.fa", main_chroms + extra)
+        o = tmp_path / x
+        capsys.readouterr()
+        assert main(["run", "--jobs", "1", "--fasta", str(fa)] + _common(genome, bam, o)[:-2] + ["--no-masks"]) == 0
+        err = capsys.readouterr().err
+        assert ("chrM is not in the FASTA" if x == "nochrM" else "chrM has 16571 bp in the FASTA") in err
+        a = ad.read_h5ad(o / "bins_100kb.h5ad")
+        gc = a.var["gc"]
+        m = (a.var["chrom"] == "chrM").values
+        assert m.sum() == 1 and gc[m].isna().all() and gc[~m].notna().all()
+        assert (a.var.loc[m, "n_N"] == 0).all()
+        assert json.load(open(o / "summary.json"))["chroms"] == ["chr1", "chr2", "chrX", "chrM"]
+    fa = _fasta(tmp_path / "nochr2.fa", [("chr1", 1_000_000), ("chrX", 300_000)])
+    with pytest.raises(SystemExit, match="chr2 is not in the FASTA"):
+        main(["run", "--jobs", "1", "--fasta", str(fa)] + _common(genome, bam, tmp_path / "o")[:-2] + ["--no-masks"])
+
+
 # --------------------------------------------------------------------------------------------- select-hets loci naming
 _HETS_HDR = ("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n##contig=<ID=chr2,length=100000>\n"
              "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"x\">\n"

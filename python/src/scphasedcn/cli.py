@@ -134,12 +134,18 @@ def _bam_references(bam, index):
         return dict(zip(bf.references, bf.lengths))
 
 
+# chromosomes whose bins may lack GC content: a FASTA without them (or with another length, e.g. chrM as rCRS vs an
+# older sequence) is a warning, not an error. The caller uses chrM only as a per-cell read count (frac_chrM).
+NO_GC_OK = ("chrM",)
+
+
 def check_chrom_reference(chroms: list[str], bam_refs: dict, bam: str, sizes: dict, sizes_path: str,
-                          fasta: str | None = None) -> None:
+                          fasta: str | None = None) -> list[str]:
     """Fail (SystemExit, before the BAM pass) when a chromosome is not a reference of the BAM, is not in the FASTA
     (when one is given), or when its length in the chromosome sizes or the FASTA differs from the BAM header (another
     assembly or naming). A chromosome missing from the sizes takes the BAM length (not an error). All problems of
-    `chroms` are reported in one message."""
+    `chroms` are reported in one message. For chrM (NO_GC_OK) a FASTA without it or with another length is a warning:
+    its bins get no GC content. Returns those chromosomes (to extract without GC)."""
     from .alleles import _alias
     fa = None
     if fasta:
@@ -149,7 +155,7 @@ def check_chrom_reference(chroms: list[str], bam_refs: dict, bam: str, sizes: di
 
     def hint(c, names):
         return f" (the names differ by the `chr` prefix: {_alias(c)} there)" if _alias(c) in names else ""
-    errs = []
+    errs, no_gc = [], []
     for c in chroms:
         if c not in bam_refs:
             errs.append(f"{c} is not a reference of the BAM {bam}{hint(c, bam_refs)}")
@@ -158,13 +164,17 @@ def check_chrom_reference(chroms: list[str], bam_refs: dict, bam: str, sizes: di
         if c in sizes and sizes[c] != n:
             errs.append(f"{c} has {sizes[c]} bp in the chromosome sizes {sizes_path} but {n} bp in the BAM header {bam}")
         if fa is not None:
-            if c not in fa:
-                errs.append(f"{c} is not in the FASTA {fasta}{hint(c, fa)}")
-            elif fa[c] != n:
-                errs.append(f"{c} has {fa[c]} bp in the FASTA {fasta} but {n} bp in the BAM header {bam}")
+            e = (f"{c} is not in the FASTA {fasta}{hint(c, fa)}" if c not in fa else
+                 f"{c} has {fa[c]} bp in the FASTA {fasta} but {n} bp in the BAM header {bam}" if fa[c] != n else None)
+            if e and c in NO_GC_OK:
+                no_gc.append(c)
+                _log(f"warning: {e}: its bins get no GC content (the caller uses {c} only as a per-cell read count)")
+            elif e:
+                errs.append(e)
     if errs:
         raise SystemExit("reference mismatch: " + "; ".join(errs) + ". The BAM, the chromosome sizes (--chrom-sizes; "
                          "default the bundled hg38 sizes) and the FASTA must be of the same assembly and naming")
+    return no_gc
 
 
 def cmd_extract(a):
@@ -189,7 +199,7 @@ def cmd_extract(a):
     sizes = read_chrom_sizes(d["ref"]["chrom_sizes"])
     use_snps = "alleles" in layers_on and bool(d["snps"])
     bam_refs = _bam_references(d["bam"], a.index)
-    check_chrom_reference([chrom], bam_refs, d["bam"], sizes, d["ref"]["chrom_sizes"], d["ref"].get("fasta"))
+    no_gc = check_chrom_reference([chrom], bam_refs, d["bam"], sizes, d["ref"]["chrom_sizes"], d["ref"].get("fasta"))
     if chrom not in sizes:
         sizes[chrom] = bam_refs[chrom]
     length = sizes[chrom]
@@ -263,7 +273,7 @@ def cmd_extract(a):
         fh.write("\n".join(cells) + "\n")
 
     if "depth" in layers_on:
-        bins_df = annotate_tiling(tiling, ref, d["peaks"])
+        bins_df = annotate_tiling(tiling, ref, d["peaks"], gc=chrom not in no_gc)
         layers = depth_layers(fr, tiling, n_cells, assign=a.assign, use=clean, layers=DEPTH_LAYERS)
         obsm = {"fraglen_hist": fraglen_hist(fr, n_cells, use=clean), "mapq_hist": ctr.mapq_hist}
         _log(f"depth: {int(layers['counts'].sum())} counts in {len(tiling)} bins")

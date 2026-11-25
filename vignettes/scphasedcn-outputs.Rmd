@@ -169,7 +169,8 @@ over most of its genome. With `ploidy = 2` every clone has the diploid baseline 
 near-triploid clone is then fitted on a compressed scale, 2:2 as 1:1). With `gain_support` > 0 a column `depth_ok` is
 added: an imbalanced gain whose depth, measured against the region's offset in the other clones, does not show the extra
 copy keeps its allelic state with `label` `imbalance` and `depth_ok` FALSE. This is usually a clone that mixes cells
-with LOH and heterozygous cells. MEDICC2 input treats it as 1:1.
+with LOH and heterozygous cells. MEDICC2 input (`medicc2_pieces()`) treats it as the balanced state at the clone's
+integer baseline (1:1 at baseline 2, 2:2 at baseline 4); at an odd integer baseline it keeps its fitted state.
 
 `clones.tsv`: one row per clone: `n_cells` (cells whose likelihood-best clone it is), `n_assigned` (of them with
 posterior >= `min_post` and not doublet-like), `n_members` (the members its states were fitted on), the fit parameters

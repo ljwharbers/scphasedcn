@@ -1657,15 +1657,18 @@ test_that("caller_tumour reads every multiplet_table() form and, without an inpu
 })
 
 test_that("caller_tumour: a doublet clone flagged before the split pass renumbers does not name or remove another clone", {
-  # round 1 flags its first tumour clone as a doublet (mock); the split pass (mock: splits the largest clone in two)
-  # renumbers the clones, so the flagged id is reused by another clone afterwards
+  # round 1 flags its first tumour clone as a doublet (mock); the split pass (mock: splits the largest clone in two,
+  # tumour clones first) renumbers the clones, so the flagged id is reused by a tumour clone afterwards
   real_flag = flag_doublet_clones
-  n_flag = 0L
+  n_flag = 0L; flagged = NA_character_
   local_mocked_bindings(
     flag_doublet_clones = function(clones, segments, profiles, fit = NULL, ...) {
       n_flag <<- n_flag + 1L
       dc = real_flag(clones, segments, profiles, fit, ...)
-      if (n_flag == 2L) dc[clone == sort(setdiff(dc$clone, "N0"))[1], `:=`(doublet = TRUE, best_pair = "X+Y")]
+      if (n_flag == 2L) {
+        flagged <<- sort(setdiff(dc$clone, "N0"))[1]
+        dc[clone == flagged, `:=`(doublet = TRUE, best_pair = "X+Y")]
+      }
       dc
     },
     split_disagree = function(members, ...) {
@@ -1675,20 +1678,23 @@ test_that("caller_tumour: a doublet clone flagged before the split pass renumber
       b = cc[seq(2, length(cc), by = 2)]
       m[clone == k & cell %in% b, clone := paste0(k, "b")]
       m[clone == k, clone := paste0(k, "a")]
+      m = m[order(clone == "N0")]
       tt = data.table(clone = k, region = "r", chrom = "chr1", start = 0, end = 1, state = "2:1", alt = "3:0", contra = 0.5,
                       n_a = length(cc) - length(b), n_b = length(b), state_a = "2:1", state_b = "3:0", differ = TRUE, split = TRUE)
       list(members = m, tests = tt, cells_b = stats::setNames(list(b), paste0(k, "b")), sets = list())
     })
   res = caller_tumour(tum2_input(), opts = list(split_pass = "disagree"), verbose = FALSE)
-  lg = res$null_fit$clones$doublet_log
-  expect_equal(nrow(lg[round == "round 1"]), 1L)
-  expect_equal(lg[round == "round 1", ids], "trunk")
-  expect_equal(lg[round == "round 1", best_pair], "X+Y")
   ct = res$clones
-  expect_equal(anyDuplicated(ct$clone), 0L)                          # the reused id has one row, not a doublet row too
-  # no doublet row names a clone of the other tables; every other clone row has segments
+  # the collision this test is about: the id flagged in round 1 names a real clone at the end
+  expect_true(flagged %in% ct[doublet == FALSE, clone])
+  expect_true(flagged %in% res$segments$clone)
+  # the defect: that id has one row (no doublet row for it), and no doublet row names a clone of the other tables
+  expect_equal(anyDuplicated(ct$clone), 0L)
   expect_false(any(ct[doublet == TRUE, clone] %in% c(res$segments$clone, res$assignments$clone)))
   expect_true(all(ct[doublet == FALSE, clone] %in% res$segments$clone))
+  # the log keeps the flag with the id it had then
+  lg = res$null_fit$clones$doublet_log
+  expect_equal(lg[round == "round 1", .(clone, best_pair, ids)], data.table(clone = flagged, best_pair = "X+Y", ids = "trunk"))
   expect_identical(res$null_fit$clones$doublet_clones, ct[doublet == TRUE, clone])
 })
 

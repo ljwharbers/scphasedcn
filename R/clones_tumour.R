@@ -615,7 +615,12 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' @param opts tumour-mode options ([clone_defaults()])
 #' @param verbose log progress
 #' @return `scphasedcn` (mode tumour) with clones, assignments, segments, profiles, calls (plus `extra`:
-#'   intermediate results in `null_fit$clones`)
+#'   intermediate results in `null_fit$clones`). `clones` has one row per clone and one row per doublet clone of the
+#'   final clone ids (`doublet` TRUE: flagged by an EM round since the clone ids were last numbered, and dissolved, so it
+#'   has no segments, profiles or assigned cells); every clone id in it is unique. Every doublet flag of the run, with
+#'   the round, the clone id at that time, the best pair, its members and its id set (`ids`: `global`, `trunk` or
+#'   `split`), is in `null_fit$clones$doublet_log`; `null_fit$clones$doublet_clones` holds the ids of the `clones`
+#'   rows
 #' @export
 caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, control_regions = NULL, opts = clone_defaults(),
                          verbose = TRUE) {
@@ -742,7 +747,13 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     seg = segment_states_opts(fit, grid, opts)
     list(profiles = prof, fit = fit, segments = seg, ref = if (length(ref_cells) >= opts$min_ref) ref_cells else character())
   }
-  doublet_clones = character()
+  # doublet clones flagged by the EM rounds, one row per flag: the round, the clone id at that time, the best pair and
+  # the clone's members; `ids` = the clone id set the id belongs to ("global": the global discovery's G ids, "trunk":
+  # the within-trunk discovery's C ids, "split": the renumbering after the split pass). Each round removes its own
+  # doublets only: an id of an earlier id set can name another clone now
+  doublet_log = data.table(round = character(), clone = character(), best_pair = character(), n_cells = integer(),
+                           ids = character())
+  id_set = "global"
   # one hard-EM round: clone states on the members -> doublet clones -> trunks / mixture pairs -> likelihood assignment
   # of every cell (clone = the likelihood-best clone; `confident` = posterior >= min_post and not doublet-like)
   trunks_of = function(members, K_) {
@@ -760,12 +771,15 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     dc = flag_doublet_clones(members[, .(n_cells = .N), by = clone], st$segments, st$profiles, st$fit, opts$doublet_delta,
                              pairs = cbind(names(tk$tr)[ij[, 1]], names(tk$tr)[ij[, 2]]))
     if (any(dc$doublet)) {
-      doublet_clones <<- union(doublet_clones, dc[doublet == TRUE, clone])
-      say("doublet clone(s): ", paste(dc[doublet == TRUE, paste0(clone, " (", best_pair, ")")], collapse = ", "))
-      members = members[!clone %in% doublet_clones]
-      st$segments = st$segments[!clone %in% doublet_clones]
-      st$profiles = st$profiles[!clone %in% doublet_clones]
-      st$fit$par = st$fit$par[!clone %in% doublet_clones]
+      dd = dc[doublet == TRUE]
+      say("doublet clone(s): ", paste(dd[, paste0(clone, " (", best_pair, ")")], collapse = ", "))
+      nm = members[, .N, by = clone]
+      doublet_log <<- rbind(doublet_log, data.table(round = label, clone = dd$clone, best_pair = as.character(dd$best_pair),
+                                                     n_cells = nm$N[match(dd$clone, nm$clone)], ids = id_set))
+      members = members[!clone %in% dd$clone]
+      st$segments = st$segments[!clone %in% dd$clone]
+      st$profiles = st$profiles[!clone %in% dd$clone]
+      st$fit$par = st$fit$par[!clone %in% dd$clone]
       tk = trunks_of(members, sort(unique(st$segments$clone)))
     }
     if (isTRUE(opts$normal_hypothesis) && length(unique(st$segments$clone)) >= 1) {
@@ -818,11 +832,16 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   }
   trunk_info = NULL
   if (!is.null(ck$r)) {
-    r = ck$r; doublet_clones = ck$doublet_clones
+    r = ck$r
+    doublet_log = ck$doublet_log %||% {
+      d0 = as.character(ck$doublet_clones); n0 = length(d0)      # a checkpoint written before the log: the global round's ids
+      data.table(round = rep("global round", n0), clone = d0, best_pair = rep(NA_character_, n0), n_cells = rep(NA_integer_, n0),
+                 ids = rep("global", n0))
+    }
     say("checkpoint: global round re-used (", uniqueN(r$st$segments$clone), " clones)")
   } else r = em_round(members, ref_pool, "global round")
   if (length(opts$checkpoint) && nzchar(opts$checkpoint) && is.null(ck))
-    saveRDS(list(disc = disc, mc = mc, r = r, doublet_clones = doublet_clones), opts$checkpoint)
+    saveRDS(list(disc = disc, mc = mc, r = r, doublet_log = doublet_log), opts$checkpoint)
   # 2. within-trunk discovery: blocks oriented by each trunk's pseudobulk, allelically selected regions
   tc = r$asg[doublet_like == FALSE & multiplet == FALSE & p_trunk >= opts$trunk_post, .(cell, trunk)]
   newm = list(); trunk_info = list(); n_within_tests = 0L
@@ -846,6 +865,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   lev = unique(members$clone)
   trunk_info[, clones := vapply(trunk, function(t_) paste(paste0("C", which(sub("\\..*", "", lev) == t_)), collapse = ","), "")]
   members[, clone := paste0("C", match(clone, lev))]
+  id_set = "trunk"
   if (split_mode == "disagree") { halves$votes_disc = vs$disc; halves$votes_test = vs$test }
   rm(vs, inp_disc); invisible(gc(verbose = FALSE))
   ms = list(n = 0L)
@@ -874,6 +894,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       members = copy(sp$members)
       moved = sp$cells_b
       lev = unique(members$clone); members[, clone := paste0("C", match(clone, lev))]
+      id_set = "split"
       r = em_round(members, ref_pool, "after splitting"); members = next_members(r$asg)
       ms = merge_same(r, members); members = ms$members
       if (ms$n > 0) { r = em_round(members, ref_pool, "after merging"); members = next_members(r$asg) }
@@ -1084,7 +1105,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   clone_tab[, ploidy := pmean$ploidy[match(clone, pmean$clone)]]
   clone_tab[, normal := clone %in% cr$normal]
   clone_tab[, trunk := r$trunks[clone]]
-  clone_tab = rbind(clone_tab, data.table(clone = doublet_clones, doublet = TRUE), fill = TRUE)
+  # doublet clones of the current clone ids (the ids of the other tables; earlier ids are in the log only), one row each
+  doublet_ids = setdiff(unique(doublet_log[ids == id_set, clone]), clone_tab$clone)
+  clone_tab = rbind(clone_tab, data.table(clone = doublet_ids, doublet = TRUE), fill = TRUE)
   clone_tab[is.na(doublet), doublet := FALSE]
   thresholds = if (!is.null(thr_tab)) thr_tab[, .(score = "segment_state", class = "segment", stratum, fold = 0L,
                                                    q = params$null_q, thr, n_null = as.integer(n_null),
@@ -1098,11 +1121,12 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
               clones = clone_tab, assignments = asg, segments = sg, profiles = st$profiles,
               null_fit = list(tpar = inp$tpar, rho = inp$rho, ref_thr = cr$thr, rho_confirm = rho_c, tpar_confirm = tpar_c,
                               rho_pool_features = rho_feat, ref_null = ref_null, confirm_null = null_confirm,
-                              clones = list(leaves = disc$leaves, merged = mc$clones, tests = mc$tests, par = st$fit$par, reference = cr$table, doublet_clones = doublet_clones,
+                              clones = list(leaves = disc$leaves, merged = mc$clones, tests = mc$tests, par = st$fit$par, reference = cr$table,
+                                            doublet_clones = doublet_ids, doublet_log = doublet_log,
                                             trunks = r$trunks, trunk_discovery = trunk_info, state_distance = r$dist,
                                             trunk_distance = r$trunk_dist,
                                             split_tests = split_tests, assignments_pre_split = asg_pre_split)),
               params = c(params, list(tumour = opts)), notes = notes)
 }
 utils::globalVariables(c("pool_cells", "imb", "prob", "N", "i.c", "i.a", "i.clone", "i.thr", "n_null", "n_members", "normal", "baseline",
-                         "trunk", "p_trunk", "clones", "mix_prior"))
+                         "trunk", "p_trunk", "clones", "mix_prior", "ids"))

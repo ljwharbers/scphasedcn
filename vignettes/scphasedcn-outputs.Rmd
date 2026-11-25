@@ -177,7 +177,9 @@ posterior >= `min_post` and not doublet-like), `n_members` (the members its stat
 haplotype fraction), `rho` and `s_sys` (window-level overdispersion and systematic depth noise), `baseline` (the copy
 number of the clone's median depth: fitted with `ploidy = "fit"`, else the given `ploidy`; 2 for `N0`), `ploidy` (the
 mean copy number over the clone's autosomal segments, weighted by length), `normal` (a normal clone of the reference
-pool), `trunk` and `doublet` (a doublet clone, dissolved). A clone whose `c` sits at the lower bound of its grid (0.6) is
+pool), `trunk` and `doublet` (a doublet clone, dissolved: flagged as a mixture of two other clones by an EM round
+since the clone ids were last numbered; it has no segments or assigned cells, and its other columns are empty; every
+doublet flag of the run, also of earlier clone ids, is in the result's `null_fit$clones$doublet_log`). A clone whose `c` sits at the lower bound of its grid (0.6) is
 named in the run notes: its depth scale is not determined by the data, and its states can be off by one copy.
 
 `assignments.tsv`: per cell the likelihood-best clone, its `posterior`, the margin to the second clone, whether the cell

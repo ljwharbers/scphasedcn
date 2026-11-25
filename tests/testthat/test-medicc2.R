@@ -226,15 +226,33 @@ test_that("MEDICC2 export: no segment and no absorbed piece spans a dropped rang
 })
 
 test_that("orient_clone_states: the block table carries the piece's chaining flip", {
-  x = m2_toy(c_cnloh = TRUE)
-  pc = medicc2_pieces(x$segments, x$clones)
+  # chr1: A loses haplotype B on 0-60 Mb, B loses haplotype A on 30-60 Mb. Piece 0-30 Mb is oriented by A (the only
+  # imbalanced clone), piece 30-60 Mb by B (a = 1 against A's 0.5): its own convention is B's major haplotype, so the
+  # chaining flips it to keep A's labels continuous
+  bins = make_bins(c(chr1 = 60e6), 1e5)
+  atoms = data.table(atom = seq_len(nrow(bins)), chrom = bins$chrom, start = bins$start, end = bins$end, bin = seq_len(nrow(bins)))
+  lab = rep(c("A", "B", "N0"), each = 40)
+  ev = data.table(clone = c("A", "B"), chrom = "chr1", start = c(0, 30e6), end = 60e6, cnA = c(1L, 0L), cnB = c(0L, 1L))
+  votes = fake_votes(length(lab), atoms, lab, ev, flip_prob = 0.5, seed = 4, block_atoms = 10L, mol_per_atom = 0.5)
+  cells = sprintf("cell%03d", seq_along(lab))
+  seg = function(clone, start, end, state) data.table(clone = clone, chrom = "chr1", start = start, end = end, state = state, ploidy = 2L)
+  sg = rbind(seg("A", c(0, 30e6), c(30e6, 60e6), c("1:0", "1:0")), seg("B", c(0, 30e6), c(30e6, 60e6), c("1:1", "1:0")),
+             seg("N0", 0, 60e6, "1:1"))
+  cl = data.table(clone = c("A", "B", "N0"), n_assigned = 40, a = c(0.5, 1, 1))
+  pc = medicc2_pieces(sg, cl)
+  feat = list(votes = votes, atoms = atoms, cells = data.table(cell = cells))
+  asg = data.table(cell = cells, clone = lab, confident = TRUE, assigned = TRUE)
   for (ch in c("parsimony", "none")) {
-    o = orient_clone_states(pc, x$features, x$assignments, x$clones, chain = ch, min_link = 10)
+    o = orient_clone_states(pc, feat, asg, cl, chain = ch)
     b = o$blocks
     expect_true(is.logical(b$flipped))
     expect_identical(b$flipped, o$qc$flipped[match(b$piece, o$qc$piece)])
     expect_true(all(b$sign == fifelse(b$flipped, -1L, 1L) * sign(b$nA_ref - b$nB_ref)))
+    expect_identical(any(b$flipped), ch == "parsimony")               # not trivial: the chaining flips the second piece
   }
+  # after the flip A keeps its labels over both pieces
+  o = orient_clone_states(pc, feat, asg, cl)
+  expect_equal(uniqueN(o$pieces[clone == "A", paste(cn_a, cn_b)]), 1L)
 })
 
 test_that("medicc2_pieces: an imbalance segment enters at the balanced state of its clone's integer baseline", {

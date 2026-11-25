@@ -763,22 +763,27 @@ atoms_in_tiles = function(atoms, tiles) {
   as.integer(atoms$atom[hit])
 }
 
-# t fits for every class x stratum of d: missing groups take the fit of the row's sd_class, then the
-# class pooled over strata (fit on the pooled null rows is not available here, so the median of the
-# class's strata), else stop
+# t fits for every class x stratum of d: a missing group takes, in this order, the fit of the row's sd_class in
+# that stratum, the class pooled over strata (fit on the pooled null rows is not available here, so the medians
+# over the class's strata), the sd_class pooled over strata (a named event in a stratum without a fit of its
+# sd_class). With none of these (a class and sd_class without any null row, e.g. an event whose sd_class is not
+# among the region classes) its parameters stay NA: such rows have no depth null, score NA and are never called
+# (caller_normal() notes them)
 complete_tpar = function(d, tpar) {
   tpar = as.data.table(tpar)
   need = unique(d[, intersect(c("class", "sd_class", "stratum"), names(d)), with = FALSE])
   if (!"sd_class" %in% names(need)) need[, sd_class := class]
   miss = need[!paste(class, stratum) %in% paste(tpar$class, tpar$stratum)]
   if (nrow(miss) == 0) return(tpar)
+  # medians over strata, taken only when the class has fits (an aggregation without `by` on no rows gives a row of NA)
+  pooled = function(x) x[, .(t_m = median(t_m), t_s = median(t_s), t_df = median(t_df))]
   add = list()
   for (i in seq_len(nrow(miss))) {
     m = miss[i]
     src = tpar[class == m$sd_class & stratum == m$stratum]
-    if (nrow(src) == 0) src = tpar[class == m$class][, .(t_m = median(t_m), t_s = median(t_s), t_df = median(t_df), n = sum(n))]
-    if (nrow(src) == 0) src = tpar[class == m$sd_class][, .(t_m = median(t_m), t_s = median(t_s), t_df = median(t_df), n = sum(n))]
-    if (nrow(src) == 0) stop(sprintf("complete_tpar: no t fit for class %s (sd_class %s)", m$class, m$sd_class))
+    if (nrow(src) == 0 && any(tpar$class == m$class, na.rm = TRUE)) src = pooled(tpar[class == m$class])
+    if (nrow(src) == 0 && any(tpar$class == m$sd_class, na.rm = TRUE)) src = pooled(tpar[class == m$sd_class])
+    if (nrow(src) == 0) src = data.table(t_m = NA_real_, t_s = NA_real_, t_df = NA_real_)
     add[[i]] = data.table(class = m$class, stratum = m$stratum, t_m = src$t_m[1], t_s = src$t_s[1], t_df = src$t_df[1], n = 0L)
   }
   rbind(tpar, rbindlist(add), fill = TRUE)

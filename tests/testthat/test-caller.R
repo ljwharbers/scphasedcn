@@ -1680,3 +1680,43 @@ test_that("null_selection_check selects and scores under the run's state set (st
   s = chk(caller_defaults())
   for (nm in fns) for (st in s[[nm]]) expect_identical(st, caller_states("normal"), label = nm)
 })
+
+# ---- audit fixes (normal mode) ---------------------------------------------------------------------------------
+
+test_that("complete_tpar runs its fallbacks in order: sd_class x stratum, class over strata, sd_class over strata", {
+  tpar = data.table(class = c("arm", "arm", "10Mb", "10Mb"), stratum = c("<20k", "20-50k", "<20k", "20-50k"),
+                    t_m = c(0.1, 0.3, -0.2, 0.4), t_s = c(1, 1.2, 0.9, 1.1), t_df = c(5, 7, 9, 11), n = 100L)
+  d = data.table(class = c("arm", "arm", "event", "event", "ev2"), sd_class = c("arm", "arm", "10Mb", "10Mb", "1Mb"),
+                 stratum = c("<20k", ">=50k", "20-50k", ">=50k", "<20k"))
+  tp = complete_tpar(d, tpar)
+  g = function(cl, st) unlist(tp[class == cl & stratum == st, .(t_m, t_s, t_df)])
+  expect_identical(tp[1:4], tpar)                                       # fitted groups unchanged
+  expect_equal(g("event", "20-50k"), c(t_m = 0.4, t_s = 1.1, t_df = 11))  # 1. its sd_class in the stratum
+  expect_equal(g("arm", ">=50k"), c(t_m = 0.2, t_s = 1.1, t_df = 6))      # 2. its class over strata (medians)
+  expect_equal(g("event", ">=50k"), c(t_m = 0.1, t_s = 1.0, t_df = 10))   # 3. its sd_class over strata
+  expect_true(all(is.na(g("ev2", "<20k"))))                             # no fit anywhere: no depth null (never called)
+  expect_equal(tp[class %in% c("event", "ev2") | stratum == ">=50k", unique(n)], 0L)
+})
+
+test_that("a named event in a depth stratum without a fit of its sd_class is scored with the sd_class's fit over strata", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ev = copy(rg[region == "chr8"])[, `:=`(region = "ev8", class = "event", sd_class = "10Mb", null_region = FALSE)]
+  rg2 = rbind(rg, ev)
+  ff = fake_features(200, rg2, seed = 3)
+  big = ff[stratum == ">=50k", unique(cell)]
+  expect_gt(length(big), 5)
+  ff[cell %in% big, null_cell := FALSE]                                 # no null rows, so no t fit, in the >=50k stratum
+  run = function(f, r) caller_normal(f, regions = r, null_cells = "features", n_draws = 500, pool_classes = character())
+  r = run(ff, rg2)
+  e = r$scores[region == "ev8"]
+  expect_true(all(is.finite(e$s_comb)))
+  expect_true(all(is.finite(e[cell %in% big, dl_loss])))
+  tp = r$null_fit$tpar
+  expect_equal(unlist(tp[class == "event" & stratum == ">=50k", .(t_m, t_s, t_df)]),
+               unlist(tp[class == "10Mb" & n > 0, .(t_m = median(t_m), t_s = median(t_s), t_df = median(t_df))]))
+  # the other regions are scored and called as without the event
+  r0 = run(ff[region != "ev8"], rg)
+  expect_identical(r$scores[region != "ev8"], r0$scores)
+  expect_identical(r$calls[region != "ev8"], r0$calls)
+})
+

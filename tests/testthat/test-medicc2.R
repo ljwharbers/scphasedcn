@@ -260,9 +260,10 @@ test_that("medicc2_pieces: an imbalance segment enters at the balanced state of 
   x$segments[clone == "B" & chrom == "chr2" & start == 20e6, label := "imbalance"]
   # the flagged run is an imbalanced gain above the clone's integer baseline (what gain_support can flag): 2:1 at 2,
   # 3:1 at 3, 4:1 at 4, 4:2 at 5
-  at = function(B, state) {
+  at = function(B, st_) {
     cl = copy(x$clones)[, baseline := 2][clone == "B", baseline := B]
-    sg = copy(x$segments)[clone == "B" & chrom == "chr2" & start == 20e6, `:=`(state = state, cn = nA_of(state) + nB_of(state))]
+    sg = copy(x$segments)[clone == "B" & chrom == "chr2" & start == 20e6, `:=`(state = st_, cn = nA_of(st_) + nB_of(st_))]
+    expect_equal(sg[clone == "B" & chrom == "chr2" & start == 20e6, state], st_)
     medicc2_pieces(sg, cl, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"]
   }
   b2 = at(2, "2:1")

@@ -1741,26 +1741,32 @@ test_that("clean_reference: a negative threshold does not remove cells without p
 test_that("split_disagree (direct call): checks its options, fits a missing input null with its params, re-fits the parts at the parent's baseline", {
   inp = tum2_input()
   tr = sim_truth(sim_tum2)[mult == FALSE]
-  members = data.table(cell = tr[type == "cloneA", cell], clone = "K3")
-  ch = inp$regions[class == "chrom" & chrom == "chr2"]
-  sg = data.table(clone = "K3", chrom = "chr2", start = ch$start, end = ch$end, n_win = 10L, nA = NA_integer_, nB = NA_integer_,
-                  cn = 5L, state = "3:2", log2 = 0, f = NA_real_, llr = 50, confident = TRUE, label = "amp", ploidy = 2L)
-  par = data.table(clone = "K3", c = 0.8, a = 0.9, rho = 0.01, base = 3)
-  # a config-style ploidy ("2") is checked and converted as by caller_tumour(); the split test always says "different"
-  # (mock), so the default re-fit of the two parts runs
-  o = list(min_size = 10, small_clone = 0, split_sep = 0, split_min_excess = 0, ploidy = "2")
+  members = data.table(cell = tr[type %in% c("cloneA", "cloneB"), cell], clone = "K3")
+  ch = inp$regions[class == "chrom" & chrom == "chr22"]
+  sg = data.table(clone = "K3", chrom = "chr22", start = ch$start, end = ch$end, n_win = 10L, nA = NA_integer_, nB = NA_integer_,
+                  cn = 1L, state = "1:0", log2 = 0, f = NA_real_, llr = 50, confident = TRUE, label = "loss", ploidy = 2L)
+  par = data.table(clone = "K3", c = 0.8, a = 0.9, rho = 0.01, base = 2)
+  # a config-style ploidy ("3") is checked and converted as by caller_tumour(); mocks: every other member prefers the
+  # alternative (a clear candidate) and the split test says "different", so the default re-fit of the two parts runs
+  o = list(min_size = 10, small_clone = 0, ploidy = "3")
   real_fit = fit_states_opts; real_nf = tumour_null_fit
   seen = numeric(); nf_seed = NULL
   local_mocked_bindings(
+    disagree_ll = function(l, sdh, oA, oN, st, ...) {
+      n = length(l); L = matrix(0, n, nrow(st)); L[, 2] = rep_len(c(5, -5), n)
+      list(L = L, alt = 2L, contra = 0.5, contra_null = 0, by_state = rep(0.5, nrow(st)), by_state_null = rep(0, nrow(st)),
+           a_eff = 1, infl = 1)
+    },
     split_test = function(...) data.table(stat = 10, thr = 1, n_perm = 1L, p = 0.001, differ = TRUE),
     fit_states_opts = function(profile, grid, opts, ...) { seen <<- c(seen, opts$ploidy); real_fit(profile, grid, opts, ...) },
     tumour_null_fit = function(long, params = caller_defaults(), ...) { nf_seed <<- params$seed; real_nf(long, params = params, ...) })
   f0 = inp; f0$null_fit = NULL
-  cd = list(regions = inp$regions[chrom == "chr2", region], cells = inp$cells$cell)
+  cd = list(regions = inp$regions[chrom == "chr22", region], cells = inp$cells$cell)
   sp = split_disagree(members, sg, par, f0, inp$win, inp$votes, cd, opts = o, params = modifyList(caller_defaults(), list(seed = 11)),
                       seed = 1)
   expect_equal(nf_seed, 11)                                           # the input null of `inp` with the given params
-  expect_gt(length(seen), 0)                                          # the default re-fit ran ...
-  expect_true(all(seen == 3))                                         # ... at the parent clone's baseline, not opts$ploidy
+  expect_equal(sp$tests$outcome[1] != "candidate", TRUE)              # the candidate was tested (outcome replaced)
+  expect_gt(length(seen), 0)                                          # the default re-fit ran (fit_states_opts) ...
+  expect_true(all(seen == 2))                                         # ... at the parent clone's baseline, not opts$ploidy (3)
   expect_error(split_disagree(members, sg, par, inp, inp$win, inp$votes, cd, opts = list(bogus = 1)), "unknown option")
 })

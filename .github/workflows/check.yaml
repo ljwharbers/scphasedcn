@@ -131,6 +131,13 @@ jobs:
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+      # testthat runs the test files in parallel (DESCRIPTION Config/testthat/parallel): one worker per runner core
+      TESTTHAT_CPUS: ${{ startsWith(matrix.os, 'macos') && 3 || 4 }}
+      # one BLAS / OpenMP / data.table thread per worker; with multithreaded libraries the workers oversubscribe the
+      # cores (measured: slower than serial)
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      R_DATATABLE_NUM_THREADS: 1
     steps:
       - uses: actions/checkout@v4
       - uses: r-lib/actions/setup-pandoc@v2

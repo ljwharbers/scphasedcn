@@ -45,4 +45,6 @@ biocViews: Software, SingleCell, CopyNumberVariation, Sequencing
 RoxygenNote: 7.3.3
 Roxygen: list(markdown = TRUE)
 Config/testthat/edition: 3
+Config/testthat/parallel: true
+Config/testthat/start-first: call-scn, caller, clones, window-allelic
 LazyData: false

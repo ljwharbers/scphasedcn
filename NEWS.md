@@ -89,7 +89,8 @@
 * Tumour mode memory and run time: the per-cell confirmation and the reference cleaning build their vote tables per
   clone, the matched null is scored one hypothesis at a time, and the baseline fit's segment refinement no longer
   recomputes the allele terms per depth contrast. Results are unchanged. On a whole-genome-doubled tumour of about
-  10,000 cells the fitted baseline needs less memory than 0.1.1 did (34 GiB against 42 GiB).
+  10,000 cells the fitted baseline needs less memory than the same run needed before the baseline fit (34 GiB
+  against 42 GiB).
 * Tumour mode without flagged null cells no longer fits its input depth t null and allelic rho on all cells. It fits
   them on the cells without a call on the null rows (new `tumour_null_fit()`) when that selection is stable, and
   falls back to all cells otherwise. The run warns, the run notes record which null was used, and the warning also
@@ -159,10 +160,29 @@
 * Single-cell track plots: the depth baseline follows the features' depth reference and the clone's ploidy
   baseline, normal-mode events on haploid chromosomes get haploid states, a clone's reportable segments that the
   cell does not confirm are drawn as inherited, and every state label has a colour.
+* Follow-up fixes:
+  * `clean_reference()`: when no clone has allele votes on its event or control regions, the whole candidate pool is
+    kept (threshold `Inf`) instead of an error.
+  * `caller_tumour()` `checkpoint`: a resumed run continues with the candidate baselines (and run notes) of the run
+    that wrote the checkpoint, so it gives the same results.
+  * `simulate_scn()`: a `genome` expression that draws random numbers no longer moves the caller's random stream.
+  * `assign_cells()`: a piece without a state of a clone on a haploid chromosome is scored as the neutral 1:0 (it was
+    taken at the clone's baseline, i.e. at the cell's median depth).
+  * Tumour mode takes the depth as relative to the reference pool whenever there is one; with a `min_ref` below 10
+    the assignment and the per-cell scores ignored a pool of fewer than 10 cells that the clone profiles used.
+  * `cell_tracks()`: in tumour mode the depth baseline follows the caller's (B copies without a reference pool,
+    whatever the features' depth method).
+  * `cell_tracks()`: a segment is drawn as confirmed only when its call is reportable, so the confirmed segments are
+    the cell's events.
+  * `plot_cells_pdf()` falls back to `pdf()` when `cairo_pdf()` opens no device (macOS without XQuartz), and restores
+    the device that was current; `raster = TRUE` draws unrasterised points, with a message, where ggrastr cannot
+    rasterise.
 * Simulator:
   * `simulate_scn()`: `seed` now controls the simulated data when the genome is the default or an inline
     `sim_genome()`; before, every seed gave the same data. Seed 1 with the default genome gives the same data as
-    before.
+    before. With a genome table built beforehand (`g = sim_genome(); simulate_scn(genome = g)`) or a user's own bins
+    table, the simulated data differ from earlier versions at every seed, because the random stream now starts
+    after the genome's draws.
   * Het SNPs are at unique positions; a draw on an occupied position moves to the next free one.
   * `write_bins_h5ad()` / `write_alleles_h5ad()`: missing values in character columns are written as anndata
     categoricals and read back as `NA`, instead of as the string `"NA"`.

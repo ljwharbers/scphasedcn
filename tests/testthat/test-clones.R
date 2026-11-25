@@ -1353,7 +1353,7 @@ lazy_cached("sim_tri", function() simulate_scn(
   genome = sim_genome(c(chr1 = 60e6, chr2 = 40e6, chr3 = 40e6, chr4 = 40e6, chr5 = 40e6, chr8 = 30e6, chr21 = 20e6,
                         chr22 = 20e6, chrX = 40e6)),
   cell_types = c(normal = 0.3, tri = 0.7), depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tri_events(),
-  multiplet_rate = 0.03, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 105))
+  multiplet_rate = 0.03, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 
 test_that("caller_tumour on a near-triploid tumour: baseline 3, absolute states, diploid labels, the normal clone at 2", {
   inp = clone_cached("clones_tri_input", function() clone_sim_input(sim_tri))

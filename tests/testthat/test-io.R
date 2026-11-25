@@ -218,7 +218,7 @@ test_that("bins_file: bins_100kb.h5ad when present, else the one bins_<tag>.h5ad
 test_that("the sample reader reads an extraction directory whose bins file is bins_50kb.h5ad", {
   d = file.path(tempdir(), "binsfile_50kb")
   unlink(d, recursive = TRUE)
-  p = write_sim_dataset(simulate_scn(n_cells = 12, seed = 3), d)
+  p = write_sim_dataset(simulate_scn(n_cells = 12, seed = 1), d)
   ref = read_sample_depth(d)
   file.rename(p$bins, file.path(d, "bins_50kb.h5ad"))
   s = read_sample_depth(d)

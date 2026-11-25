@@ -23,6 +23,9 @@ lazy_cached = function(name, build, env = parent.frame()) {
 
 # ---- simulations ---------------------------------------------------------------------------------
 
+# Every simulation uses seed 1. Before simulate_scn() evaluated its genome ahead of seeding, the default (or an inline)
+# sim_genome() reseeded the stream to its own seed 1, so all of these were drawn from the seed-1 stream whatever their
+# `seed`; seed = 1 keeps exactly the data the tests below were written on.
 # Cell-private events of the normal-tissue simulation. The simulator draws carriers of a "private"
 # event independently per event: each nucleus carries it with probability `private_frac` (0.05),
 # so ~10 of 200 barcodes carry each event (a few carry two).
@@ -35,21 +38,21 @@ sim_norm_f_events = function() {
 # chrX loss (1:0; female). Default sim_genome(): chr1 60 Mb (p arm 0-24 Mb), chr2 40, chr8 30,
 # chr21 20, chr22 20, chrX 40 Mb; 100 kb bins.
 # Hybrid (longphase + population) phasing: phase_block_mean = 1e9 gives one anchored block per chromosome
-# (seed 101: chrX has one extra break). The default switch_rate (1e-4 per SNP) would put ~5 switches on a
+# (at seed 1 chrX has one extra break). The default switch_rate (1e-4 per SNP) would put ~5 switches on a
 # 30,000-SNP chromosome and scramble chromosome-wide orientation; 2e-6 (~1 switch per 500,000 SNPs) keeps the
 # anchored haplotype fraction intact (hap agrees with hap_true for > 90 % of phased fragments).
 # multiplet_rate 0.05: a realistic residual rate after the soft multiplet filter.
 lazy_cached("sim_norm_f", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 1))
 
 # sim_norm_blk: sim_norm_f with block-only phasing (unoriented 200 kb read-backed blocks, each flipped with
 # probability 0.5; default switch_rate), i.e. longphase blocks without a population phase: normal mode warns.
 lazy_cached("sim_norm_blk", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 
 # sim_norm_aneu: sim_norm_f's events plus three highly aneuploid nuclei (5, 50, 120; singlet barcodes cell_0005,
 # cell_0049, cell_0116), each carrying a whole-chr2 loss (1:0), a chr22 loss (1:0), chr21 CN-LOH (2:0) and a chr8 gain
@@ -63,11 +66,11 @@ sim_norm_aneu_events = function() {
 lazy_cached("sim_norm_aneu", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_aneu_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 1))
 lazy_cached("sim_norm_aneu_blk", function() simulate_scn(
   n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_aneu_events(), private_frac = 0.05,
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 101))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 
 # Clone truth of the tumour simulation: `type` = the cell type (clone) that carries the event. The
 # simulator applies one event row to one cell type, so the trunk event (chr8 distal 3:1 in both clones)
@@ -84,14 +87,14 @@ sim_tum2_events = function() {
 lazy_cached("sim_tum2", function() simulate_scn(
   n_cells = 200, sex = "male", cell_types = c(normal = 0.3, cloneA = 0.35, cloneB = 0.35),
   depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tum2_events(),
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 102))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 # sim_tum3: sim_tum2's clones and events, attenuated allele signal and half the depth (a hard confirmation regime):
 # switch_rate 3.5e-3 per SNP in ~100-SNP blocks gives switch_attenuation(3.5e-3, 100) ~ 0.72 (with the 4 % allele
 # error the clone attenuation a ~ 0.66, chr21 2:1 at f ~ 0.61); depth meanlog log(4000).
 lazy_cached("sim_tum3", function() simulate_scn(
   n_cells = 200, sex = "male", cell_types = c(normal = 0.3, cloneA = 0.35, cloneB = 0.35),
   depth = c(meanlog = log(4000), sdlog = 0.35), events = sim_tum2_events(),
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, switch_rate = 3.5e-3, seed = 102))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, switch_rate = 3.5e-3, seed = 1))
 # sim_tum4: sim_tum2's clones plus two subclones that differ from their parent clone only on chr21 (the loss-inside-CN-LOH
 # and LOH-gain cases of the disagreement split): cloneB now carries chr21 CN-LOH (2:0) and cloneC is cloneB
 # with a chr21 loss of the same haplotype (1:0: one copy apart, same allele configuration); cloneD is cloneA with chr21
@@ -111,7 +114,7 @@ lazy_cached("sim_tum4", function() simulate_scn(
   n_cells = 460, sex = "male",
   genome = sim_genome(c(chr1 = 60e6, chr2 = 40e6, chr3 = 40e6, chr4 = 40e6, chr5 = 40e6, chr8 = 30e6, chr21 = 20e6, chr22 = 20e6, chrX = 40e6)), cell_types = c(normal = 0.13, cloneA = 0.2175, cloneB = 0.2175, cloneC = 0.2175, cloneD = 0.2175),
   depth = c(meanlog = log(8000), sdlog = 0.35), events = sim_tum4_events(),
-  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 104))
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 1))
 
 # ---- fake tables ---------------------------------------------------------------------------------
 

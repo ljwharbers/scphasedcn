@@ -4,8 +4,8 @@ Extraction layer of the [scphasedcn](https://github.com/ljwharbers/scphasedcn) s
 per chromosome over a SPLONGGET DNA BAM (10x Multiome barcodes in the `CB` tag, Oxford Nanopore reads) writes the
 directory the scphasedcn R package reads:
 
-- `bins_100kb.h5ad`: fragment counts per cell x 100 kb bin, with GC, blacklist / tandem-repeat fractions and
-  centromere flags per bin;
+- `bins_<tag>.h5ad` (`bins_100kb.h5ad` at the default 100 kb bins; the name follows `--binsize`): fragment counts
+  per cell x bin, with GC, blacklist / tandem-repeat fractions and centromere flags per bin;
 - `fragments.tsv.gz` + `.tbi`: one row per fragment with cell, flags, haplotype (from phased heterozygous SNPs) and
   phase set;
 - `cells_qc.tsv`: per-cell QC; `alleles_dna.h5ad`: allele counts per cell x SNP; `summary.json` (written last: a
@@ -47,7 +47,8 @@ Options worth knowing:
   `DONE` with the inputs of the alleles and fragments layers: `merge` refuses partials with different `--vote-ps`.
 - `--binsize` (default 100000) and `--tag`: the bins are written to `bins_<tag>.h5ad`, the tag by default named after
   the bin size (`100kb` for 100000, `50kb`, `1Mb`; `<n>bp` for a size that is not a whole number of kb; `merge` takes
-  the bin size of the partials). The R caller reads `bins_100kb.h5ad`.
+  the bin size of the partials). The R caller finds the bins file of the directory (`bins_100kb.h5ad` when present,
+  else the single `bins_<tag>.h5ad`), so keep one bins file per extraction directory.
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).
 - `merge` without `--chroms` (and without `chroms` in the yaml sample) merges the main chromosomes (chr1-22, X, Y, M)

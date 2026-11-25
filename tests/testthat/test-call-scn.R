@@ -851,3 +851,15 @@ test_that("precomputed features: unused feature-step inputs warn; tumour-mode nu
   expect_warning(try(call_scn(tempdir(), "tumour", features = fe, null_cells = "select", verbose = FALSE), silent = TRUE),
                  "tumour mode fits its input null")
 })
+
+test_that("the header of call_scn.R lists every file write_scphasedcn() can write", {
+  hdr = readLines(system.file("scripts", "call_scn.R", package = "scphasedcn"), warn = FALSE)
+  i = grep("^# Outputs:", hdr)
+  expect_length(i, 1)
+  j = i
+  while (j < length(hdr) && grepl("^#\\s{2,}\\S", hdr[j + 1])) j = j + 1
+  txt = paste(hdr[i:j], collapse = " ")
+  listed = vapply(scphasedcn_output_files(), function(f)
+    grepl(paste0("(^|[\\s/(])", gsub(".", "\\.", f, fixed = TRUE), "([\\s,).]|$)"), txt, perl = TRUE), logical(1))
+  expect_identical(names(listed)[!listed], character())
+})

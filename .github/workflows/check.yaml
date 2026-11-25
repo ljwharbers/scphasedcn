@@ -1,13 +1,77 @@
 name: check
 
+# Pull requests run the jobs whose inputs changed (paths filter in `changes`), with R CMD check on Ubuntu only; pushes
+# to main and manual runs add macOS (manual runs: every job). A skipped job passes; `ci-ok` sums up all jobs and is the
+# one status check to require for merging.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
+# a new push to a pull request cancels its running check; pushes to main each get their own group (run id): queued
+# runs of one group are replaced by the newest, and each push's paths filter only sees that push's changes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  consistency:
+    # checks across the R and Python halves (not path-filtered: a change to either side can break them)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: R and Python versions match the ref (release tag = X.Y.Z, else a development version)
+        run: bash tools/check_versions.sh
+      - name: the R and Python copies of the bundled centromere table are identical
+        run: cmp inst/extdata/centromeres_hg38.tsv python/src/scphasedcn/resources/centromeres_hg38.tsv
+
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      r: ${{ steps.filter.outputs.r }}
+      python: ${{ steps.filter.outputs.python }}
+      io: ${{ steps.filter.outputs.io }}
+      site: ${{ steps.filter.outputs.site }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            r:
+              - 'R/**'
+              - 'tests/**'
+              - 'vignettes/**'
+              - 'inst/**'
+              - 'man/**'
+              - 'DESCRIPTION'
+              - 'NAMESPACE'
+              - 'NEWS.md'
+              - '.Rbuildignore'
+              - '.github/workflows/check.yaml'
+            python:
+              - 'python/**'
+              - '.github/workflows/check.yaml'
+            io:
+              - 'tools/tiny_extraction.py'
+              - 'tools/check_extraction_io.R'
+            site:
+              - '_pkgdown.yml'
+              - 'man/**'
+              - 'vignettes/**'
+              - 'DESCRIPTION'
+              - 'NEWS.md'
+              - 'README.md'
+              - '.github/workflows/check.yaml'
+
   python:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -21,16 +85,65 @@ jobs:
       - run: pip install "./python[test]"
       - run: python -m pytest -q python/tests
       - run: scphasedcn --help && scphasedcn run --help
+      - name: build sdist + wheel and check their metadata
+        if: matrix.python == '3.12'
+        run: |
+          pip install build twine
+          python -m build --outdir "$RUNNER_TEMP/dist" python
+          twine check "$RUNNER_TEMP"/dist/*
+
+  extraction-io:
+    # the R readers on real extractor output: the Python test suite's synthetic sample, read by the installed R package
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' || needs.changes.outputs.r == 'true' ||
+      needs.changes.outputs.python == 'true' || needs.changes.outputs.io == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "./python[test]"
+      - name: tiny extraction directory (python/tests/conftest.py, fixture extracted)
+        run: python tools/tiny_extraction.py "$RUNNER_TEMP/extract"
+      - name: tabix (read_votes reads the fragment table through it; the check compares it with the R fallback)
+        run: sudo apt-get update && sudo apt-get install -y tabix
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          dependencies: '"hard"'
+          extra-packages: local::.
+      - name: read it with the R package
+        run: Rscript tools/check_extraction_io.R "$RUNNER_TEMP/extract"
 
   r-cmd-check:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.r == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS only on pushes to main and manual runs
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest"]') }}
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+      # testthat runs the test files in parallel (DESCRIPTION Config/testthat/parallel). Memory bounds the workers: the
+      # suite peaks at about 7 GB serially, 9 GB with 2 workers and 16 GB with 4 (each worker builds its own simulated
+      # fixtures). Ubuntu runners (16 GB): 3 workers (the call-scn file alone takes ~19 min and bounds the run anyway);
+      # macOS runners (7 GB): serial.
+      TESTTHAT_PARALLEL: ${{ startsWith(matrix.os, 'macos') && 'FALSE' || 'TRUE' }}
+      TESTTHAT_CPUS: 3
+      # one BLAS / OpenMP / data.table thread per worker; with multithreaded libraries the workers oversubscribe the
+      # cores (measured: slower than serial)
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      R_DATATABLE_NUM_THREADS: 1
     steps:
       - uses: actions/checkout@v4
       - uses: r-lib/actions/setup-pandoc@v2
@@ -48,3 +161,38 @@ jobs:
         with:
           args: 'c("--no-manual", "--as-cran")'
           error-on: '"warning"'
+
+  pkgdown-check:
+    # the site configuration (reference index, articles, URLs) before merging; the site itself is built after merge
+    # (pkgdown.yaml). check_pkgdown() reads DESCRIPTION, _pkgdown.yml, man/ and vignettes/: only pkgdown is installed.
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: any::pkgdown
+          dependencies: '"hard"'
+      - run: pkgdown::check_pkgdown()
+        shell: Rscript {0}
+
+  ci-ok:
+    # one status check for branch protection: fails when a job failed or was cancelled; skipped jobs count as passed
+    if: always()
+    needs: [consistency, changes, python, extraction-io, r-cmd-check, pkgdown-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: all jobs passed or were skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "a job ended with: $r"; exit 1;; esac
+          done

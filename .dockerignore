@@ -1,0 +1,24 @@
+# Build context of containers/Dockerfile (context = repository root). The image needs environment.yml, the R package
+# (DESCRIPTION, NAMESPACE, R/, man/, inst/, vignettes/) for R CMD INSTALL and python/ (pyproject.toml, README.md,
+# LICENSE, src/) for pip install ./python; everything else stays out.
+.git
+.github
+.gitignore
+docs
+doc
+Meta
+pkgdown
+recipes
+tests
+python/tests
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/*.egg-info
+python/build
+python/dist
+*.Rcheck
+*.tar.gz
+.Rproj.user
+.Rhistory
+.RData

@@ -397,3 +397,108 @@ test_that("plot_cells.R fails with usage on bad input and plots a written run", 
   expect_true(file.exists(file.path(od, "CB.pdf")))
   expect_identical(nrow(fread(file.path(od, "cells.tsv"))), 2L)
 })
+
+test_that("plot_cells_pdf falls back to pdf() when cairo_pdf() opens no device, and restores the device list", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  feat = pc_features()
+  res = pc_result(feat)
+  cb = res$assignments[clone == "CB", cell][1:2]
+  tr = cell_tracks(feat, res, cells = cb)
+  # a device of the caller's, current before and after each call
+  grDevices::pdf(NULL)
+  dev0 = grDevices::dev.cur()
+  on.exit(if (dev0 %in% grDevices::dev.list()) grDevices::dev.off(dev0), add = TRUE)
+  list0 = grDevices::dev.list()
+  check = function(cairo, label) {
+    f = tempfile(fileext = ".pdf")
+    local_mocked_bindings(has_cairo = function() TRUE, pdf_cairo = cairo)
+    plot_cells_pdf(tr, f, per_page = 1, raster = FALSE)
+    expect_gt(file.size(f), 0, label = label)
+    expect_identical(grDevices::dev.cur(), dev0, label = label)
+    expect_identical(grDevices::dev.list(), list0, label = label)
+  }
+  # (a) cairo_pdf() warns and opens nothing (cairo reported but not loadable)
+  check(function(...) { warning("unable to load the cairo library"); invisible(NULL) }, "cairo warns")
+  # (a') it opens a device and warns: that device is closed again
+  check(function(...) { grDevices::pdf(NULL); warning("cairo trouble"); invisible(NULL) }, "cairo opens and warns")
+  # (b) it throws an error
+  check(function(...) stop("cairo-based devices are not supported"), "cairo errors")
+  # (c) no cairo: cairo_pdf() is not called
+  f = tempfile(fileext = ".pdf")
+  local({
+    local_mocked_bindings(has_cairo = function() FALSE, pdf_cairo = function(...) stop("must not be called"))
+    plot_cells_pdf(tr, f, per_page = 2, raster = FALSE)
+  })
+  expect_gt(file.size(f), 0)
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_identical(grDevices::dev.list(), list0)
+  # neither device opens: a clear error, the device list as it was
+  f = tempfile(fileext = ".pdf")
+  local({
+    local_mocked_bindings(has_cairo = function() TRUE, pdf_cairo = function(...) stop("no cairo"),
+                          pdf_plain = function(...) { warning("cannot open file"); invisible(NULL) })
+    expect_error(plot_cells_pdf(tr, f, raster = FALSE), "could not open a PDF device")
+  })
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_identical(grDevices::dev.list(), list0)
+  # plotting fails midway: the opened device is closed and the previous one current again
+  local({
+    local_mocked_bindings(plot_cell_tracks = function(...) stop("plot failed"))
+    expect_error(plot_cells_pdf(tr, tempfile(fileext = ".pdf"), raster = FALSE), "plot failed")
+  })
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_identical(grDevices::dev.list(), list0)
+})
+
+test_that("raster = TRUE degrades to unrasterised points with one message when ggrastr cannot rasterise", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  skip_if_not_installed("ggrastr")
+  feat = pc_features()
+  res = pc_result(feat)
+  cb = res$assignments[clone == "CB", cell][1]
+  tr = cell_tracks(feat, res, cells = cb)
+  # the session's probe result is reset for the test and put back afterwards
+  rc = scphasedcn:::.scphasedcn_raster
+  old = rc$ok
+  on.exit(if (is.null(old)) rm(list = intersect("ok", ls(rc)), envir = rc) else rc$ok = old, add = TRUE)
+  rm(list = intersect("ok", ls(rc)), envir = rc)
+  grDevices::pdf(NULL)
+  dev0 = grDevices::dev.cur()
+  on.exit(if (dev0 %in% grDevices::dev.list()) grDevices::dev.off(dev0), add = TRUE)
+  msgs = character()
+  seen = logical()
+  real_points = points_layer
+  local_mocked_bindings(raster_probe = function() stop("Cairo is not available"),
+                        points_layer = function(..., raster = TRUE) { seen <<- c(seen, raster); real_points(..., raster = raster) })
+  p = withCallingHandlers(plot_cell_tracks(tr, cb, raster = TRUE),
+                          message = function(m) { msgs <<- c(msgs, conditionMessage(m)); invokeRestart("muffleMessage") })
+  expect_length(msgs, 1L)
+  expect_match(msgs, "cannot rasterise here")
+  expect_false(any(seen))
+  expect_s3_class(ggplot2::ggplot_build(p[[1]]), "ggplot_built")
+  # one message per session
+  expect_no_message(plot_cell_tracks(tr, cb, raster = TRUE), message = "rasterise")
+  f = tempfile(fileext = ".pdf")
+  expect_no_message(plot_cells_pdf(tr, f, raster = TRUE), message = "rasterise")
+  expect_gt(file.size(f), 0)
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_false(any(seen))
+})
+
+test_that("the rasterisation probe draws on a throw-away device and closes it again", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("ggrastr")
+  grDevices::pdf(NULL)
+  dev0 = grDevices::dev.cur()
+  on.exit(if (dev0 %in% grDevices::dev.list()) grDevices::dev.off(dev0), add = TRUE)
+  list0 = grDevices::dev.list()
+  try(scphasedcn:::raster_probe(), silent = TRUE)
+  expect_identical(grDevices::dev.list(), list0)
+  expect_identical(grDevices::dev.cur(), dev0)
+  # a probe whose device cannot be opened fails without touching the device list
+  local_mocked_bindings(pdf_plain = function(...) stop("no device"))
+  expect_error(scphasedcn:::raster_probe(), "no device to draw on")
+  expect_identical(grDevices::dev.list(), list0)
+})

@@ -49,7 +49,8 @@ pieces = regions table, votes, atoms, cells = names in vote index order)}
 
 \item{mix_prior}{total prior of the mixture hypotheses}
 
-\item{ref_cells}{reference cells for the depth centring (NULL = none); the clone states must be relative to the
+\item{ref_cells}{reference cells for the depth centring (NULL or empty = none; any other size is a pool, which
+\code{\link[=caller_tumour]{caller_tumour()}} passes with at least \code{min_ref} cells or not at all); the clone states must be relative to the
 same reference (\code{\link[=clone_profiles]{clone_profiles()}} \code{ref_cells})}
 
 \item{mix_w}{mixture weights of the first clone of a pair (0.5 = 50:50; e.g. c(1/3, 1/2, 2/3) for unequal nuclei)}
@@ -99,5 +100,6 @@ reported \code{posterior} is the best clone's posterior among the single clones.
 The hypotheses are the clones with members plus the fixed normal clone \code{N0} whenever \code{segments} has it
 (\code{\link[=caller_tumour]{caller_tumour()}} \code{normal_hypothesis}), even when no cell is labelled \code{N0} yet: its state is all-neutral, so it
 needs no orientation, and without it normal cells would be forced into a tumour clone. Its \code{c} is the median \code{c}
-of \code{par} (attenuation 1) when \code{par} has no \code{N0} row.
+of \code{par} (attenuation 1) when \code{par} has no \code{N0} row. A piece without a state of a clone is scored at the clone's
+baseline on a diploid chromosome and as the neutral haploid state 1:0 on a haploid one (ploidy 1 in \code{segments}).
 }

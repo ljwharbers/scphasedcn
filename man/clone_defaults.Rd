@@ -94,9 +94,10 @@ Reference: \code{ref_post}, \code{min_ref}. Other:
 \code{repass}, \code{allelic_exclude}.
 
 \code{checkpoint} (resume cache, "" = off): an .rds path. When the file does not exist the global discovery
-(leaves, merged clones) and the first EM round are saved there; when it exists they are read from it and the run
-continues from the within-trunk discovery (useful when rerunning the later steps on a large sample). The cache is
-not keyed: reuse it only with the same features, seed and discovery options.
+(leaves, merged clones) and the first EM round (with the candidate baselines of \code{ploidy = "fit"} as that round left
+them, and its run notes) are saved there; when it exists they are read from it and the run continues from the
+within-trunk discovery with the same results as the run that wrote it (useful when rerunning the later steps on a
+large sample). The cache is not keyed: reuse it only with the same features, seed and options.
 
 Confirmation null (per-cell \code{confirmed} calls, after assignment; assignment itself always uses the input fits):
 \code{ref_null} = "none" (the input rho / depth t of \code{feat$null_fit}) or "rho" (opt-in: beta-binomial rho refitted on the

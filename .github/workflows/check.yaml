@@ -9,8 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# a new push to a pull request cancels its running check; pushes to main each get their own group (run id): queued
+# runs of one group are replaced by the newest, and each push's paths filter only sees that push's changes
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -172,6 +174,7 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           packages: any::pkgdown
+          dependencies: '"hard"'
       - run: pkgdown::check_pkgdown()
         shell: Rscript {0}
 

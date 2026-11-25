@@ -1351,6 +1351,38 @@ test_that("caller_tumour names a clone whose depth contrast is at the grid floor
   expect_false(any(grepl("^clone baselines", r2$notes)))
 })
 
+test_that("caller_tumour resumed from a checkpoint continues with the baseline candidates of the run that wrote it", {
+  # sim_tri: the global round narrows the candidate baselines of ploidy "fit"; the later fits of a resumed run must
+  # start from the narrowed set, as those of the run that wrote the checkpoint did (the candidates passed to every
+  # fit are recorded)
+  inp = clone_cached("clones_tri_input", function() clone_sim_input(sim_tri))
+  ck = tempfile(fileext = ".rds")
+  on.exit(unlink(ck), add = TRUE)
+  seen = list()
+  real_fit = fit_states_opts
+  run = function() {
+    seen <<- list()
+    local_mocked_bindings(fit_states_opts = function(profile, grid, opts, baselines = eval(formals(fit_clone_states)$baselines)) {
+      seen[[length(seen) + 1L]] <<- baselines
+      real_fit(profile, grid, opts, baselines)
+    })
+    list(res = caller_tumour(inp, opts = list(checkpoint = ck), verbose = FALSE), seen = seen)
+  }
+  fresh = run()
+  expect_true(file.exists(ck))
+  resumed = run()
+  n = length(resumed$seen)
+  expect_gt(length(fresh$seen), n)                                   # the global round's fits are not re-run
+  expect_identical(resumed$seen, utils::tail(fresh$seen, n))
+  expect_lt(length(resumed$seen[[1]]), length(fresh$seen[[1]]))     # the narrowed set
+  expect_identical(resumed$res, fresh$res)
+  # a checkpoint written without the candidates (and notes): rebuilt from the global round's fit, the same fits
+  x = readRDS(ck); x$b_cand = NULL; x$notes = NULL; saveRDS(x, ck)
+  old = run()
+  expect_identical(old$seen, resumed$seen)
+  expect_identical(old$res[setdiff(names(old$res), "notes")], fresh$res[setdiff(names(fresh$res), "notes")])
+})
+
 test_that("confirmation null rows carry their own clone's baseline and contrast; cell_state_scores centres on them", {
   # two tumour clones at baseline 3 with different c, and the normal clone
   par = data.table(clone = c("C1", "C2", "N0"), c = c(0.9, 0.7, 0.8), a = c(0.95, 0.9, 1), base = c(3, 3, 2))

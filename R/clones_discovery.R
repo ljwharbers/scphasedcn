@@ -1159,8 +1159,7 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     ia = match(cs$a, cdata$cells); ib = match(cs$b, cdata$cells)
     tt = split_test(subset_contrast_regions(cdata, treg), ia[!is.na(ia)], ib[!is.na(ib)], inp$rho, opts$q, opts$n_perm,
                     opts$max_cells, seed = seed + ii, depth_delta = opts$depth_delta, with_p = TRUE,
-                    perm_decision = opts$perm_decision %||% "quantile", allele = opts$test_allele %||% "z",
-                    drift_test = opts$drift_test %||% "none")
+                    perm_decision = opts$perm_decision, allele = opts$test_allele, drift_test = opts$drift_test)
     tests[ii, `:=`(stat = tt$stat, thr = tt$thr, n_perm = tt$n_perm, p = tt$p, differ = tt$differ)]
     if (!tt$differ) { tests[ii, outcome := "not different on the test halves"]; next }
     ka = paste0(k, "a"); kb = paste0(k, "b")

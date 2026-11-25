@@ -828,7 +828,8 @@ allelic_features = function(votes, atoms, regions, orientation = c("auto", "chro
 # the sample reader of the caller: the bins file (bins_file(): bins_100kb.h5ad, else the one bins_<tag>.h5ad;
 # requested layers only, no obsm), the fragments path and the cells_qc.tsv columns merged into `cells`; no alleles file (the caller reads its allele votes from the fragment table)
 read_sample_depth = function(dir, layers = character()) {
-  scn = read_bins_h5ad(bins_file(dir), layers = layers)
+  bf = bins_file(dir)                                # resolved first: an error here is not raised inside a promise
+  scn = read_bins_h5ad(bf, layers = layers)
   scn$obsm = list()
   ff = file.path(dir, "fragments.tsv.gz")
   if (file.exists(ff)) scn$fragments = ff

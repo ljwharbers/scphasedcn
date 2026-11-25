@@ -201,7 +201,8 @@ def cmd_extract(a):
     # a --region extraction has its own partial, which `merge` refuses: it never replaces the chromosome's partial
     pdir = Path(d["out"]) / "partials" / (f"region_{chrom}_{reg[1][0]}-{reg[1][1]}" if reg else chrom)
     pdir.mkdir(parents=True, exist_ok=True)
-    old_meta = read_done(pdir)
+    # DONE of the earlier extraction (`run` removes DONE before its workers start and passes it on as `old_done`)
+    old_meta = getattr(a, "old_done", None) or read_done(pdir)
     (pdir / "DONE").unlink(missing_ok=True)
     produce = layers_on & {"depth", "fragments"} | ({"alleles"} if use_snps else set())
     for layer in sorted(layers_on - produce):   # requested but not produced (alleles without --snps): drop stale files
@@ -383,9 +384,16 @@ def cmd_run(a):
         check_vcf(d["snps"], [], sample=d["vcf_sample"], reference_names=list(present))
     jobs = max(1, min(a.jobs, len(chroms)))
     _log(f"run: {len(chroms)} chromosomes, {jobs} parallel jobs -> {d['out']}")
+    # DONE means "finished in this run": removed for every chromosome before any worker starts (a chromosome queued
+    # but never started, e.g. after a worker was killed, must not keep the marker of an earlier run); its metadata is
+    # passed to extract, which keeps the inputs of layers this run does not rewrite
+    from .writers import read_done
     nss = []
     for c in chroms:
         ns = copy.copy(a); ns.chrom = c; ns.region = None; ns.out = d["out"]
+        pdir = Path(d["out"]) / "partials" / c
+        ns.old_done = read_done(pdir)
+        (pdir / "DONE").unlink(missing_ok=True)
         nss.append(ns)
     fails = []
     if jobs == 1:

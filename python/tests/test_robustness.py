@@ -447,6 +447,39 @@ def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
     assert not (out / "partials" / "chr2" / "DONE").exists()
 
 
+def test_run_removes_done_of_earlier_runs_before_extracting(genome, bam, tmp_path, monkeypatch):
+    """A chromosome queued but never started when the pool breaks must not keep the DONE of an earlier run in the same
+    output directory (it would be reported, and merged, as finished)."""
+    import concurrent.futures
+    from concurrent.futures.process import BrokenProcessPool
+    out = tmp_path / "o"
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1"] + _common(genome, bam, out)) == 0   # earlier run
+
+    class BrokenPool:                                  # breaks before any chromosome starts
+        def __init__(self, max_workers=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def map(self, fn, it):
+            raise BrokenProcessPool("a worker died")
+    with monkeypatch.context() as mp:
+        mp.setattr(concurrent.futures, "ProcessPoolExecutor", BrokenPool)
+        with pytest.raises(SystemExit, match=r"without a finished partial \(no DONE\): chr1, chr2\."):
+            main(["run", "--chroms", "chr1,chr2", "--jobs", "2"] + _common(genome, bam, out))
+    assert not any((out / "partials" / c / "DONE").exists() for c in ("chr1", "chr2"))
+    # a later run rewriting one layer keeps the inputs of the others (passed on from the DONE it removed)
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1"] + _common(genome, bam, out)) == 0
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "fragments"]
+                + _common(genome, bam, out)) == 0
+    done = json.load(open(out / "partials" / "chr1" / "DONE"))
+    assert done["layers"]["depth"]["inputs"]["binsize"] == 100_000
+
+
 # --------------------------------------------------------------------------------------------- records without SEQ / CIGAR
 def _strip_seq(r):
     """SEQ `*` on CELL_A's chr1 record c ([20000, 22000)) and on CELL_B's chr2 R2 (over SNPs 1001 and 1501)."""

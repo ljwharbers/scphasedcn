@@ -173,8 +173,10 @@ test_that("medicc2_table: N0 sample, merging, total = a + b, cap and order", {
   expect_equal(t2[sample_id == "N0" & chrom == "chrX", unique(paste(cn_a, cn_b))], "1 0")
   # cap
   d2 = copy(d)[clone == "A" & chrom == "chr2", cn_a := 12L]
-  expect_equal(max(medicc2_table(d2)$cn_a), 8L)
-  expect_equal(max(medicc2_table(d2, allele_specific = FALSE)$cn), 8L)
+  expect_warning(ta <- medicc2_table(d2), "above cap = 8 and were clipped")
+  expect_equal(max(ta$cn_a), 8L)
+  expect_warning(tt <- medicc2_table(d2, allele_specific = FALSE), "above cap = 8 and were clipped")
+  expect_equal(max(tt$cn), 8L)
 })
 
 test_that("medicc2_pieces / orient_clone_states take numeric clone ids and do not modify the caller's tables", {
@@ -233,4 +235,30 @@ test_that("orient_clone_states: the block table carries the piece's chaining fli
     expect_identical(b$flipped, o$qc$flipped[match(b$piece, o$qc$piece)])
     expect_true(all(b$sign == fifelse(b$flipped, -1L, 1L) * sign(b$nA_ref - b$nB_ref)))
   }
+})
+
+test_that("medicc2_pieces: an imbalance segment enters at the balanced state of its clone's integer baseline", {
+  x = m2_toy()
+  x$segments[clone == "B" & chrom == "chr2" & start == 20e6, label := "imbalance"]
+  at = function(B) {
+    cl = copy(x$clones)[, baseline := 2][clone == "B", baseline := B]
+    medicc2_pieces(x$segments, cl, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"]
+  }
+  b2 = at(2)
+  expect_equal(b2$state, "1:1"); expect_equal(b2$cn, 2); expect_equal(b2$label, "neutral")
+  expect_identical(b2, medicc2_pieces(x$segments, x$clones, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"])
+  b4 = at(4)
+  expect_equal(b4$state, "2:2"); expect_equal(b4$cn, 4); expect_false(b4$imbalanced)
+  expect_equal(at(3.75)$state, "2:2")                                  # nb = 4
+  b3 = at(3)                                                           # odd nb: no balanced state at the baseline, kept
+  expect_equal(b3$state, "2:1"); expect_equal(b3$cn, 3); expect_true(b3$imbalanced)
+})
+
+test_that("medicc2_table counts and warns about copy numbers above the cap", {
+  d = data.table(clone = c("K1", "K2"), chrom = "chr1", start = 0, end = 10e6, cn_a = c(9L, 2L), cn_b = c(1L, 1L), ploidy = 2L)
+  expect_warning(tb <- medicc2_table(d), "1 sample x piece rows have a copy number above cap = 8")
+  expect_equal(attr(tb, "n_capped"), 1L)
+  expect_equal(tb[sample_id == "K1", c(cn_a, cn_b)], c(8L, 1L))
+  expect_no_warning(t2 <- medicc2_table(d, cap = 12L))
+  expect_equal(attr(t2, "n_capped"), 0L)
 })

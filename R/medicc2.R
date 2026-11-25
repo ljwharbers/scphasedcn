@@ -22,9 +22,12 @@
 #' Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
 #' done by [medicc2_table()].
 #' Segments labelled `imbalance` (allelic imbalance without depth support, `segment_clone(gain_support = )`) enter as
-#' 1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.
+#' the balanced state at the clone's integer baseline (`clones$baseline` rounded; 1:1 at baseline 2 or without it, 2:2
+#' at baseline 4): MEDICC2 sees no extra copy where the clone's depth does not show one. A clone with an odd integer
+#' baseline (e.g. 3) has no balanced state at its baseline; its `imbalance` segments keep their fitted state.
 #' @param segments segments table (`clone, chrom, start, end, state, cn, label, ploidy`; `nA, nB, f` optional)
-#' @param clones clones table (`clone`, `doublet`, `n_assigned`); NULL keeps every clone of `segments`
+#' @param clones clones table (`clone`, `doublet`, `n_assigned`, `baseline` optional); NULL keeps every clone of
+#'   `segments`
 #' @param min_len pieces shorter than this (bp) are absorbed into a neighbour
 #' @param max_gap maximal gap (bp) between a short piece and the neighbour it is absorbed into (default 0: contiguous
 #'   neighbours only; a larger value lets the absorbing piece extend over the gap, i.e. claim states there)
@@ -62,9 +65,21 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = 0, m
   for (v in c("nA", "nB", "f")) if (!v %in% names(sg)) sg[, (v) := NA_real_]
   if (!"label" %in% names(sg)) sg[, label := state_label(major, minor, ploidy)]
   if (!"cn" %in% names(sg)) sg[, cn := major + minor]
-  # imbalanced runs without depth support (segment_clone(gain_support = )): copy-neutral for the tree (no extra copy)
-  if (any(sg$label == "imbalance"))
-    sg[label == "imbalance", `:=`(state = "1:1", major = nA_of("1:1"), minor = nB_of("1:1"), cn = 2 + 0 * cn, label = "neutral")]
+  # imbalanced runs without depth support (segment_clone(gain_support = )): copy-neutral for the tree (no extra copy):
+  # the balanced state at the clone's integer baseline nb (1:1 at baseline 2, 2:2 at baseline 4; clones$baseline, 2
+  # without it); a clone whose nb is odd has no balanced copy-neutral state and keeps its fitted state
+  if (any(sg$label == "imbalance")) {
+    nb_ = rep(2, nrow(sg))
+    if (!is.null(clones) && "baseline" %in% names(cl)) {
+      b_ = as.numeric(cl$baseline)[match(sg$clone, cl$clone)]
+      nb_ = fifelse(is.finite(b_), floor(b_ + 0.5), 2)
+    }
+    sg[, nb_ := nb_]
+    sg[label == "imbalance" & nb_ %% 2 == 0, `:=`(state = paste0(nb_ / 2, ":", nb_ / 2), major = as.integer(nb_ / 2),
+                                                 minor = as.integer(nb_ / 2), cn = nb_ + 0 * cn,
+                                                 label = state_label(nb_ / 2, nb_ / 2, 2L))]
+    sg[, nb_ := NULL]
+  }
   pcs = segment_pieces(sg)[, .(region, chrom, start, end)]
   n_raw = nrow(pcs)
   st = sg[pcs[, .(region, chrom, mid = (start + end) / 2)], on = .(chrom, start <= mid, end > mid),
@@ -111,7 +126,7 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = 0, m
   setattr(out, "n_pieces_raw", n_raw)
   out[]
 }
-utils::globalVariables(c("doublet", "n_assigned", "reason", "x.major", "x.minor", "x.nA", "x.nB", "x.f", "i.region",
+utils::globalVariables(c("doublet", "n_assigned", "reason", "x.major", "x.minor", "x.nA", "x.nB", "x.f", "i.region", "nb_",
                          "seg_nA", "seg_nB", "seg_f", "major", "minor", "ploidy", "imbalanced", "orig", "i.chrom", "i.start",
                          "i.end", "x.start", "x.end"))
 
@@ -319,9 +334,12 @@ utils::globalVariables(c("pix", "cl", "i.pix", "x.atom", "n_votes", "i.n_votes",
 #' @param x [orient_clone_states()] result, or a long table with `clone, chrom, start, end, cn_a, cn_b` (+ `ploidy`)
 #' @param allele_specific TRUE: cn_a / cn_b columns; FALSE: total cn
 #' @param normal name of the normal sample
-#' @param cap maximal copy number (MEDICC2 caps at 8)
+#' @param cap maximal copy number (cn_a, cn_b and their total; MEDICC2's default maximum is 8). Clone states can exceed
+#'   it (the state grid of a clone at baseline B reaches 2 B + 1 copies, amplicons more): clipped values are counted in
+#'   the attribute `n_capped` and a warning says so; raise `cap` (and MEDICC2's maximum) to keep them
 #' @param chroms chromosomes kept
-#' @return data.table (MEDICC2 TSV layout); attribute `n_pieces` (pieces before merging)
+#' @return data.table (MEDICC2 TSV layout); attributes `n_pieces` (pieces before merging) and `n_capped` (sample x
+#'   piece rows with a copy number above `cap`, clipped)
 #' @export
 medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chroms = paste0("chr", c(1:22, "X"))) {
   d = as.data.table(if (inherits(x, "medicc2_orientation")) x$pieces else x)
@@ -333,6 +351,10 @@ medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chr
     n0 = n0[, .(clone = normal, chrom, start, end, cn_a = 1L, cn_b = fifelse(ploidy == 1L, 0L, 1L), ploidy)]
     d = rbind(d, n0)
   }
+  n_cap = d[, sum(round(cn_a) > cap | round(cn_b) > cap | round(cn_a) + round(cn_b) > cap, na.rm = TRUE)]
+  if (n_cap) warning(sprintf(paste("medicc2_table: %d sample x piece rows have a copy number above cap = %d and were clipped",
+                                   "(raise `cap` and MEDICC2's maximum copy number to keep them)"), n_cap, as.integer(cap)),
+                     call. = FALSE)
   d[, `:=`(cn_a = pmin(as.integer(round(cn_a)), as.integer(cap)), cn_b = pmin(as.integer(round(cn_b)), as.integer(cap)))]
   d[, cn := pmin(cn_a + cn_b, as.integer(cap))]
   pcs = unique(d[, .(chrom, start, end)])[order(chrom_rank(chrom), start)]
@@ -354,6 +376,7 @@ medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chr
   out[, `:=`(start = as.integer(start), end = as.integer(end))]
   out = if (allele_specific) out[, .(sample_id, chrom, start, end, cn_a, cn_b)] else out[, .(sample_id, chrom, start, end, cn)]
   setattr(out, "n_pieces", nrow(pcs))
+  setattr(out, "n_capped", as.integer(n_cap))
   out[]
 }
 utils::globalVariables(c("v", "run", "kk", "i.kk", "i.run", "sample_id", "gap_"))

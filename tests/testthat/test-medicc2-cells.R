@@ -245,3 +245,21 @@ test_that("cell_piece_data / cell_piece_states with loo on a piece flipped by ch
   expect_true(all(st(x$pieces, b0)$state == "2:0"))
   expect_true(all(st(p1, b1)$state == "0:2"))
 })
+
+test_that("cell_piece_states: per-cell baselines put the depth on the cell's scale (diploid by default)", {
+  x = mc_toy(n_each = 4L)
+  run = function(...) cell_piece_states(x$features, x$pieces, x$blocks, clones = x$clones, ref_cells = x$ref, keep_ll = TRUE, ...)
+  r0 = run()
+  expect_identical(run(baseline = 2)$states, r0$states)
+  expect_identical(run(baseline = stats::setNames(rep(2, length(x$cells)), x$cells))$states, r0$states)
+  # the balanced cells (depth at their median on p1b) scored as cells of a triploid clone (B = 3): the 3-copy state 2:1
+  # sits at the median, so its depth term beats the neutral 1:1 (2 copies, below the median); diploid, the reverse
+  bal = x$cells[x$lab == "bal"]
+  r3 = run(baseline = stats::setNames(rep(3, length(bal)), bal))
+  l0 = r0$ll[cell %in% bal & piece == "p1b" & state == "2:1", ll_depth]
+  l3 = r3$ll[cell %in% bal & piece == "p1b" & state == "2:1", ll_depth]
+  expect_true(all(l0 < 0))
+  expect_true(all(l3 > 0))
+  # cells without a baseline stay diploid
+  expect_identical(r3$states[!cell %in% bal], r0$states[!cell %in% bal])
+})

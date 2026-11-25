@@ -217,10 +217,11 @@ utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "p
 #' clone has on the piece; haploid pieces: one-copy states) are scored with the cell's own evidence
 #' ([cell_piece_data()]); the cell's clone assignment is not used.
 #' - Depth: `ll_depth_shift(z, mu, tpar)` with `mu = c * log2(max(cn, 0.2) / base) / pmax(sd, sd_floor)` (the shift
-#'   model of the clone states, [fit_clone_states()] / [assign_cells()]: `base` = the piece ploidy when the depth is
-#'   centred on the reference pool, else 2), relative to the neutral state's shift (the neutral state's own depth
-#'   term is `ll_depth_shift(z, 0) = 0`), Student-t null per sd_class x stratum ([fit_depth_null()] parameters,
-#'   fallbacks as in [assign_cells()]) or Gaussian when `tpar` is NULL.
+#'   model of the clone states, [fit_clone_states()] / [assign_cells()]: `base` = the cell's baseline B (`baseline`, 2
+#'   by default) times the piece ploidy / 2 when the depth is centred on the reference pool, else B), relative to the
+#'   neutral state's shift (at B = 2 the neutral state's own depth term is `ll_depth_shift(z, 0) = 0`), Student-t null
+#'   per sd_class x stratum ([fit_depth_null()] parameters, fallbacks as in [assign_cells()]) or Gaussian when `tpar`
+#'   is NULL.
 #' - Alleles: one-sided beta-binomial LLR vs 1:1 of the oriented votes `(oA, oN)` at the expected cn_a fraction
 #'   `0.5 + a * (cn_a / cn - 0.5)` (`a` = orientation attenuation of the clone model; 0.5 for cn = 0), overdispersion
 #'   `rho`; haploid pieces have no allele term.
@@ -229,7 +230,12 @@ utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "p
 #'
 #' `c`, `a` and `s_sys` are global (one value for every cell): by default the median over the tumour clones (kept clones
 #' of `pieces` except `normal`), weighted by their assigned cells, of the clones' fitted `c` / `a` / `s_sys` (`clones`
-#' table). A per-cell value would have to come from the cell's clone, which this function must not use.
+#' table). A per-cell value would have to come from the cell's clone, which this function must not use. For the same
+#' reason the depth scale of every cell is diploid by default: a cell's depth is centred on its own median, which is
+#' at B copies for a cell of a clone with baseline B (`clones$baseline`), so the states of cells of a clone with B != 2
+#' are scored on the wrong scale (off by `c * log2(B / 2)`) unless their baselines are given in `baseline`, e.g.
+#' `setNames(clones$baseline[match(assignments$clone, clones$clone)], assignments$cell)` (the clone membership then
+#' enters the depth scale).
 #' @param features scn_features list (see [cell_piece_data()])
 #' @param pieces clone x piece table with `cn_a, cn_b` (orient_clone_states()$pieces or the export's pieces.tsv), or a
 #'   `medicc2_orientation`
@@ -260,6 +266,8 @@ utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "p
 #' @param s_sys systematic depth SD added to the per-cell SD (NULL = the cell-weighted median of the tumour clones'
 #'   `s_sys`, 0 when `clones` lacks it); see [cell_piece_data()]
 #' @param data precomputed [cell_piece_data()] output (skips the depth / vote aggregation)
+#' @param baseline per-cell baseline B (the copy number of the cell's median depth): NULL (default) = 2 for every cell
+#'   (diploid), one number for every cell, or a numeric vector named by cell (cells without a value: 2)
 #' @param keep_ll return the per-candidate log-likelihoods
 #' @return list of class `cell_piece_states`: `states` (one row per cell x piece: cell, piece, chrom, start, end,
 #'   ploidy, cn_a, cn_b, state (MAP), posterior, llr_neutral, ll_depth, ll_allele (MAP terms vs neutral), n_cand, z,
@@ -271,7 +279,7 @@ cell_piece_states = function(features, pieces, blocks = NULL, cells = NULL, para
                              prior = c("neutral", "uniform", "clone_freq"), p_neutral = 0.5, clones = NULL, c = NULL, a = NULL, rho = "ref", tpar = NULL,
                              ref_cells = NULL, loo = NULL, normal = "N0", sd_scale = TRUE, ref_center = c("pseudobulk", "mean"),
                              center = TRUE, s_sys = NULL, haploid_sd = sqrt(2), data = NULL, keep_ll = FALSE,
-                             rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25)) {
+                             rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25), baseline = NULL) {
   ref_center = match.arg(ref_center)
   prior = match.arg(prior)
   if (inherits(pieces, "medicc2_orientation")) {
@@ -323,6 +331,14 @@ cell_piece_states = function(features, pieces, blocks = NULL, cells = NULL, para
                                                                   on = "piece", allow.cartesian = TRUE]
   tp = cl_match_tpar(L, tpar)
   base = if (use_ref) L$ploidy else 2
+  if (!is.null(baseline)) {
+    # the cells' baselines: the copy number of their median depth (centred on it), times ploidy / 2 with a reference
+    bc = if (length(baseline) == 1 && is.null(names(baseline))) rep(as.numeric(baseline), nrow(L)) else
+      as.numeric(baseline[L$cell])
+    bc[!is.finite(bc)] = 2
+    if (any(bc <= 0)) stop("cell_piece_states: `baseline` must be positive")
+    base = bc * (if (use_ref) L$ploidy / 2 else 1)
+  }
   L[, mu := c_ * log2(pmax(cn, 0.2) / base) / pmax(sd, params$sd_floor)]
   mu0 = c_ * log2(fifelse(L$ploidy == 1L, 1, 2) / base) / pmax(L$sd, params$sd_floor)
   L[, ll_depth := ll_depth_shift(z, mu, tp) - ll_depth_shift(z, mu0, tp)]

@@ -386,10 +386,28 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
   cells = inp$cells$cell
   d[, s_allele := 0]
   rr = regs[region %in% d$region]
-  tv = trip_votes(inp$votes, inp$atoms, rr, length(cells), inp$allelic_chroms)
-  if (nrow(tv$trip)) for (k in unique(d$oclone)) {
-    oc = oriented_counts(tv, match(k_members[clone == k, cell], cells))
-    oc[, `:=`(cell = cells[ci], region = rr$region[ri])]
+  # votes per (cell, region, phase set): a vote lies in every region that covers it, and the orientation blocks are
+  # region x phase set, so the oriented counts of clone k need only k's regions and the votes of k's rows and members.
+  # When the clones score different regions (the cells' clone-specific event segments, which overlap where several
+  # clones have an event: with most of each clone's genome non-neutral the shared table would hold every vote once per
+  # clone) a table is built per clone; when every clone scores the same regions (the null rows) one table is shared.
+  ks = unique(d$oclone)
+  reg_k = lapply(ks, function(k) unique(d$region[d$oclone == k]))
+  shared = all(lengths(reg_k) == nrow(rr))
+  tv = if (shared) trip_votes(inp$votes, inp$atoms, rr, length(cells), inp$allelic_chroms) else NULL
+  if (shared && !nrow(tv$trip)) ks = character()
+  for (ik in seq_along(ks)) {
+    k = ks[ik]
+    mk = match(k_members[clone == k, cell], cells)
+    rk = rr
+    if (!shared) {
+      rk = rr[region %in% reg_k[[ik]]]
+      ci_k = unique(c(match(unique(d$cell[d$oclone == k]), cells), mk))
+      tv = trip_votes(inp$votes[inp$votes$cell %in% ci_k, ], inp$atoms, rk, length(cells), inp$allelic_chroms)
+      if (!nrow(tv$trip)) next
+    }
+    oc = oriented_counts(tv, mk)
+    oc[, `:=`(cell = cells[ci], region = rk$region[ri])]
     d[oc, `:=`(oA = i.oA, oN = i.oN), on = .(cell, region)]
     sel = d$oclone == k & !is.na(d$oN)
     if (any(sel)) d[sel, `:=`(s_allele = fifelse(abs(f_state - 0.5) > 1e-9,
@@ -563,19 +581,87 @@ hyp_key = function(clone, label, shift, f) paste(clone, label, sprintf("%.6g", s
 # `kind` pool / control) scored per hypothesis of the cell rows `sc` (clone, label, cn, c, a, f_state, base_) under
 # the same two-state set; returns list(sc = sc with hyp, nb = null rows cell, region, stratum, kind, hyp, s_comb)
 b_matched_null = function(sc, nrows, tpar, rho, params, sided = "two") {
+  hy = matched_hyps(sc)
+  mp = matched_null_rows(nrows, tpar, params)
+  nb = rbindlist(lapply(seq_len(nrow(hy)), function(i) matched_null_hyp(mp, hy, i, rho, params, sided)))
+  list(sc = sc, nb = nb, hyps = hy)
+}
+
+# hypotheses of the matched null: adds `hyp` to the cell rows `sc` (by reference) and returns one row per hypothesis
+# (hyp, clone, label, cn, shift, f) in their order of appearance
+matched_hyps = function(sc) {
   if (!"shift0_" %in% names(sc)) sc[, shift0_ := 0]
   sc[, hyp := hyp_key(clone, label, c * log2(pmax(cn, 0.2) / base_) - shift0_, 0.5 + a * (f_state - 0.5))]
-  hy = unique(sc[, .(hyp, clone, label, cn, shift = c * log2(pmax(cn, 0.2) / base_) - shift0_, f = 0.5 + a * (f_state - 0.5))], by = "hyp")
+  unique(sc[, .(hyp, clone, label, cn, shift = c * log2(pmax(cn, 0.2) / base_) - shift0_, f = 0.5 + a * (f_state - 0.5))], by = "hyp")
+}
+
+# null rows of the matched null centred on their neutral state, split by orientation clone, and the completed t
+# parameters: list(by_k, tp)
+matched_null_rows = function(nrows, tpar, params) {
   r = centre_neutral(nrows, params)
   r[, `:=`(class = sd_class, nA = nA_o, n_hap = n_o)]
   tp = if (is.null(tpar)) NULL else b_fun("complete_tpar")(r, tpar)
   by_k = split(r, by = "oclone")
-  nb = rbindlist(lapply(seq_len(nrow(hy)), function(i) {
-    x = by_k[[hy$clone[i]]]
-    if (is.null(x) || !nrow(x)) return(NULL)
-    b_score_hyp(x, hy$label[i], hy$shift[i], hy$f[i], tp, rho, params, cn = hy$cn[i], sided = sided)[, .(cell, region, stratum, kind, hyp = hy$hyp[i], s_comb)]
-  }))
-  list(sc = sc, nb = nb, hyps = hy)
+  rm(r)
+  list(by_k = by_k, tp = tp)
+}
+
+# the null rows of hypothesis i (rows of its clone, in their order) scored under it: cell, region, stratum, kind, hyp,
+# s_comb (NULL when the clone has no null rows)
+matched_null_hyp = function(mp, hy, i, rho, params, sided = "two") {
+  x = mp$by_k[[hy$clone[i]]]
+  if (is.null(x) || !nrow(x)) return(NULL)
+  b_score_hyp(x, hy$label[i], hy$shift[i], hy$f[i], mp$tp, rho, params, cn = hy$cn[i], sided = sided)[
+    , .(cell, region, stratum, kind, hyp = hy$hyp[i], s_comb)]
+}
+
+# The matched null of caller_tumour() one hypothesis at a time: the table of null rows x hypotheses (rows of every
+# event clone times the number of its hypotheses, many when most of a clone's genome is non-neutral, e.g. above
+# baseline 2) is never built. Per hypothesis: its null rows are scored (matched_null_hyp()), the thresholds per
+# stratum and class-wide (budget_thresholds(), cv FALSE) and the cross-validated thresholds are computed, and the
+# held-out confirmations per kind (pool / control) are counted. The results equal those of the whole table: the
+# thresholds of a class (hypothesis) use only its rows, the groups come in the order of the hypotheses, and the folds
+# are assign_folds() of the null cells in their order of appearance over the hypotheses (score_cells() keeps the row
+# order). Returns NULL when no hypothesis has null rows, else list(sc (with hyp), bt, bw (by class), null_confirm (hyp,
+# kind, n_null, n_called; per hypothesis x kind, per kind, all), n_null (null rows per hypothesis, named, in order)).
+matched_null_confirm = function(sc, nrows, tpar, rho, params, sided = "two") {
+  hy = matched_hyps(sc)
+  mp = matched_null_rows(nrows, tpar, params)
+  ii = which(vapply(seq_len(nrow(hy)), function(i) { x = mp$by_k[[hy$clone[i]]]; !is.null(x) && nrow(x) > 0 }, logical(1)))
+  if (!length(ii)) return(NULL)
+  # the null cells in their order of appearance over the hypotheses, and their folds
+  ucells = unique(unlist(lapply(unique(hy$clone[ii]), function(k) mp$by_k[[k]]$cell), use.names = FALSE))
+  ufold = b_fun("assign_folds")(ucells, seed = params$seed)
+  bf = b_fun("budget_thresholds"); af = b_fun("apply_thresholds")
+  rt = function(x) x[, .(n_null = sum(!is.na(call_s_comb)), n_called = sum(call_s_comb, na.rm = TRUE))]
+  bt = list(); bw = list(); by_hk = list(); n_null = integer()
+  kind_n = integer(); kind_c = integer()
+  for (i in ii) {
+    ch = matched_null_hyp(mp, hy, i, rho, params, sided)
+    ch[, class := hyp]
+    n_null[hy$hyp[i]] = nrow(ch)
+    bt[[length(bt) + 1]] = bf(ch, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
+                              null = rep(TRUE, nrow(ch)))
+    bw[[length(bw) + 1]] = bf(ch, scores = "s_comb", by = "class", cv = FALSE, params = params, null = rep(TRUE, nrow(ch)))
+    ch[, fold := ufold[match(cell, ucells)]]
+    btc = bf(ch, scores = "s_comb", by = c("class", "stratum"), cv = TRUE, params = params, null = rep(TRUE, nrow(ch)))
+    nbc = af(ch, btc, "s_comb")
+    rm(ch, btc)
+    hk = nbc[, rt(.SD), by = .(hyp, kind)]
+    by_hk[[length(by_hk) + 1]] = hk
+    for (j in seq_len(nrow(hk))) {
+      k = hk$kind[j]
+      if (is.na(kind_n[k])) { kind_n[k] = 0L; kind_c[k] = 0L }
+      kind_n[k] = kind_n[k] + hk$n_null[j]; kind_c[k] = kind_c[k] + hk$n_called[j]
+    }
+    rm(nbc)
+  }
+  rm(mp)
+  null_confirm = rbind(rbindlist(by_hk),
+                       data.table(kind = names(kind_n), n_null = unname(kind_n), n_called = unname(kind_c))[, hyp := "all"],
+                       data.table(n_null = sum(kind_n), n_called = sum(kind_c))[, `:=`(hyp = "all", kind = "all")],
+                       use.names = TRUE)
+  list(sc = sc, bt = rbindlist(bt), bw = rbindlist(bw), null_confirm = null_confirm, n_null = n_null)
 }
 utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 
@@ -983,8 +1069,14 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       nr[, kind := fifelse(region %in% ctl$region, "control", "pool")]
       regs_n = rbindlist(list(pieces, ctl), fill = TRUE)
       nx = cell_state_scores(inp, unique(regs_n, by = "region"), nr, members, inp$tpar, rho_c, params, st$ref)
-      nsc_rows = unique(nx, by = c("cell", "region", if (matched) "oclone"))
+      # the null rows scored below keep only the columns their scorers read (score_cells(), centre_neutral(),
+      # complete_tpar(), the reference-pool rho refit): one row per null cell x piece x orientation clone, so every
+      # column saved here is saved on each copy of the scoring
+      keep_n = intersect(c("cell", "region", "stratum", "kind", "oclone", "sd_class", "z", "sd_null", "shift0_", "nA_o", "n_o"),
+                         names(nx))
+      nsc_rows = unique(nx[, keep_n, with = FALSE], by = c("cell", "region", if (matched) "oclone"))
     }
+    rm(nr)
     if (refit && nrow(nsc_rows)) {
       # rho refitted on the votes the confirmation scores: the pool cells' piece votes, oriented leave-one-out by a clone
       # pseudobulk (one orientation per cell x piece: the cell's clone N0 with the generic null, the first event clone with
@@ -1002,10 +1094,10 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                     signif(inp$rho, 3), signif(rho_feat, 3), if (identical(rho_c, rr)) "" else "; not finite, input kept")
       say(msg); notes = c(notes, msg)
     }
-    sc = cell_state_scores(inp, ev_reg, rows, members, inp$tpar, rho_c, params, st$ref)
     nsc = if (!is.null(nx)) nx[, .(score = max(score)), by = .(cell, region, stratum)] else
       data.table(cell = character(), region = character(), stratum = character(), score = numeric())
     rm(nx)
+    sc = cell_state_scores(inp, ev_reg, rows, members, inp$tpar, rho_c, params, st$ref)
     use_b = nrow(nsc_rows) > 0             # the scorer; without null rows the type-7 quantile fallback below
     if (use_b && matched) {
       # the scorer, matched null: each clone hypothesis (clone | label | shift | f) against the null rows oriented by that
@@ -1013,31 +1105,49 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       # min_null_rows and for a stratum without null rows)
       bs = b_score(sc, tpar_c, rho_c, params, sided = sided)
       sc[bs, score := i.s_comb, on = .(cell, region)]
-      mn = b_matched_null(sc, nsc_rows, tpar_c, rho_c, params, sided = sided)
-      sc = mn$sc; nb = mn$nb
-      nb[, class := hyp]
-      nb_class = nb$class
-      bt = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
-                                      null = rep(TRUE, nrow(nb)))
-      sc[, class := hyp]
-      sc = b_fun("apply_thresholds")(sc, bt, "s_comb")
-      miss = is.na(sc$thr_s_comb)
-      if (any(miss)) {
-        bw = b_fun("budget_thresholds")(nb, scores = "s_comb", by = "class", cv = FALSE, params = params, null = rep(TRUE, nrow(nb)))
-        sc[miss, thr_s_comb := bw$thr[match(class, bw$class)]]
+      # one hypothesis at a time (matched_null_confirm(); the null rows x hypotheses table is not built); the
+      # whole-table path below only when no hypothesis has null rows
+      mnc = matched_null_confirm(sc, nsc_rows, tpar_c, rho_c, params, sided = sided)
+      if (!is.null(mnc)) {
+        sc = mnc$sc
+        nh_counts = mnc$n_null
+        bt = mnc$bt
+        sc[, class := hyp]
+        sc = b_fun("apply_thresholds")(sc, bt, "s_comb")
+        miss = is.na(sc$thr_s_comb)
+        if (any(miss)) sc[miss, thr_s_comb := mnc$bw$thr[match(class, mnc$bw$class)]]
+        sc[, thr := thr_s_comb]
+        thr_tab = bt[, .(hyp = class, stratum, thr, n_null, pooled_fallback)]
+        # held-out false-confirmation rate per hypothesis (fold CV over the null cells), control pieces vs pool rows
+        null_confirm = mnc$null_confirm
+        rm(mnc)
+      } else {
+        mn = b_matched_null(sc, nsc_rows, tpar_c, rho_c, params, sided = sided)
+        sc = mn$sc; nb = mn$nb
+        nb[, class := hyp]
+        nb_class = nb$class
+        nh_counts = NULL
+        bt = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = FALSE, params = params,
+                                        null = rep(TRUE, nrow(nb)))
+        sc[, class := hyp]
+        sc = b_fun("apply_thresholds")(sc, bt, "s_comb")
+        miss = is.na(sc$thr_s_comb)
+        if (any(miss)) {
+          bw = b_fun("budget_thresholds")(nb, scores = "s_comb", by = "class", cv = FALSE, params = params, null = rep(TRUE, nrow(nb)))
+          sc[miss, thr_s_comb := bw$thr[match(class, bw$class)]]
+        }
+        sc[, thr := thr_s_comb]
+        thr_tab = bt[, .(hyp = class, stratum, thr, n_null, pooled_fallback)]
+        nb[, fold := b_fun("assign_folds")(cell, seed = params$seed)]
+        btc = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = TRUE, params = params,
+                                         null = rep(TRUE, nrow(nb)))
+        nbc = b_fun("apply_thresholds")(nb, btc, "s_comb")
+        rt = function(x) x[, .(n_null = sum(!is.na(call_s_comb)), n_called = sum(call_s_comb, na.rm = TRUE))]
+        null_confirm = rbind(nbc[, rt(.SD), by = .(hyp, kind)], nbc[, rt(.SD), by = kind][, hyp := "all"],
+                             rt(nbc)[, `:=`(hyp = "all", kind = "all")], use.names = TRUE)
+        rm(nb, nbc, btc, mn)
       }
-      sc[, thr := thr_s_comb]
-      thr_tab = bt[, .(hyp = class, stratum, thr, n_null, pooled_fallback)]
-      # held-out false-confirmation rate per hypothesis (fold CV over the null cells), control pieces vs pool rows
-      nb[, fold := b_fun("assign_folds")(cell, seed = params$seed)]
-      btc = b_fun("budget_thresholds")(nb, scores = "s_comb", by = c("class", "stratum"), cv = TRUE, params = params,
-                                       null = rep(TRUE, nrow(nb)))
-      nbc = b_fun("apply_thresholds")(nb, btc, "s_comb")
-      rt = function(x) x[, .(n_null = sum(!is.na(call_s_comb)), n_called = sum(call_s_comb, na.rm = TRUE))]
-      null_confirm = rbind(nbc[, rt(.SD), by = .(hyp, kind)], nbc[, rt(.SD), by = kind][, hyp := "all"],
-                           rt(nbc)[, `:=`(hyp = "all", kind = "all")], use.names = TRUE)
       null_confirm[, per_1000 := 1000 * n_called / n_null]
-      rm(nb, nbc, btc, mn)
       notes = c(notes, sprintf(paste("per-cell confirmation: the scorer (score_cells / budget_thresholds / apply_thresholds), matched null",
                                      "(%d clone hypotheses; held-out false confirmations %.2f / 1,000 on control pieces, %.2f on pool rows)"),
                                uniqueN(thr_tab$hyp), null_confirm[hyp == "all" & kind == "control", per_1000][1],
@@ -1069,7 +1179,10 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       sc[is.na(thr), thr := thr_tab[stratum == "pooled", thr][1]]
     }
     # degenerate confirmation nulls (notes only): no null rows at all, or hypotheses with too few null rows
-    n_null_h = if (use_b && matched) {
+    n_null_h = if (use_b && matched && !is.null(nh_counts)) {
+      lv = unique(c(names(nh_counts), sc$hyp))
+      stats::setNames(as.integer(fifelse(is.na(nh_counts[lv]), 0L, nh_counts[lv])), lv)
+    } else if (use_b && matched) {
       hc = table(factor(nb_class, levels = unique(c(nb_class, sc$hyp))))
       stats::setNames(as.integer(hc), names(hc))
     } else if (use_b) c(segment = nb_n) else c(segment = nrow(nsc))

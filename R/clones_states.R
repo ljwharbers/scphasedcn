@@ -429,16 +429,21 @@ fit_clone_core = function(p, grid, contrast, atten, rho, df, eps, refine = TRUE,
       mask = matrix(0, length(m_seg), nrow(grid)); mask[hap_seg, !(grid$nB == 0 & grid$cn <= 3)] = -Inf
       has_d = sm[, 2] > 0
       best2 = list(ll = -Inf)
+      # the segment allele terms do not depend on the contrast: computed once per (rho, a), in the loop order below
+      Ags = list()
+      for (r_ in rho) for (a_ in atten) Ags[[length(Ags) + 1]] = rowsum(allele_emission(p, grid, a_, r_, eps), sid)
       for (ic in seq_along(contrast)) {
         mu = contrast[ic] * log2(pmax(outer(rep(1, length(m_seg)), grid$cn), 0.2) / base_seg)
         Dg = stats::dt((m_seg - mu) / se_seg, df, log = TRUE) - log(se_seg)
         Dg[!has_d, ] = 0
+        ia = 0L
         for (r_ in rho) for (a_ in atten) {
-          Ag = rowsum(allele_emission(p, grid, a_, r_, eps), sid)
-          tot = sum(apply(Dg + Ag + mask, 1, max))
+          ia = ia + 1L
+          tot = sum(apply(Dg + Ags[[ia]] + mask, 1, max))
           if (tot > best2$ll) best2 = list(ll = tot, c = contrast[ic], a = a_, rho = r_)
         }
       }
+      rm(Ags)
       changed = !(best2$c == best$c && best2$a == best$a && best2$rho == best$rho)
       best$c = best2$c; best$a = best2$a; best$rho = best2$rho
       best$E = depth_emission(p, grid, best$c, df) + allele_emission(p, grid, best$a, best$rho, eps)

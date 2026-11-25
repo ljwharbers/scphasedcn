@@ -615,17 +615,24 @@ clean_reference = function(feat, assign, segments, thr = NULL, par = NULL, membe
   ctl = as.data.table(control)
   ctl = ctl[!chrom %in% inp$haploid]
   all_r = unique(rbindlist(list(ev_reg[, names(ctl), with = FALSE], ctl), fill = TRUE), by = "region")
-  tv = trip_votes(inp$votes, inp$atoms, all_r, length(cells), inp$allelic_chroms)
   ci_c = match(cand, cells)
-  scores = rbindlist(lapply(unique(ev_reg$eclone), function(k) {
-    if (!nrow(tv$trip)) return(data.table())
-    oc = oriented_counts(tv, match(members[clone == k, cell], cells))
+  # one vote table per event clone, on its event regions and the control regions, from the votes of the candidates and
+  # its members: the orientation blocks are region x phase set, so these are its counts in a table over every clone's
+  # regions, which would hold a vote once per clone with an event at its position (cell_state_scores())
+  sc_k = lapply(unique(ev_reg$eclone), function(k) {
+    mk = match(members[clone == k, cell], cells)
+    rk = all_r[region %in% c(ev_reg[eclone == k, region], ctl$region)]
+    tv = trip_votes(inp$votes[inp$votes$cell %in% unique(c(ci_c, mk)), ], inp$atoms, rk, length(cells), inp$allelic_chroms)
+    if (!nrow(tv$trip)) return(NULL)
+    oc = oriented_counts(tv, mk)
     oc = oc[ci %in% ci_c]
-    oc[, region := all_r$region[ri]]
+    oc[, region := rk$region[ri]]
     oc = oc[region %in% c(ev_reg[eclone == k, region], ctl$region)]
     oc[, `:=`(cell = cells[ci], score = ll_allelic(oA, oN, f_grid, inp$rho, two_sided = FALSE), is_ctl = region %in% ctl$region)]
     oc
-  }))
+  })
+  scores = if (all(vapply(sc_k, is.null, logical(1)))) data.table() else rbindlist(sc_k)
+  rm(sc_k)
   obs = scores[is_ctl == FALSE]
   nul = scores[is_ctl == TRUE]
   tab = data.table(cell = cand)

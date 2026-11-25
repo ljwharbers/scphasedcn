@@ -13,6 +13,7 @@ import pandas as pd
 import pysam
 import scipy.sparse as sp
 
+from .config import default_tag
 from .qc import finalize_qc
 from .writers import load_csr_dict, concat_bgzf, write_json, read_done, LAYER_FILES, FRAGMENT_COLUMNS
 
@@ -42,6 +43,15 @@ def _fill_snp_defaults(meta: dict | None) -> None:
         for k, v in SNP_INPUT_DEFAULTS.items():
             if k not in inp:
                 inp[k] = v if inp["snps"] is not None else None
+
+
+def _partial_binsize(d: Path) -> int | None:
+    """Bin size of a partial: its DONE, else (partials of scphasedcn <= 0.1.1) its params.json."""
+    m = read_done(d)
+    if m and m.get("binsize"):
+        return int(m["binsize"])
+    bs = json.load(open(d / "params.json")).get("binsize") if (d / "params.json").exists() else None
+    return int(bs) if bs else None
 
 
 def _fmt(v) -> str:
@@ -237,11 +247,12 @@ def _write_via_tmp(dest: Path, write) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials: bool = True,
+def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_partials: bool = True,
                  allow_missing: bool = False, log=None) -> dict:
     """Merge the finished partials of `chroms`. A chromosome without a finished partial (partials/<chrom>/DONE) is an
     error unless `allow_missing` (then it is listed as `missing` in summary.json). Partials are checked with
-    check_partials() first. Every output is written to a temporary file and moved into place; summary.json is removed
+    check_partials() first. The bins are written to bins_<tag>.h5ad; `tag` None: default_tag() of the partials' bin
+    size (100kb for 100000). Every output is written to a temporary file and moved into place; summary.json is removed
     at the start and written last, so it is present only after a complete merge."""
     t0 = time.time()
     log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
@@ -256,6 +267,9 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
     if missing:
         log(f"warning: merging without {', '.join(missing)} (--allow-missing)")
     check_partials(dirs, log)
+    if tag is None:
+        bs = _partial_binsize(dirs[0])
+        tag = default_tag(bs) if bs else "100kb"
     (out / "summary.json").unlink(missing_ok=True)
     first = dirs[0]
     cells = _read_cells(first)

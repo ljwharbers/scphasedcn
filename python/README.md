@@ -45,6 +45,9 @@ Options worth knowing:
   lets only the SNPs of the phase set holding most of the fragment's phased SNP observations vote and files the
   fragment under that phase set (a tie between phase sets: ambiguous, hap 3). Recorded in `params.json` and in
   `DONE` with the inputs of the alleles and fragments layers: `merge` refuses partials with different `--vote-ps`.
+- `--binsize` (default 100000) and `--tag`: the bins are written to `bins_<tag>.h5ad`, the tag by default named after
+  the bin size (`100kb` for 100000, `50kb`, `1Mb`; `<n>bp` for a size that is not a whole number of kb; `merge` takes
+  the bin size of the partials). The R caller reads `bins_100kb.h5ad`.
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).
 - `merge` fails when a chromosome has no finished partial (`--allow-missing` merges without it) and when the partials

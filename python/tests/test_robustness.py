@@ -469,3 +469,19 @@ def test_records_without_seq_or_cigar_are_counted_and_skipped(genome, bam, vcf, 
     q = pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0)
     assert q.loc[CELL_A, "n_primary"] == 19 and q.loc[CELL_A, "n_pass"] == 18     # 21 / 20 without the edits
     assert q.loc[CELL_A, ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]].sum() == 19
+
+
+# --------------------------------------------------------------------------------------------- bins tag
+def test_tag_follows_the_bin_size(genome, bam, tmp_path):
+    from scphasedcn.cli import default_tag
+    assert [default_tag(n) for n in (100_000, 50_000, 1_000_000, 500_000, 2_500, 12_345, 1_500_000)] == \
+        ["100kb", "50kb", "1Mb", "500kb", "2500bp", "12345bp", "1500kb"]
+    o = tmp_path / "run"
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--binsize", "50000"] + _common(genome, bam, o)) == 0
+    assert (o / "bins_50kb.h5ad").exists() and not (o / "bins_100kb.h5ad").exists()
+    assert ad.read_h5ad(o / "bins_50kb.h5ad").n_vars == 30
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0            # merge: the tag of the partials
+    assert (o / "bins_50kb.h5ad").exists()
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2", "--tag", "x"]) == 0
+    assert (o / "bins_x.h5ad").exists()

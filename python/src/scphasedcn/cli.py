@@ -14,7 +14,7 @@ import numpy as np
 
 from . import __version__
 from .config import (MAIN_CHROMS, load_yaml, sample_from_config, reference_paths, check_reference, read_chrom_sizes,
-                     read_barcodes, translate_barcodes)
+                     read_barcodes, translate_barcodes, default_tag)
 
 LAYER_CHOICES = ("depth", "alleles", "fragments")
 DEFAULT_LAYERS = "depth,alleles,fragments"
@@ -395,7 +395,7 @@ def cmd_run(a):
     if fails:
         raise SystemExit(f"run: extraction failed on {', '.join(fails)}; partials in {d['out']}/partials")
     from .merge import merge_sample
-    s = merge_sample(d["out"], chroms, tag=a.tag)
+    s = merge_sample(d["out"], chroms, tag=a.tag or default_tag(a.binsize))
     _log(json.dumps({k: v for k, v in s.items() if k != "params"}, default=str))
     return 0
 
@@ -443,7 +443,8 @@ def build_parser():
     s = sub.add_parser("run", help="extract every chromosome in parallel, then merge (one command per sample)")
     s.add_argument("--chroms", help="comma list (default: the yaml sample's chroms, else chr1-22, X, Y, M in the BAM)")
     s.add_argument("--jobs", type=int, default=4, help="chromosomes extracted in parallel (memory: ~2-9 GB each)")
-    s.add_argument("--tag", default="100kb", help="merge tag (bins_<tag>.h5ad; the caller reads bins_100kb.h5ad)")
+    s.add_argument("--tag", help="bins_<tag>.h5ad (default: from --binsize, 100kb for 100000, 50kb, 1Mb, else <n>bp; "
+                                 "the R caller reads bins_100kb.h5ad)")
     add_extract_args(s)
     s.set_defaults(func=cmd_run, chrom=None, region=None)
 
@@ -476,7 +477,7 @@ def build_parser():
 
     s = sub.add_parser("merge", help="merge chromosome partials into h5ad / tsv outputs")
     s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out"); s.add_argument("--chroms")
-    s.add_argument("--tag", default="100kb")
+    s.add_argument("--tag", help="bins_<tag>.h5ad (default: from the bin size of the partials, as in `run`)")
     s.add_argument("--allow-missing", action="store_true",
                    help="merge although some chromosomes have no finished partial (default: fail and list them)")
     s.set_defaults(func=cmd_merge)

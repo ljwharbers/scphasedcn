@@ -15,7 +15,8 @@
   * `clones` gains `baseline` and `ploidy` (the mean autosomal copy number), and the run notes list the baselines.
   * A clone fitted at baseline 2 has exactly the states of 0.1.x. `ploidy = 2` restores the old behaviour for every
     clone; a number fixes the baseline.
-  * On COLO829 (bulk ploidy 3.1) the clones fit baseline 3. Near-diploid tumours stay at 2.
+  * On COLO829 (bulk ploidy 3.1) the clones fit baseline 3 (one small clone 2.75 in a joint tumour + normal run).
+    A near-diploid tumour stayed at 2 at three seeds, with results identical to those without the fit.
 
 * **Normal mode: windowed, orientation-free allele term** (`window_allelic_features()`, `caller_defaults()` `win_*`).
   With chromosome-scale (hybrid) phasing the per-cell allele term summed oriented votes over the whole region, so an
@@ -192,19 +193,28 @@
   * `extract` / `run` check each chromosome against the BAM header, the FASTA and the chromosome sizes before the
     BAM pass. A mismatch (another assembly or naming) stops with a message naming the file, instead of binning on
     the wrong lengths or writing bins without GC.
-  * QC-fail reads (flag 0x200) are skipped and counted in a new `n_qcfail` column; primary records without SEQ or
-    CIGAR are skipped (they crashed the chromosome) and counted in `n_no_seq_cigar`.
+  * QC-fail reads (flag 0x200) are skipped and counted in a new `n_qcfail` column. Primary records without CIGAR
+    are skipped (they crashed the chromosome) and counted in `n_no_cigar`; they are not in the per-cell record
+    counts. Records without SEQ count in depth and fragments but carry no SNP observation (counted in `n_no_seq`).
   * FRiP (`frip`) counts peak fragments among the clean (non-blacklisted) fragments, matching its denominator;
     values drop slightly where blacklisted fragments overlap peaks.
   * Biallelic SNVs require REF and ALT in A/C/G/T everywhere (`extract`, `select-hets`, `hybrid-phase`). A SNP
     inside a reference skip of a read is no longer counted as an `other` allele.
   * The bins file is named after the bin size by default (`bins_100kb.h5ad` for 100 kb as before); `--tag` still
     overrides.
-  * `merge` without `--chroms` merges the main chromosomes that have a finished partial; without an output
-    directory it gives a usage error. `index-check` exits with status 1 on a stale or missing index.
-  * `run` reports a worker killed for memory with the unfinished chromosomes and a hint to lower `--jobs`.
-  * `select-hets --loci` matches loci contigs that differ by the `chr` prefix and exits with an error when no
-    autosomal site is selected.
+  * `merge` without `--chroms` merges the chromosomes `run` extracts (the main chromosomes of the BAM header) and
+    fails, naming them, when some have no finished partial (a job that died); `--allow-missing` merges without
+    them and lists them in `summary.json`. Without an output directory it gives a usage error.
+  * `merge` removes any other `bins_*.h5ad` of the output directory, so a re-run at another bin size leaves one
+    bins file.
+  * `index-check` exits with status 1 on a stale or missing index.
+  * `run` reports a worker killed for memory with the unfinished chromosomes and a hint to lower `--jobs`, and
+    removes the finished-markers of the chromosomes it extracts before starting, so only chromosomes finished in
+    that run count as finished.
+  * `select-hets --loci` matches loci contigs that differ by the `chr` prefix. `select-hets` fails when no site
+    is selected (it wrote an empty VCF) and warns when none is on an autosome.
+  * A FASTA without chrM, or with another chrM length, is a warning: chrM's bins have no GC content.
+  * The bins file tag of a depth layer written by an older version follows that layer's own bin size.
   * The per-bin layers are built sparse, with identical output and far less memory at small bin sizes.
   * Since 0.1.1: `--vote-ps` (one vote per phase set), input metadata in each partial with checks at `merge`,
     `--allow-missing`, an interruption-safe `merge`, and a report of barcode-map matches.

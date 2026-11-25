@@ -529,7 +529,7 @@ test_that("tumour mode dispatches to the tumour mode", {
   cm = data.table(cell = s$scn$cells$cell, group = s$scn$cells$cell_type)
   # multiplet scores between 0.5 and the tumour mode's multiplet_prob (0.9) are not flagged: the cells are used as singlets
   mult = data.table(cell = cm$cell[1:4], prob = c(0.6, 0.85, 0.95, 1))
-  # no flagged null cells: the input null is fitted on the selected neutral cells, with a warning
+  # no flagged null cells: the input null is fitted on the cells without a call on the null rows, with a warning
   x = call_w(d, "tumour", cell_meta = cm, cells = cm$cell, sex = "male", groups = "group", verbose = FALSE,
              centromeres = cs_centromeres(s$scn$bins), multiplets = mult)
   res = x$r
@@ -552,7 +552,7 @@ test_that("tumour mode dispatches to the tumour mode", {
   expect_equal(caller_params(file.path(out, "params.yaml")), res$params)
 })
 
-# ---- tumour input null: flagged null cells, else selected neutral cells, else all cells ----------------------------
+# ---- tumour input null: flagged null cells, else cells without a call on the null rows, else all cells ---------------
 # sim_tum2 features as call_scn computes them in tumour mode (model depth, groups = the cell types); no cell flagged.
 tum2_features = function() {
   if (is.null(call_cache$tum2_feat)) {
@@ -590,7 +590,7 @@ test_that("tumour_null_fit: without flagged cells the null comes from the cells 
   expect_gt(all$rho / nf$rho, 100)
   expect_match(nf$note, "no flagged null cells; fitted on the [0-9]+ cells without a call on the null rows")
   expect_false(grepl("neutral|normal cells", nf$note))                   # the selection does not show neutrality
-  # tumour cells only: no stable neutral set, so all cells (the old fit), and the note says so
+  # tumour cells only: no stable selection, so all cells (the old fit), and the note says so
   lt = long[!cell %in% sim_tum2$scn$cells$cell[sim_tum2$scn$cells$cell_type == "normal"]]
   nt = tumour_null_fit(lt)
   expect_identical(nt$source, "all")

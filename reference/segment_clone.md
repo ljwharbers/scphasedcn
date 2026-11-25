@@ -89,17 +89,17 @@ segment_clone(
   with a
   [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
   input: an imbalanced gain (diploid window, copy number above the
-  clone's integer baseline nb) needs a mean log2 of at least this share
-  of its expected shift `c * log2(cn / base)`, measured against the
-  region's depth offset (per window, the median over the other clones
-  that are 1:1 there, with at least 50 cells, of their log2 minus the
-  1:1 expectation). A run that fails takes the best copy-neutral
-  imbalanced state (nb copies: CN-LOH at baseline 2) if its pooled
-  oriented fraction supports one (as `min_excess`); otherwise it keeps
-  its state with `label` "imbalance" and `depth_ok` FALSE (allelic
-  imbalance without the extra copy, typically a clone mixing LOH and
-  heterozygous cells). 0 = off (no `depth_ok` column; the behaviour up
-  to 0.1.1). Only applies to a
+  window's base) needs a mean log2 of at least this share of its
+  expected shift `c * log2(cn / base)`, measured against the region's
+  depth offset (per window, the median over the other clones that are
+  1:1 there, with at least 50 cells, of their log2 minus the 1:1
+  expectation). A run that fails takes the best copy-neutral imbalanced
+  state (nb copies: CN-LOH at baseline 2) if its pooled oriented
+  fraction supports one (as `min_excess`); otherwise it keeps its state
+  with `label` "imbalance" and `depth_ok` FALSE (allelic imbalance
+  without the extra copy, typically a clone mixing LOH and heterozygous
+  cells). 0 = off (no `depth_ok` column; the behaviour up to 0.1.1).
+  Only applies to a
   [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
   input.
 

@@ -3,8 +3,7 @@
 Pre-computes what the clone contrast (`contrast_stat`) needs for many
 splits: the per-cell log2 ratio matrix (cells x regions) and the
 molecule votes per cell x region x phase block as sparse cells x blocks
-matrices. Without votes on the allelic regions the result has the depth
-part only (`MA`, `MB`, `blk_region`, `N`, `trip` absent).
+matrices.
 
 ## Usage
 

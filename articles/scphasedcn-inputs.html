@@ -282,10 +282,9 @@ depend on phasing.</li>
 merges. On a cluster, run
 <code>scphasedcn extract --chrom &lt;chrom&gt;</code> as one job per
 chromosome and <code>scphasedcn merge</code> after them, with the same
-options (without <code>--chroms</code>, <code>merge</code> merges the
-chromosomes that have a finished partial). A sample yaml keeps the paths
-in one place (<code>--config sample.yaml --sample &lt;key&gt;</code>,
-also read by the caller’s command line):</p>
+options. A sample yaml keeps the paths in one place
+(<code>--config sample.yaml --sample &lt;key&gt;</code>, also read by
+the caller’s command line):</p>
 <div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">readLines</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_template.yaml"</span>, <span class="at">package =</span> <span class="st">"scphasedcn"</span>)), <span class="at">sep =</span> <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
 <span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a><span class="co"># Sample yaml shared by the extractor (`scphasedcn ... --config &lt;yaml&gt; --sample &lt;key&gt;`) and the caller</span></span>
 <span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a><span class="co"># (`call_scn.R --config &lt;yaml&gt; --sample &lt;key&gt;`). Copy it, fill in your paths, delete what you do not use.</span></span>
@@ -455,11 +454,8 @@ RNA clusters.</li>
 <span><span class="fu">data.table</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="va">m</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"cell_meta.tsv"</span><span class="op">)</span>, sep <span class="op">=</span> <span class="st">"\t"</span><span class="op">)</span></span></code></pre></div>
 <p>Multiplets (barcodes holding more than one nucleus) inflate calls;
 pass a per-cell multiplet probability as <code>multiplets</code> (a
-table <code>cell, prob</code>, or any form
-<code><a href="../reference/multiplet_table.html">multiplet_table()</a></code> reads) to leave them out of the null
-(prob &gt; 0.5) and, in tumour mode, of the clone discovery and the
-clone pseudobulks (prob above the <code>multiplet_prob</code> option,
-0.9 by default).</p>
+table <code>cell, prob</code>) to leave them out of the null and the
+clone discovery.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

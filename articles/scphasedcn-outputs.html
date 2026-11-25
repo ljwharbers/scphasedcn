@@ -129,10 +129,8 @@ mode also clone pieces)</td>
 <tr class="odd">
 <td><code>null_fit.tsv</code></td>
 <td>the depth null (Student-t per class x stratum) and the allelic
-overdispersion <code>rho</code>; tumour mode adds the null of the
-per-cell confirmation: <code>depth_t_confirm</code> (always the input
-depth t) and <code>allelic_rho_confirm</code> (refitted on the reference
-pool with <code>ref_null = "rho"</code>, else the input rho)</td>
+overdispersion <code>rho</code>
+</td>
 </tr>
 <tr class="even">
 <td>
@@ -579,10 +577,7 @@ measured against the region’s offset in the other clones, does not show
 the extra copy keeps its allelic state with <code>label</code>
 <code>imbalance</code> and <code>depth_ok</code> FALSE. This is usually
 a clone that mixes cells with LOH and heterozygous cells. MEDICC2 input
-(<code><a href="../reference/medicc2_pieces.html">medicc2_pieces()</a></code>) treats it as the least imbalanced state
-with the clone’s integer baseline of copies (1:1 at baseline 2, 2:1 at
-3, 2:2 at 4, 3:2 at 5): no extra copy where the depth does not show
-one.</p>
+treats it as 1:1.</p>
 <p><code>clones.tsv</code>: one row per clone: <code>n_cells</code>
 (cells whose likelihood-best clone it is), <code>n_assigned</code> (of
 them with posterior &gt;= <code>min_post</code> and not doublet-like),
@@ -596,14 +591,10 @@ depth: fitted with <code>ploidy = "fit"</code>, else the given
 <code>ploidy</code>; 2 for <code>N0</code>), <code>ploidy</code> (the
 mean copy number over the clone’s autosomal segments, weighted by
 length), <code>normal</code> (a normal clone of the reference pool),
-<code>trunk</code> and <code>doublet</code> (a doublet clone, dissolved:
-flagged as a mixture of two other clones by an EM round since the clone
-ids were last numbered; it has no segments or assigned cells, and its
-other columns are empty; every doublet flag of the run, also of earlier
-clone ids, is in the result’s <code>null_fit$clones$doublet_log</code>).
-A clone whose <code>c</code> sits at the lower bound of its grid (0.6)
-is named in the run notes: its depth scale is not determined by the
-data, and its states can be off by one copy.</p>
+<code>trunk</code> and <code>doublet</code> (a doublet clone,
+dissolved). A clone whose <code>c</code> sits at the lower bound of its
+grid (0.6) is named in the run notes: its depth scale is not determined
+by the data, and its states can be off by one copy.</p>
 <p><code>assignments.tsv</code>: per cell the likelihood-best clone, its
 <code>posterior</code>, the margin to the second clone, whether the cell
 looks like a doublet of two clones (<code>doublet_like</code>,

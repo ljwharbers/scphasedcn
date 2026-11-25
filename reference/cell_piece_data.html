@@ -16,12 +16,8 @@ Alleles: the cell's molecule votes on the piece (atom start in [start, end)) per
 block table: oA = votes of the cn_a haplotype (nA when sign &amp;gt; 0, nB when sign &amp;lt; 0), oN = oriented votes.
 With loo, the reference clone's pooled votes are first reduced by the cell's own votes when the cell was one of
 the cells that oriented the block (loo maps cells to the clone whose pool they joined; only blocks whose ref
-is that clone are affected): the orientation is then the one the other cells give, in the block table's current
-label convention (on a piece whose labels the chaining of orient_clone_states() flipped, the sign of the
-remaining votes is negated as sign is). The flip of a piece is the flipped column of blocks, else of pieces
-(e.g. the export's QC table), else it is inferred from the piece's non-tied oriented blocks; where none of these
-gives it (a block table without flipped whose piece has only tied blocks), the cell's leave-one-out rows of that
-piece are dropped (unoriented) rather than taken as unflipped. The cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
+is that clone are affected): the orientation is then the one the other cells give, and the cell's own votes cannot
+confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
 from the orientation input."><meta property="og:description" content="Depth (the per-cell analogue of clone_profiles()): the cell's 1 Mb window counts summed over the piece (windows
 fully inside it; region_features()), log2ratio = log2((x + 0.5) / (e + 0.5)) relative to the reference
 pool's pseudobulk of the piece (ref_center = &quot;pseudobulk&quot;, log2((sum x + 0.5) / (sum e + 0.5)) over the
@@ -39,12 +35,8 @@ Alleles: the cell's molecule votes on the piece (atom start in [start, end)) per
 block table: oA = votes of the cn_a haplotype (nA when sign &amp;gt; 0, nB when sign &amp;lt; 0), oN = oriented votes.
 With loo, the reference clone's pooled votes are first reduced by the cell's own votes when the cell was one of
 the cells that oriented the block (loo maps cells to the clone whose pool they joined; only blocks whose ref
-is that clone are affected): the orientation is then the one the other cells give, in the block table's current
-label convention (on a piece whose labels the chaining of orient_clone_states() flipped, the sign of the
-remaining votes is negated as sign is). The flip of a piece is the flipped column of blocks, else of pieces
-(e.g. the export's QC table), else it is inferred from the piece's non-tied oriented blocks; where none of these
-gives it (a block table without flipped whose piece has only tied blocks), the cell's leave-one-out rows of that
-piece are dropped (unoriented) rather than taken as unflipped. The cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
+is that clone are affected): the orientation is then the one the other cells give, and the cell's own votes cannot
+confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
 from the orientation input."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
@@ -103,12 +95,8 @@ Alleles: the cell's molecule votes on the piece (atom start in <code>[start, end
 block table: <code>oA</code> = votes of the cn_a haplotype (<code>nA</code> when <code>sign &gt; 0</code>, <code>nB</code> when <code>sign &lt; 0</code>), <code>oN</code> = oriented votes.
 With <code>loo</code>, the reference clone's pooled votes are first reduced by the cell's own votes when the cell was one of
 the cells that oriented the block (<code>loo</code> maps cells to the clone whose pool they joined; only blocks whose <code>ref</code>
-is that clone are affected): the orientation is then the one the other cells give, in the block table's current
-label convention (on a piece whose labels the chaining of <code><a href="orient_clone_states.html">orient_clone_states()</a></code> flipped, the sign of the
-remaining votes is negated as <code>sign</code> is). The flip of a piece is the <code>flipped</code> column of <code>blocks</code>, else of <code>pieces</code>
-(e.g. the export's QC table), else it is inferred from the piece's non-tied oriented blocks; where none of these
-gives it (a block table without <code>flipped</code> whose piece has only tied blocks), the cell's leave-one-out rows of that
-piece are dropped (unoriented) rather than taken as unflipped. The cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
+is that clone are affected): the orientation is then the one the other cells give, and the cell's own votes cannot
+confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
 from the orientation input.</p>
     </div>
 
@@ -139,12 +127,11 @@ from the orientation input.</p>
 
 
 <dt id="arg-pieces">pieces<a class="anchor" aria-label="anchor" href="#arg-pieces"></a></dt>
-<dd><p>piece table (<code>piece, chrom, start, end</code>, one row per piece or per clone x piece; <code>flipped</code> optional,
-see <code>loo</code>)</p></dd>
+<dd><p>piece table (<code>piece, chrom, start, end</code>, one row per piece or per clone x piece)</p></dd>
 
 
 <dt id="arg-blocks">blocks<a class="anchor" aria-label="anchor" href="#arg-blocks"></a></dt>
-<dd><p>block orientation (<code>piece, ps, sign</code> and, for <code>loo</code>, <code>ref, nA_ref, nB_ref</code>; <code>flipped</code> optional)</p></dd>
+<dd><p>block orientation (<code>piece, ps, sign</code> and, for <code>loo</code>, <code>ref, nA_ref, nB_ref</code>)</p></dd>
 
 
 <dt id="arg-cells">cells<a class="anchor" aria-label="anchor" href="#arg-cells"></a></dt>

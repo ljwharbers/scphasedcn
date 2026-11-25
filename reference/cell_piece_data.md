@@ -31,19 +31,10 @@ when `sign < 0`), `oN` = oriented votes. With `loo`, the reference
 clone's pooled votes are first reduced by the cell's own votes when the
 cell was one of the cells that oriented the block (`loo` maps cells to
 the clone whose pool they joined; only blocks whose `ref` is that clone
-are affected): the orientation is then the one the other cells give, in
-the block table's current label convention (on a piece whose labels the
-chaining of
-[`orient_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/orient_clone_states.md)
-flipped, the sign of the remaining votes is negated as `sign` is). The
-flip of a piece is the `flipped` column of `blocks`, else of `pieces`
-(e.g. the export's QC table), else it is inferred from the piece's
-non-tied oriented blocks; where none of these gives it (a block table
-without `flipped` whose piece has only tied blocks), the cell's
-leave-one-out rows of that piece are dropped (unoriented) rather than
-taken as unflipped. The cell's own votes cannot confirm themselves. This
-is the only use of a cell's clone membership, and it only removes the
-cell's own data from the orientation input.
+are affected): the orientation is then the one the other cells give, and
+the cell's own votes cannot confirm themselves. This is the only use of
+a cell's clone membership, and it only removes the cell's own data from
+the orientation input.
 
 ## Usage
 
@@ -74,12 +65,12 @@ cell_piece_data(
 - pieces:
 
   piece table (`piece, chrom, start, end`, one row per piece or per
-  clone x piece; `flipped` optional, see `loo`)
+  clone x piece)
 
 - blocks:
 
   block orientation (`piece, ps, sign` and, for `loo`,
-  `ref, nA_ref, nB_ref`; `flipped` optional)
+  `ref, nA_ref, nB_ref`)
 
 - cells:
 

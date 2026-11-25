@@ -10,24 +10,20 @@ LOH-gain subclone inside a 2:1 clone, fitted 3:1). For each clone with
 \>= `split_min_len`; the copy-neutral 2:0 included), every member is
 scored on the discovery halves (`win_disc`, `votes_disc`) under the
 clone state and under each alternative of
-[`split_alt_states()`](https://ljwharbers.github.io/scphasedcn/reference/split_alt_states.md)
-on the clone's state grid (the diploid
-[`cn_grid()`](https://ljwharbers.github.io/scphasedcn/reference/cn_grid.md)
-at baseline 2, else the grid of its fitted baseline `par$base`, as
-[`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
-uses it). Depth: the cell's segment log2 ratio, centred on the members'
-median (the clone state; clone profiles are relative to the clone
-baseline), in units of its `sd_null` scaled to the half depth and
-inflated by the members' own robust spread, t density at
-`c * log2(cn / cn_state)` (clone c from `par`). Alleles: the cell's
-votes oriented by the clone's leave-one-out pseudobulk, beta-binomial at
-`0.5 + a_eff (f - 0.5)`, a_eff = the attenuation of the members' pooled
-oriented fraction. The contradiction of a segment is the fraction of
-members whose best state is not the clone state; its noise floor is the
-same fraction on data simulated under the clone state at each cell's SD
-and vote count (5 replicates). The alternative is the state with the
-largest excess preference over its noise floor. A segment is a candidate
-when the contradiction is \>= 10 % and exceeds its noise floor by \>=
+[`split_alt_states()`](https://ljwharbers.github.io/scphasedcn/reference/split_alt_states.md).
+Depth: the cell's segment log2 ratio, centred on the members' median
+(the clone state; clone profiles are relative to the clone baseline), in
+units of its `sd_null` scaled to the half depth and inflated by the
+members' own robust spread, t density at `c * log2(cn / cn_state)`
+(clone c from `par`). Alleles: the cell's votes oriented by the clone's
+leave-one-out pseudobulk, beta-binomial at `0.5 + a_eff (f - 0.5)`,
+a_eff = the attenuation of the members' pooled oriented fraction. The
+contradiction of a segment is the fraction of members whose best state
+is not the clone state; its noise floor is the same fraction on data
+simulated under the clone state at each cell's SD and vote count (5
+replicates). The alternative is the state with the largest excess
+preference over its noise floor. A segment is a candidate when the
+contradiction is \>= 10 % and exceeds its noise floor by \>=
 `split_min_excess`, and a two-means split of the per-cell log-likelihood
 difference (alternative - clone state) has both parts \>=
 max(`min_size`, `small_clone`, 10 %) and a separation \>= `split_sep`.
@@ -84,8 +80,7 @@ split_disagree(
 
 - par:
 
-  data.table clone, c, a and optionally base (the clone baseline; 2
-  without it)
+  data.table clone, c, a
   ([`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
   `par`)
 
@@ -115,33 +110,22 @@ split_disagree(
 
 - fit_states:
 
-  optional replacement of the re-fit's state fit
-  (`function(profile, grid)`); default
+  optional replacement of
   [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
-  with the `opts` of the run (`p_switch`, `min_win`, `ploidy_tol`) at
-  the parent clone's fitted baseline (`par$base`, 2 without it), so the
-  two parts are compared on the parent's scale
-  ([`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
-  passes its own fit)
+  (`function(profile, grid)`)
 
 - opts:
 
-  [`clone_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/clone_defaults.md),
-  checked as
-  [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
-  checks them (`min_size`, `split_sep`, `split_max`, `split_cand`,
-  `split_min_len`, `split_min_df`, `split_min_excess`, `q`, `n_perm`,
-  `max_cells`, `depth_delta`, `same_dist`, `small_clone`, `size_small`,
-  `min_ref`, `p_switch`, `min_win`, `ploidy`, `ploidy_tol`, `min_llr`
-  and the
-  [`segment_clone()`](https://ljwharbers.github.io/scphasedcn/reference/segment_clone.md)
-  rules `min_excess`, `bal_frac`, `min_bal_len`, `max_contra`,
-  `gain_support`)
+  [`clone_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/clone_defaults.md)
+  (`min_size`, `split_sep`, `split_max`, `split_cand`, `split_min_len`,
+  `split_min_df`, `split_min_excess`, `q`, `n_perm`, `max_cells`,
+  `depth_delta`, `same_dist`, `small_clone`, `size_small`, `min_ref`,
+  `p_switch`, `min_win`, `min_llr`)
 
 - params:
 
   [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md)
-  (`sd_floor`, `eps`; and the input null fit when `inp` carries none)
+  (`sd_floor`, `eps`)
 
 - seed:
 

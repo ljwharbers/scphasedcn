@@ -13,9 +13,8 @@ the cell's clone assignment is not used.
   [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
   /
   [`assign_cells()`](https://ljwharbers.github.io/scphasedcn/reference/assign_cells.md):
-  `base` = the cell's baseline B (`baseline`, 2 by default) times the
-  piece ploidy / 2 when the depth is centred on the reference pool, else
-  B), relative to the neutral state's shift (at B = 2 the neutral
+  `base` = the piece ploidy when the depth is centred on the reference
+  pool, else 2), relative to the neutral state's shift (the neutral
   state's own depth term is `ll_depth_shift(z, 0) = 0`), Student-t null
   per sd_class x stratum
   ([`fit_depth_null()`](https://ljwharbers.github.io/scphasedcn/reference/fit_depth_null.md)
@@ -59,8 +58,7 @@ cell_piece_states(
   haploid_sd = sqrt(2),
   data = NULL,
   keep_ll = FALSE,
-  rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25),
-  baseline = NULL
+  rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25)
 )
 ```
 
@@ -173,12 +171,6 @@ cell_piece_states(
 
   grid of `rho = "auto"`
 
-- baseline:
-
-  per-cell baseline B (the copy number of the cell's median depth): NULL
-  (default) = 2 for every cell (diploid), one number for every cell, or
-  a numeric vector named by cell (cells without a value: 2)
-
 ## Value
 
 list of class `cell_piece_states`: `states` (one row per cell x piece:
@@ -196,11 +188,4 @@ prior, n_ref, loo, sd_scale, depth_null)
 the median over the tumour clones (kept clones of `pieces` except
 `normal`), weighted by their assigned cells, of the clones' fitted `c` /
 `a` / `s_sys` (`clones` table). A per-cell value would have to come from
-the cell's clone, which this function must not use. For the same reason
-the depth scale of every cell is diploid by default: a cell's depth is
-centred on its own median, which is at B copies for a cell of a clone
-with baseline B (`clones$baseline`), so the states of cells of a clone
-with B != 2 are scored on the wrong scale (off by `c * log2(B / 2)`)
-unless their baselines are given in `baseline`, e.g.
-`setNames(clones$baseline[match(assignments$clone, clones$clone)], assignments$cell)`
-(the clone membership then enters the depth scale).
+the cell's clone, which this function must not use.

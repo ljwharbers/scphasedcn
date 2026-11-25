@@ -15,7 +15,7 @@ written run back.
 | `events.tsv` | a cell’s overlapping called regions merged into events (normal mode: with `null_cell`, `p`, `q`, `null_borrowed`; `q` is descriptive, not a false discovery rate, see [False-event load](#false-event-load-normal-mode)) |
 | `thresholds.tsv` | the null thresholds per score, region class and depth stratum (and cross-validation fold); named `event` regions have no null rows of their own and use the thresholds of their `sd_class` (column `borrowed_from`, present when a run has events; the pooled ones only with `pool_events`) |
 | `regions.tsv` | the regions scored (arms, chromosomes, 5-50 Mb tiles, events; tumour mode also clone pieces) |
-| `null_fit.tsv` | the depth null (Student-t per class x stratum) and the allelic overdispersion `rho`; tumour mode adds the null of the per-cell confirmation: `depth_t_confirm` (always the input depth t) and `allelic_rho_confirm` (refitted on the reference pool with `ref_null = "rho"`, else the input rho) |
+| `null_fit.tsv` | the depth null (Student-t per class x stratum) and the allelic overdispersion `rho` |
 | `false_calls.tsv`, `false_events.tsv` | normal mode: the realised false-call rate on the null cells |
 | `expected_false.tsv` | normal mode: expected false calls and events per class x state ([`event_fdr()`](https://ljwharbers.github.io/scphasedcn/reference/event_fdr.md); lower bounds) |
 | `null_selection_check.tsv` | normal mode with `call_scn(null_check = TRUE)` / `--null-check`: the selection-free check of the per-cell null ([`null_selection_check()`](https://ljwharbers.github.io/scphasedcn/reference/null_selection_check.md)) |
@@ -216,11 +216,8 @@ as 1:1). With `gain_support` \> 0 a column `depth_ok` is added: an
 imbalanced gain whose depth, measured against the region’s offset in the
 other clones, does not show the extra copy keeps its allelic state with
 `label` `imbalance` and `depth_ok` FALSE. This is usually a clone that
-mixes cells with LOH and heterozygous cells. MEDICC2 input
-([`medicc2_pieces()`](https://ljwharbers.github.io/scphasedcn/reference/medicc2_pieces.md))
-treats it as the least imbalanced state with the clone’s integer
-baseline of copies (1:1 at baseline 2, 2:1 at 3, 2:2 at 4, 3:2 at 5): no
-extra copy where the depth does not show one.
+mixes cells with LOH and heterozygous cells. MEDICC2 input treats it as
+1:1.
 
 `clones.tsv`: one row per clone: `n_cells` (cells whose likelihood-best
 clone it is), `n_assigned` (of them with posterior \>= `min_post` and
@@ -232,14 +229,10 @@ systematic depth noise), `baseline` (the copy number of the clone’s
 median depth: fitted with `ploidy = "fit"`, else the given `ploidy`; 2
 for `N0`), `ploidy` (the mean copy number over the clone’s autosomal
 segments, weighted by length), `normal` (a normal clone of the reference
-pool), `trunk` and `doublet` (a doublet clone, dissolved: flagged as a
-mixture of two other clones by an EM round since the clone ids were last
-numbered; it has no segments or assigned cells, and its other columns
-are empty; every doublet flag of the run, also of earlier clone ids, is
-in the result’s `null_fit$clones$doublet_log`). A clone whose `c` sits
-at the lower bound of its grid (0.6) is named in the run notes: its
-depth scale is not determined by the data, and its states can be off by
-one copy.
+pool), `trunk` and `doublet` (a doublet clone, dissolved). A clone whose
+`c` sits at the lower bound of its grid (0.6) is named in the run notes:
+its depth scale is not determined by the data, and its states can be off
+by one copy.
 
 `assignments.tsv`: per cell the likelihood-best clone, its `posterior`,
 the margin to the second clone, whether the cell looks like a doublet of

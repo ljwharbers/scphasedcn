@@ -118,7 +118,7 @@ imbalanced state (nb copies: CN-LOH at baseline 2), or the balanced reference wh
 
 <dt id="arg-gain-support">gain_support<a class="anchor" aria-label="anchor" href="#arg-gain-support"></a></dt>
 <dd><p>with a <code><a href="fit_clone_states.html">fit_clone_states()</a></code> input: an imbalanced gain (diploid window, copy number above the
-clone's integer baseline nb) needs a mean log2 of at least this share of its expected shift <code>c * log2(cn / base)</code>, measured
+window's base) needs a mean log2 of at least this share of its expected shift <code>c * log2(cn / base)</code>, measured
 against the region's depth offset (per window, the median over the other clones that are 1:1 there, with at
 least 50 cells, of their log2 minus the 1:1 expectation). A run that fails takes the best copy-neutral imbalanced
 state (nb copies: CN-LOH at baseline 2) if its pooled oriented fraction supports one (as <code>min_excess</code>); otherwise

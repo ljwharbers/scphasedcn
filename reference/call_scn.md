@@ -51,8 +51,8 @@ call_scn(
 
 - dir:
 
-  extraction directory (the bins file `bins_<tag>.h5ad`, by default
-  `bins_100kb.h5ad`; fragments.tsv.gz + .tbi, cells_qc.tsv)
+  extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi,
+  cells_qc.tsv)
 
 - mode:
 
@@ -120,17 +120,11 @@ call_scn(
   NULL or multiplet flags
   ([`multiplet_table()`](https://ljwharbers.github.io/scphasedcn/reference/multiplet_table.md)
   forms); normal mode: cells with prob \> 0.5 are never null cells and
-  never pooled; tumour mode: cells with prob \> 0.5 are left out of the
-  input null fit
-  ([`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md)),
-  and
-  [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
-  sets aside the cells above its `multiplet_prob` option (default 0.9)
-  from clone discovery and the clone pseudobulks (a higher cut: a cell
-  set aside there no longer shapes the clone states, while the null fit
-  only needs enough clean cells) and uses every cell's prob as its
-  doublet prior. The `multiplet` column of the cells table flags the
-  cells each mode set aside (tumour mode: above `multiplet_prob`)
+  never pooled; tumour mode: passed to
+  [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md),
+  which sets aside the cells above its `multiplet_prob` option (default
+  0.9). The `multiplet` column of the cells table flags the cells each
+  mode set aside
 
 - control_regions:
 

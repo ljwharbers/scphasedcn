@@ -8,9 +8,7 @@ tumour's major haplotype is &quot;A&quot;) and scored with the one-sided ll_alle
 event regions, and a call is event score &amp;gt; thr. Without thr (null = &quot;max&quot;), it is the type-7 q quantile over
 the candidate cells of the same maximum over the control regions (neutral in every clone; orientation by the same
 clones), so the multiplicity of the maximum is in the null as well; null = &quot;region&quot; is the quantile of the
-single-region control scores (the first build's rule, which flags too many cells when there are many events). As
-every call of the caller, a flag needs a positive score as well (score &amp;gt; max(thr, 0)): a negative threshold does
-not remove cells without evidence of a tumour haplotype (score &amp;lt;= 0, e.g. cells without votes on the events)."><meta property="og:description" content="Reference pool = cells of the normal clone(s) (no non-neutral segment &amp;gt;= min_event bp) with posterior at
+single-region control scores (the first build's rule, which flags too many cells when there are many events)."><meta property="og:description" content="Reference pool = cells of the normal clone(s) (no non-neutral segment &amp;gt;= min_event bp) with posterior at
 least min_post, not doublet-like with a tumour clone in the mixture (a mixture of two normal clones is not a reason
 to exclude a cell), and without a per-cell allelic call on the clone events: for every tumour clone k and each of
 its imbalanced non-neutral segments of &amp;gt;= min_event bp, the cell's votes are oriented by k's pseudobulk (so the
@@ -19,9 +17,7 @@ tumour's major haplotype is &quot;A&quot;) and scored with the one-sided ll_alle
 event regions, and a call is event score &amp;gt; thr. Without thr (null = &quot;max&quot;), it is the type-7 q quantile over
 the candidate cells of the same maximum over the control regions (neutral in every clone; orientation by the same
 clones), so the multiplicity of the maximum is in the null as well; null = &quot;region&quot; is the quantile of the
-single-region control scores (the first build's rule, which flags too many cells when there are many events). As
-every call of the caller, a flag needs a positive score as well (score &amp;gt; max(thr, 0)): a negative threshold does
-not remove cells without evidence of a tumour haplotype (score &amp;lt;= 0, e.g. cells without votes on the events)."></head><body>
+single-region control scores (the first build's rule, which flags too many cells when there are many events)."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -71,9 +67,7 @@ tumour's major haplotype is "A") and scored with the one-sided <code>ll_allelic(
 event regions, and a call is event score &gt; <code>thr</code>. Without <code>thr</code> (<code>null = "max"</code>), it is the type-7 <code>q</code> quantile over
 the candidate cells of the same maximum over the control regions (neutral in every clone; orientation by the same
 clones), so the multiplicity of the maximum is in the null as well; <code>null = "region"</code> is the quantile of the
-single-region control scores (the first build's rule, which flags too many cells when there are many events). As
-every call of the caller, a flag needs a positive score as well (<code>score &gt; max(thr, 0)</code>): a negative threshold does
-not remove cells without evidence of a tumour haplotype (score &lt;= 0, e.g. cells without votes on the events).</p>
+single-region control scores (the first build's rule, which flags too many cells when there are many events).</p>
     </div>
 
     <div class="section level2">

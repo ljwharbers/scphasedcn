@@ -3,31 +3,21 @@
 union of the remaining clones' segment breakpoints (segment_pieces()) on chroms, maps every clone's state to
 every piece (segment containing the piece midpoint, as piece_states()) and keeps the pieces covered by every kept
 clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome start, are dropped). Pieces shorter
-than min_len are then absorbed into an adjacent piece of the same chromosome (gap &amp;lt;= max_gap, by default 0:
-only a neighbour that touches it): the neighbour whose states differ in the fewest clones, the longer one on ties;
-the neighbour keeps its states and extends over the short piece. A short piece without an eligible neighbour is
-dropped. A neighbour across a gap (a dropped range, see pieces_dropped, or a range without any segment) is not
-eligible by default: the absorbing piece would extend over the gap and claim states where not every clone has one.
-Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
-done by medicc2_table().
+than min_len are then absorbed into an adjacent piece of the same chromosome (gap &amp;lt;= max_gap): the neighbour
+whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
+the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
+not merged here: merging needs the common haplotype orientation and is done by medicc2_table().
 Segments labelled imbalance (allelic imbalance without depth support, segment_clone(gain_support = )) enter as
-the least imbalanced copy-neutral state at the clone's integer baseline nb (clones$baseline rounded; 2 without it):
-ceiling(nb / 2):floor(nb / 2) with the major haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2
-at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not show one."><meta property="og:description" content="Drops doublet clones, clones with fewer than min_assigned assigned cells and clones without segments; builds the
+1:1: MEDICC2 sees no extra copy where the clone's depth does not show one."><meta property="og:description" content="Drops doublet clones, clones with fewer than min_assigned assigned cells and clones without segments; builds the
 union of the remaining clones' segment breakpoints (segment_pieces()) on chroms, maps every clone's state to
 every piece (segment containing the piece midpoint, as piece_states()) and keeps the pieces covered by every kept
 clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome start, are dropped). Pieces shorter
-than min_len are then absorbed into an adjacent piece of the same chromosome (gap &amp;lt;= max_gap, by default 0:
-only a neighbour that touches it): the neighbour whose states differ in the fewest clones, the longer one on ties;
-the neighbour keeps its states and extends over the short piece. A short piece without an eligible neighbour is
-dropped. A neighbour across a gap (a dropped range, see pieces_dropped, or a range without any segment) is not
-eligible by default: the absorbing piece would extend over the gap and claim states where not every clone has one.
-Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
-done by medicc2_table().
+than min_len are then absorbed into an adjacent piece of the same chromosome (gap &amp;lt;= max_gap): the neighbour
+whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
+the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
+not merged here: merging needs the common haplotype orientation and is done by medicc2_table().
 Segments labelled imbalance (allelic imbalance without depth support, segment_clone(gain_support = )) enter as
-the least imbalanced copy-neutral state at the clone's integer baseline nb (clones$baseline rounded; 2 without it):
-ceiling(nb / 2):floor(nb / 2) with the major haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2
-at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not show one."></head><body>
+1:1: MEDICC2 sees no extra copy where the clone's depth does not show one."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -72,17 +62,12 @@ at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not sho
 union of the remaining clones' segment breakpoints (<code><a href="segment_pieces.html">segment_pieces()</a></code>) on <code>chroms</code>, maps every clone's state to
 every piece (segment containing the piece midpoint, as <code>piece_states()</code>) and keeps the pieces covered by every kept
 clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome start, are dropped). Pieces shorter
-than <code>min_len</code> are then absorbed into an adjacent piece of the same chromosome (gap &lt;= <code>max_gap</code>, by default 0:
-only a neighbour that touches it): the neighbour whose states differ in the fewest clones, the longer one on ties;
-the neighbour keeps its states and extends over the short piece. A short piece without an eligible neighbour is
-dropped. A neighbour across a gap (a dropped range, see <code>pieces_dropped</code>, or a range without any segment) is not
-eligible by default: the absorbing piece would extend over the gap and claim states where not every clone has one.
-Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
-done by <code><a href="medicc2_table.html">medicc2_table()</a></code>.
+than <code>min_len</code> are then absorbed into an adjacent piece of the same chromosome (gap &lt;= <code>max_gap</code>): the neighbour
+whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
+the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
+not merged here: merging needs the common haplotype orientation and is done by <code><a href="medicc2_table.html">medicc2_table()</a></code>.
 Segments labelled <code>imbalance</code> (allelic imbalance without depth support, <code>segment_clone(gain_support = )</code>) enter as
-the least imbalanced copy-neutral state at the clone's integer baseline nb (<code>clones$baseline</code> rounded; 2 without it):
-<code>ceiling(nb / 2):floor(nb / 2)</code> with the major haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2
-at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not show one.</p>
+1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.</p>
     </div>
 
     <div class="section level2">
@@ -91,7 +76,7 @@ at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not sho
 <span>  <span class="va">segments</span>,</span>
 <span>  clones <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  min_len <span class="op">=</span> <span class="fl">1e+06</span>,</span>
-<span>  max_gap <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  max_gap <span class="op">=</span> <span class="cn">Inf</span>,</span>
 <span>  min_assigned <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>  chroms <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"chr"</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">22</span>, <span class="st">"X"</span><span class="op">)</span><span class="op">)</span>,</span>
 <span>  normal <span class="op">=</span> <span class="st">"N0"</span></span>
@@ -107,8 +92,7 @@ at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not sho
 
 
 <dt id="arg-clones">clones<a class="anchor" aria-label="anchor" href="#arg-clones"></a></dt>
-<dd><p>clones table (<code>clone</code>, <code>doublet</code>, <code>n_assigned</code>, <code>baseline</code> optional); NULL keeps every clone of
-<code>segments</code></p></dd>
+<dd><p>clones table (<code>clone</code>, <code>doublet</code>, <code>n_assigned</code>); NULL keeps every clone of <code>segments</code></p></dd>
 
 
 <dt id="arg-min-len">min_len<a class="anchor" aria-label="anchor" href="#arg-min-len"></a></dt>
@@ -116,8 +100,7 @@ at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not sho
 
 
 <dt id="arg-max-gap">max_gap<a class="anchor" aria-label="anchor" href="#arg-max-gap"></a></dt>
-<dd><p>maximal gap (bp) between a short piece and the neighbour it is absorbed into (default 0: contiguous
-neighbours only; a larger value lets the absorbing piece extend over the gap, i.e. claim states there)</p></dd>
+<dd><p>maximal gap (bp) between a short piece and the neighbour it is absorbed into</p></dd>
 
 
 <dt id="arg-min-assigned">min_assigned<a class="anchor" aria-label="anchor" href="#arg-min-assigned"></a></dt>

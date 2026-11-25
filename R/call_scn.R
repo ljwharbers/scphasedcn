@@ -767,7 +767,8 @@ null_fit_table = function(nf) {
   r = if (!is.null(nf$rho) && length(nf$rho) == 1) data.table(kind = "allelic_rho", rho = as.numeric(nf$rho)) else
     if (is.data.frame(nf$rho)) copy(as.data.table(nf$rho))[, kind := "allelic_rho"] else NULL
   extra = if (!is.null(nf$ref_thr) && length(nf$ref_thr) == 1 && is.numeric(nf$ref_thr)) data.table(kind = "reference_thr", thr = nf$ref_thr) else NULL
-  # tumour mode: the confirmation null (rho / depth t refitted on the reference pool, or the input fits)
+  # tumour mode: the confirmation null of the per-cell calls: the depth t is always the input fit (depth_t_confirm rows
+  # repeat depth_t), the rho is refitted on the reference pool with opts$ref_null = "rho", else the input rho
   tc = if (!is.null(nf$tpar_confirm)) copy(as.data.table(nf$tpar_confirm))[, kind := "depth_t_confirm"] else NULL
   rc = if (!is.null(nf$rho_confirm) && length(nf$rho_confirm) == 1) data.table(kind = "allelic_rho_confirm", rho = as.numeric(nf$rho_confirm)) else NULL
   # normal mode: overdispersion of the windowed allele term (window_allelic_features())
@@ -793,7 +794,8 @@ utils::globalVariables("part")
 #' Flat tables: `cells.tsv` (cell, qc, stratum, fold, null_cell, n_calls, n_events, clone / posterior /
 #' doublet_like / ref_pool when present), `calls.tsv` (cell- and clone-level calls: called rows in normal mode,
 #' all inherited / confirmed rows in tumour mode), `pooled_calls.tsv` (called pool rows), `events.tsv`,
-#' `thresholds.tsv`, `null_fit.tsv` (depth t rows + rho), `false_calls.tsv` + `false_events.tsv` + `expected_false.tsv`
+#' `thresholds.tsv`, `null_fit.tsv` (depth t rows + rho; tumour mode also the confirmation null: `depth_t_confirm` rows,
+#' always the input depth t, and `allelic_rho_confirm`, refitted on the reference pool with `ref_null = "rho"`), `false_calls.tsv` + `false_events.tsv` + `expected_false.tsv`
 #' (normal mode; [event_fdr()]), `null_selection_check.tsv` (normal mode with `call_scn(null_check = TRUE)`),
 #' tumour mode: `clones.tsv`, `assignments.tsv`, `clone_segments.tsv`, `clone_profiles.tsv.gz`,
 #' `reference_pool.txt`; `regions.tsv`; `result.rds` (the object without scores and features), `params.yaml`,

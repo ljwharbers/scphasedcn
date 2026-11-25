@@ -122,7 +122,8 @@ utils::globalVariables(c(
 #' `ref_null` = "none" (the input rho / depth t of `feat$null_fit`) or "rho" (opt-in: beta-binomial rho refitted on the
 #' clean reference pool's piece votes as the confirmation scores them, oriented leave-one-out by a clone pseudobulk;
 #' the `call_scn` recipe on the pool's feature votes is kept as `null_fit$rho_pool_features`); needs >= `min_ref`
-#' pool cells. `confirm_null` = "generic" (null rows scored as the best of the
+#' pool cells. The depth t of the confirmation is always the input one (`null_fit$tpar_confirm` = `null_fit$tpar`;
+#' `depth_t_confirm` rows of `null_fit.tsv`); only rho can be refitted. `confirm_null` = "generic" (null rows scored as the best of the
 #' tumour state set, one threshold per stratum) or "matched" (each clone hypothesis clone | label | shift | f scored on
 #' the null rows oriented by that clone's pseudobulk under the same two-state set as the cells; one threshold per
 #' hypothesis x stratum, hypothesis-wide below `min_null_rows`; held-out fold-CV false-confirmation rates per
@@ -935,6 +936,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   # the input fits (options validated by check_clone_opts)
   ref_null = opts$ref_null
   confirm_null = opts$confirm_null
+  # the confirmation's depth t is always the input fit (tpar_confirm = tpar); only rho can be refitted below
   rho_c = inp$rho; tpar_c = inp$tpar; null_confirm = NULL
   refit = ref_null != "none" && length(ref_pool) >= opts$min_ref
   if (ref_null != "none" && !refit)

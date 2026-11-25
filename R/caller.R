@@ -1848,7 +1848,8 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' the oriented and the windowed LLR and the attenuated rows stay oriented; `f_state` is taken after that substitution.
 #' @param feat features long table (`vignette("scphasedcn-outputs", package = "scphasedcn")`)
 #' @param params [caller_defaults()]
-#' @param cell_meta optional table `cell` (+ `cell_type`) overriding the features' cell types
+#' @param cell_meta optional table `cell` (+ `cell_type`) overriding the features' cell types; cells it gives no type
+#'   (absent, or NA there) keep the features' cell type
 #' @param multiplets cells flagged as multiplets (never null cells, never pooled)
 #' @param regions regions table (default [regions_from_features()])
 #' @param embedding optional chromatin embedding (cells x components, row names = cells) for kNN pools
@@ -1905,7 +1906,11 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   if (!"null_region" %in% names(d)) d[, null_region := TRUE]
   if (!"eligible" %in% names(d)) d[, eligible := TRUE]
   if (!"chrom" %in% names(d)) d[, chrom := region_chrom(region, class)]
-  if (!is.null(cell_meta) && "cell_type" %in% names(cell_meta)) d[, cell_type := as.character(cell_meta$cell_type)[match(cell, cell_meta$cell)]]
+  if (!is.null(cell_meta) && "cell_type" %in% names(cell_meta)) {
+    # cell_meta overrides the features' cell types; a cell it has no type for (absent or NA there) keeps the features'
+    ctm = as.character(cell_meta$cell_type)[match(d$cell, as.character(cell_meta$cell))]
+    d[, cell_type := if ("cell_type" %in% names(d)) fcoalesce(ctm, as.character(cell_type)) else ctm]
+  }
   if (!"cell_type" %in% names(d)) d[, cell_type := "all"]
   if (!"fold" %in% names(d) || anyNA(d$fold)) d[, fold := assign_folds(cell, params$n_folds, params$seed, if ("origin" %in% names(d)) origin else NULL)]
   d = d[eligible %in% TRUE]                              # ineligible regions are not scored (see the regions table)

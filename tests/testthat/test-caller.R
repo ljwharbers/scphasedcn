@@ -1782,3 +1782,16 @@ test_that("make_pools and chrom_rank: the same seed gives the same pools and ord
   expect_identical(ch[order(ru)], c("chr1", "chrX", "chrM", "chrUn_A", "chrUn_b"))
 })
 
+test_that("caller_normal: cells without a cell type in cell_meta keep the features' cell type", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(120, rg, seed = 8)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  cells = unique(ff$cell)
+  cm = data.table(cell = cells[1:60], cell_type = c(rep("imm", 30), rep(NA, 30)))   # cells 61-120 absent
+  r = caller_normal(ff, cell_meta = cm, regions = rg, null_cells = "features", n_draws = 200, pool_classes = character())
+  ft = ff[, .(ft = cell_type[1]), by = cell]
+  expect_identical(r$cells$cell_type[match(ft$cell, r$cells$cell)], fifelse(ft$cell %in% cells[1:30], "imm", ft$ft))
+  expect_false(anyNA(r$pools$group))
+  expect_false("NA" %in% r$pools$group)
+})
+

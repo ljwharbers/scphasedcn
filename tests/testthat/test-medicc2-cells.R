@@ -213,3 +213,35 @@ test_that("cell_piece_states: a cell's global depth offset is removed by its own
   r3[, lab := x$lab[cell]]
   expect_true(any(r3[lab == "bal", state] != "1:1"))
 })
+
+test_that("cell_piece_data / cell_piece_states with loo on a piece flipped by chaining: the reference clone's cells keep its convention", {
+  x = mc_toy(n_each = 6L)
+  rc = x$cells[x$lab == "s20"]
+  ci = match(rc, x$cells)
+  # K20's pooled votes orient the blocks of p1b (unflipped: cn_a = K20's major haplotype)
+  own = x$features$votes[cell %in% ci][x$features$atoms[, .(atom, chrom, astart = start)], on = "atom", nomatch = NULL]
+  own = own[chrom == "chr1" & astart >= 30e6, .(nA_ref = sum(nA), nB_ref = sum(nB)), by = ps]
+  b0 = copy(x$blocks)[piece == "p1b"][own, on = "ps", nomatch = NULL]
+  b0[, `:=`(ref = "K20", sign = as.integer(sign(nA_ref - nB_ref)))]
+  # the same table after a chaining flip of p1b: signs negated, reference counts unchanged, cn_a / cn_b swapped
+  b1 = copy(b0)[, sign := -sign]
+  b1_in = copy(b1)
+  p1 = copy(x$pieces)[piece == "p1b", `:=`(cn_a = cn_b, cn_b = cn_a)]
+  loo = data.table(cell = rc, clone = "K20")
+  d0 = cell_piece_data(x$features, x$pieces, b0, cells = rc, loo = loo)[piece == "p1b"]
+  d1 = cell_piece_data(x$features, p1, b1, cells = rc, loo = loo)[piece == "p1b"]
+  expect_identical(b1, b1_in)                                         # the caller's block table is not modified
+  expect_gt(min(d0$oN), 0)
+  expect_equal(d1$oN, d0$oN)
+  expect_equal(d1$oA, d0$oN - d0$oA)
+  # the flip flag of orient_clone_states() gives the same; a table without the flip is unchanged
+  d2 = cell_piece_data(x$features, p1, copy(b1)[, flipped := TRUE], cells = rc, loo = loo)[piece == "p1b"]
+  expect_equal(d2$oA, d1$oA)
+  d3 = cell_piece_data(x$features, x$pieces, copy(b0)[, flipped := FALSE], cells = rc, loo = loo)[piece == "p1b"]
+  expect_equal(d3$oA, d0$oA)
+  # states: the truly 2:0 cells of the reference clone are called as their clone, 2:0 unflipped and 0:2 after the flip
+  st = function(p, b) cell_piece_states(x$features, p, b, cells = rc, clones = x$clones, ref_cells = x$ref, loo = loo,
+                                         rho = 0.01)$states[piece == "p1b"]
+  expect_true(all(st(x$pieces, b0)$state == "2:0"))
+  expect_true(all(st(p1, b1)$state == "0:2"))
+})

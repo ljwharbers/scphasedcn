@@ -90,12 +90,14 @@ utils::globalVariables(c("w", "w_clones", "n_clones", "neutral"))
 #' block table: `oA` = votes of the cn_a haplotype (`nA` when `sign > 0`, `nB` when `sign < 0`), `oN` = oriented votes.
 #' With `loo`, the reference clone's pooled votes are first reduced by the cell's own votes when the cell was one of
 #' the cells that oriented the block (`loo` maps cells to the clone whose pool they joined; only blocks whose `ref`
-#' is that clone are affected): the orientation is then the one the other cells give, and the cell's own votes cannot
-#' confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
+#' is that clone are affected): the orientation is then the one the other cells give, in the block table's current
+#' label convention (on a piece whose labels the chaining of [orient_clone_states()] flipped, `flipped`, the sign of
+#' the remaining votes is negated as `sign` is; a table without `flipped` takes the flip from the piece's non-tied
+#' blocks), and the cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
 #' from the orientation input.
 #' @param features scn_features list (`win`, `long`, `regions`, `votes`, `atoms`, `cells`; as the tumour mode reads it)
 #' @param pieces piece table (`piece, chrom, start, end`, one row per piece or per clone x piece)
-#' @param blocks block orientation (`piece, ps, sign` and, for `loo`, `ref, nA_ref, nB_ref`)
+#' @param blocks block orientation (`piece, ps, sign` and, for `loo`, `ref, nA_ref, nB_ref`; `flipped` optional)
 #' @param cells cells to score (default all cells of `features`)
 #' @param ref_cells reference cells of the depth centring (>= 10 used; NULL = no centring)
 #' @param loo NULL, or data.table `cell, clone`: the cells whose votes formed each reference clone's pool
@@ -163,7 +165,7 @@ cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = N
   # ---- alleles ----
   out_al = data.table(cell = character(), piece = character(), oA = numeric(), oN = numeric(), n_blocks = integer())
   votes = inp$votes
-  bl = as.data.table(blocks)
+  bl = copy(as.data.table(blocks))                    # columns are added below: never modify the caller's table
   if (!is.null(votes) && nrow(votes) && nrow(bl)) {
     ci = match(cells, all_cells)
     atoms = inp$atoms
@@ -178,14 +180,21 @@ cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = N
     bl[, `:=`(pix = match(piece, pc$piece), ps = as.numeric(ps))]
     bl = bl[!is.na(pix)]
     if (!"sign" %in% names(bl)) stop("cell_piece_data: blocks need `sign`")
-    cols = intersect(c("ref", "nA_ref", "nB_ref"), names(bl))
+    if (!is.null(loo) && all(c("nA_ref", "nB_ref") %in% names(bl))) {
+      # the piece's label flip (orient_clone_states() chaining): sign = phi_ * sign(nA_ref - nB_ref), phi_ = -1 on flipped
+      # pieces; from `flipped`, else from the piece's non-tied oriented blocks (1 when it has none)
+      if ("flipped" %in% names(bl)) bl[, phi_ := fifelse(flipped %in% TRUE, -1L, 1L)] else
+        bl[, phi_ := { k = which(sign != 0 & nA_ref != nB_ref); if (length(k)) as.integer(sign[k[1]] * sign(nA_ref[k[1]] - nB_ref[k[1]])) else 1L },
+           by = pix]
+    }
+    cols = intersect(c("ref", "nA_ref", "nB_ref", "phi_"), names(bl))
     v = bl[, c("pix", "ps", "sign", cols), with = FALSE][v, on = .(pix, ps), nomatch = NULL]
     if (!is.null(loo) && nrow(v)) {
       if (!all(c("ref", "nA_ref", "nB_ref") %in% names(v))) stop("cell_piece_data: `loo` needs blocks with ref, nA_ref, nB_ref")
       lc = as.data.table(loo)
       own = as.character(lc$clone)[match(all_cells[v$cell], as.character(lc$cell))]
       m = !is.na(own) & own == v$ref
-      v[, sign := as.integer(fifelse(m, sign((nA_ref - nB_ref) - (nA - nB)), sign))]
+      v[, sign := as.integer(fifelse(m, phi_ * sign((nA_ref - nB_ref) - (nA - nB)), sign))]
     }
     v = v[!is.na(sign) & sign != 0L]
     if (nrow(v)) {
@@ -200,7 +209,7 @@ cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = N
   d[]
 }
 utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "pix", "piece", "oA", "i.oA", "i.oN", "i.n_blocks",
-                         "rs", "re", "nA_ref", "nB_ref", "ws", "we", "offset", "off", "i.off"))
+                         "rs", "re", "nA_ref", "nB_ref", "ws", "we", "offset", "off", "i.off", "phi_", "flipped"))
 
 #' Per-cell copy-number states on the MEDICC2 pieces
 #'

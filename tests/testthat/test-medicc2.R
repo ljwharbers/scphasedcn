@@ -222,3 +222,15 @@ test_that("MEDICC2 export: no segment and no absorbed piece spans a dropped rang
   pg = medicc2_pieces(sg, min_len = 1e6, max_gap = Inf)
   expect_equal(unique(pg[, .(start, end)])[order(start)], data.table(start = c(0, 30.5e6), end = c(30.5e6, 50e6)))
 })
+
+test_that("orient_clone_states: the block table carries the piece's chaining flip", {
+  x = m2_toy(c_cnloh = TRUE)
+  pc = medicc2_pieces(x$segments, x$clones)
+  for (ch in c("parsimony", "none")) {
+    o = orient_clone_states(pc, x$features, x$assignments, x$clones, chain = ch, min_link = 10)
+    b = o$blocks
+    expect_true(is.logical(b$flipped))
+    expect_identical(b$flipped, o$qc$flipped[match(b$piece, o$qc$piece)])
+    expect_true(all(b$sign == fifelse(b$flipped, -1L, 1L) * sign(b$nA_ref - b$nB_ref)))
+  }
+})

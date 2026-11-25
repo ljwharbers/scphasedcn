@@ -168,9 +168,10 @@ utils::globalVariables(c("doublet", "n_assigned", "reason", "x.major", "x.minor"
 #'     `ref_votes`, `n_swapped`, `n_low_conf`.
 #'   - `blocks`: the reference orientation per block, reusable by a per-cell module: one row per piece x phase set
 #'     with reference votes: `piece, chrom, start, end` (the piece; a molecule belongs to it when its atom start is in
-#'     `[start, end)`), `ps` (phase set of the votes table), `ref` (reference clone), `nA_ref, nB_ref` and `sign`
-#'     (+1: phase-set haplotype A is cn_a; -1: haplotype B is cn_a; 0: tie, unoriented). Blocks absent from the table
-#'     are unoriented. A cell's oriented votes on a piece are `a = sum(sign > 0 ? nA : nB)`, `b = sum(sign > 0 ? nB :
+#'     `[start, end)`), `ps` (phase set of the votes table), `ref` (reference clone), `nA_ref, nB_ref` (the reference
+#'     clone's pooled votes of phase-set haplotypes A and B), `sign` (+1: phase-set haplotype A is cn_a; -1: haplotype B
+#'     is cn_a; 0: tie, unoriented) and `flipped` (the piece's labels were flipped by chaining: `sign` is then minus the
+#'     sign of `nA_ref - nB_ref`). Blocks absent from the table are unoriented. A cell's oriented votes on a piece are `a = sum(sign > 0 ? nA : nB)`, `b = sum(sign > 0 ? nB :
 #'     nA)` over its blocks with `sign != 0`; `a / (a + b)` estimates `cn_a / (cn_a + cn_b)` (attenuated).
 #'   - `params`: `use`, `near`, `chain`, `min_link`.
 #' @export
@@ -292,7 +293,7 @@ orient_clone_states = function(pieces, features, assignments, clones = NULL, use
   for (v in c("n_blocks", "votes", "n_blocks_oriented", "ref_votes")) qc[is.na(get(v)), (v) := 0]
   setcolorder(qc, c("pix", "piece", "chrom", "start", "end", "orient_ref", "ref_state", "ref_score", "flipped", "link", "link_score",
                     "n_imbalanced", "n_blocks", "n_blocks_oriented", "votes", "votes_oriented", "ref_votes", "n_swapped", "n_low_conf"))
-  blocks = blk[pc, on = "pix", nomatch = NULL][, .(piece, chrom, start, end, ps, ref, nA_ref, nB_ref, sign)]
+  blocks = blk[pc, on = "pix", nomatch = NULL][, .(piece, chrom, start, end, ps, ref, nA_ref, nB_ref, sign, flipped = flipped[pix])]
   blocks = blocks[order(chrom_rank(chrom), start, ps)]
   pl = pl[order(pix, clone)]
   pl[, c("pix", "cl", "ref_cl", "oA") := NULL]

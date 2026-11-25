@@ -397,6 +397,7 @@ def test_select_hets_loci_with_other_contig_names(tmp_path):
     assert main(base + ["--out", str(out), "--loci", loci("nochr", "1")]) == 0     # `1` in the loci file, `chr1` here
     assert [r.pos for r in pysam.VariantFile(str(out))] == [1001, 2001]
     out2 = tmp_path / "none.vcf.gz"                                                  # no loci contig matches at all
+    (tmp_path / "none.vcf.gz.tbi").write_text("index of an earlier run")
     with pytest.raises(SystemExit, match="no autosomal site"):
         main(base + ["--out", str(out2), "--loci", loci("other", "chr9")])
     assert not out2.exists() and not (tmp_path / "none.vcf.gz.tbi").exists()
@@ -485,6 +486,10 @@ def test_tag_follows_the_bin_size(genome, bam, tmp_path):
     assert (o / "bins_50kb.h5ad").exists()
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2", "--tag", "x"]) == 0
     assert (o / "bins_x.h5ad").exists()
+    # a later run that rewrites the fragments only (default --binsize): the depth layer keeps its 50 kb bins
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "fragments"] + _common(genome, bam, o)) == 0
+    assert (o / "bins_50kb.h5ad").exists() and not (o / "bins_100kb.h5ad").exists()
 
 
 # --------------------------------------------------------------------------------------------- FRiP

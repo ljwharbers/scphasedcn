@@ -407,7 +407,7 @@ def cmd_run(a):
     if fails:
         raise SystemExit(f"run: extraction failed on {', '.join(fails)}; partials in {d['out']}/partials")
     from .merge import merge_sample
-    s = merge_sample(d["out"], chroms, tag=a.tag or default_tag(a.binsize))
+    s = merge_sample(d["out"], chroms, tag=a.tag)   # tag None: from the bin size of the depth partials
     _log(json.dumps({k: v for k, v in s.items() if k != "params"}, default=str))
     return 0
 

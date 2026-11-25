@@ -126,7 +126,9 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
     auto = [c for c in contigs if _bare(c) in {str(i) for i in range(1, 23)}]
     if (auto and sum(n["selected"] for c, n in rows if c in auto) == 0) or tot["selected"] == 0:
         import os
-        os.unlink(out)   # no empty VCF that looks like a selection
+        os.unlink(out)   # no empty VCF that looks like a selection (nor an index of an earlier one)
+        if os.path.exists(f"{out}.tbi"):
+            os.unlink(f"{out}.tbi")
         hint = ""
         if lf is not None:
             lcs = sorted(loci_contigs)

@@ -46,10 +46,15 @@ def _fill_snp_defaults(meta: dict | None) -> None:
 
 
 def _partial_binsize(d: Path) -> int | None:
-    """Bin size of a partial: its DONE, else (partials of scphasedcn <= 0.1.1) its params.json."""
+    """Bin size of a partial's depth layer: the inputs of its depth layer in DONE (the top-level DONE `binsize` is that
+    of the latest extract run, which may have rewritten other layers only), else (partials of scphasedcn <= 0.1.1) its
+    params.json."""
     m = read_done(d)
-    if m and m.get("binsize"):
-        return int(m["binsize"])
+    if m:
+        inp = ((m.get("layers") or {}).get("depth") or {}).get("inputs") or {}
+        bs = inp.get("binsize") or m.get("binsize")
+        if bs:
+            return int(bs)
     bs = json.load(open(d / "params.json")).get("binsize") if (d / "params.json").exists() else None
     return int(bs) if bs else None
 

@@ -10,7 +10,7 @@ import pysam
 import pytest
 
 from conftest import CELL_A, CELL_B, name, rewrite_bam, write_vcf
-from scphasedcn.cli import main
+from scphasedcn.cli import main, _run_one as _real_run_one   # before any monkeypatch
 
 
 def _common(genome, bam, out, *extra):
@@ -478,11 +478,22 @@ def test_spanning_deletion_and_n_alleles_are_not_snvs(tmp_path):
 
 # --------------------------------------------------------------------------------------------- a worker killed
 def _die_on_chr2(ns):
-    """Stand-in for cli._run_one in a worker: chr2 dies like an OOM-killed process; other chromosomes are done."""
+    """Stand-in for cli._run_one in a worker: chr1 is extracted for real; chr2 dies like an OOM-killed process once
+    chr1's partial is finished (a broken pool terminates the other workers, so it must not die earlier)."""
     import os
+    import time
     if ns.chrom == "chr2":
+        done = Path(ns.out) / "partials" / "chr1" / "DONE"
+        t0 = time.time()
+        while time.time() - t0 < 120:
+            try:
+                if "layers" in json.loads(done.read_text()):     # DONE is written atomically, last
+                    break
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.05)
         os._exit(9)
-    return ns.chrom, 0, ""
+    return _real_run_one(ns)
 
 
 def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
@@ -490,8 +501,7 @@ def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
     import multiprocessing
     import scphasedcn.cli as cli
     out = tmp_path / "o"
-    assert main(["extract", "--chrom", "chr1"] + _common(genome, bam, out)) == 0      # finished before
-    done = (out / "partials" / "chr1" / "DONE").read_bytes()
+    assert main(["extract", "--chrom", "chr2"] + _common(genome, bam, out)) == 0      # finished in an earlier run
     real = concurrent.futures.ProcessPoolExecutor
 
     class ForkPool(real):
@@ -499,10 +509,18 @@ def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
             super().__init__(max_workers=max_workers, mp_context=multiprocessing.get_context("fork"))
     monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", ForkPool)
     monkeypatch.setattr(cli, "_run_one", _die_on_chr2)
-    with pytest.raises(SystemExit, match=r"(?s)worker process died.*chr2.*--jobs"):
+    with pytest.raises(SystemExit, match=r"(?s)worker process died.*without a finished partial \(no DONE\): chr2\..*--jobs"):
         main(["run", "--chroms", "chr1,chr2", "--jobs", "2"] + _common(genome, bam, out))
-    assert (out / "partials" / "chr1" / "DONE").read_bytes() == done                # the finished partial survives
-    assert not (out / "partials" / "chr2" / "DONE").exists()
+    assert not (out / "partials" / "chr2" / "DONE").exists()                         # not the earlier run's DONE
+    # the surviving chromosome was extracted for real: its partial is complete and merges like a separate extraction
+    ref = tmp_path / "ref"
+    assert main(["extract", "--chrom", "chr1"] + _common(genome, bam, ref)) == 0
+    for x in (out, ref):
+        assert main(["merge", "--out", str(x), "--chroms", "chr1"]) == 0
+    a, b = (ad.read_h5ad(x / "bins_100kb.h5ad") for x in (out, ref))
+    assert a.X.sum() > 0 and (a.X != b.X).nnz == 0 and all((a.layers[k] != b.layers[k]).nnz == 0 for k in b.layers)
+    pd.testing.assert_frame_equal(a.obs, b.obs)
+    pd.testing.assert_frame_equal(_frags(out), _frags(ref))
 
 
 def test_run_removes_done_of_earlier_runs_before_extracting(genome, bam, tmp_path, monkeypatch):

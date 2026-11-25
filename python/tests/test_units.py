@@ -178,7 +178,45 @@ def test_accumulate_is_sparse():
     assert m.shape == (10_000_000, 10_000_000) and m.nnz == 2 and m[0, 5] == 2 and m.dtype == np.int64
 
 
-def test_depth_layers_match_the_dense_reference(genome, bam, vcf, monkeypatch):
+def _depth_layers_old(fr, tiling, n_cells, assign="start", use=None):
+    """Frozen copy of depth.depth_layers before the layers were built sparse and could be selected (dense
+    accumulator); the reference the current depth_layers is compared with."""
+    from scphasedcn.bam import F_BLACKLIST
+    from scphasedcn.depth import assigned_position
+    accumulate = _accumulate_dense
+    if use is None:
+        use = (fr.flags & F_BLACKLIST) == 0
+    nb = len(tiling)
+    cell = fr.cell[use]; start = fr.start[use]; end = fr.end[use]; L = end - start
+    out = {}
+    if assign == "overlap":
+        fi, bi = tiling.bins_overlapping(start, end)
+        c = cell[fi]
+        bases = np.minimum(end[fi], tiling.ends[bi]) - np.maximum(start[fi], tiling.starts[bi])
+        out["counts"] = accumulate(c, bi, n_cells, nb)
+        out["span"] = accumulate(c, bi, n_cells, nb, weights=bases.astype(np.float64))
+        out["frag_short"] = accumulate(c[L[fi] < 300], bi[L[fi] < 300], n_cells, nb)
+        out["frag_long"] = accumulate(c[L[fi] >= 1000], bi[L[fi] >= 1000], n_cells, nb)
+        hap = fr.hap[use][fi]; bi_h = bi
+    else:
+        pos = assigned_position(fr, assign)[use]
+        bi = tiling.bin_of(pos)
+        out["counts"] = accumulate(cell, bi, n_cells, nb)
+        out["span"] = accumulate(cell, bi, n_cells, nb, weights=L.astype(np.float64))
+        out["frag_short"] = accumulate(cell[L < 300], bi[L < 300], n_cells, nb)
+        out["frag_long"] = accumulate(cell[L >= 1000], bi[L >= 1000], n_cells, nb)
+        hap = fr.hap[use]; c = cell; bi_h = bi
+    for code, name in ((1, "hapA"), (2, "hapB"), (3, "hap_ambig")):
+        sel = hap == code
+        out[name] = accumulate(c[sel], bi_h[sel], n_cells, nb)
+    for k in out:
+        out[k] = out[k].astype(np.float64 if k == "span" else np.int32)
+    return out
+
+
+def test_depth_layers_match_the_dense_reference(genome, bam, vcf):
+    """The current depth_layers equals the frozen pre-sparse one, for every assignment and bin size, whole and for a
+    subset of layers (also with an explicit `use`)."""
     import scphasedcn.depth as D
     from scphasedcn.alleles import AlleleAccumulator, load_snps
     from scphasedcn.bam import scan_chrom, flag_fragments
@@ -190,17 +228,18 @@ def test_depth_layers_match_the_dense_reference(genome, bam, vcf, monkeypatch):
         fr, _ = scan_chrom(str(bam), ch, cells, alleles=acc)
         flag_fragments(fr, read_bed_intervals(str(genome / "blacklist.bed"), ch), read_bed_intervals(None, ch), None,
                        read_bed_intervals(None, ch))
+        assert len(fr) > 0 and ((fr.flags & 8) > 0).any() == (ch == "chr1")     # chr1 has a blacklisted fragment
         for binsize in (100_000, 7_000):
             t = Tiling.regular_grid(ch, n, binsize)
             for assign in D.ASSIGN_MODES:
-                new = D.depth_layers(fr, t, 2, assign=assign)
-                with monkeypatch.context() as mp:
-                    mp.setattr(D, "accumulate", _accumulate_dense)
-                    ref = D.depth_layers(fr, t, 2, assign=assign)
-                assert sorted(new) == sorted(ref) == sorted(D.DEPTH_LAYERS + D.HAP_LAYERS)
-                assert all(_same_csr(new[k], ref[k]) for k in ref)
-                part = D.depth_layers(fr, t, 2, assign=assign, layers=D.HAP_LAYERS)
-                assert sorted(part) == sorted(D.HAP_LAYERS) and all(_same_csr(part[k], ref[k]) for k in part)
+                for use in (None, fr.mapq >= 60):
+                    new = D.depth_layers(fr, t, 2, assign=assign, use=use)
+                    ref = _depth_layers_old(fr, t, 2, assign=assign, use=use)
+                    assert sorted(new) == sorted(ref) == sorted(D.DEPTH_LAYERS + D.HAP_LAYERS)
+                    assert all(_same_csr(new[k], ref[k]) for k in ref)
+                    for sub in (D.HAP_LAYERS, D.DEPTH_LAYERS, ["span", "hapB"]):
+                        part = D.depth_layers(fr, t, 2, assign=assign, use=use, layers=sub)
+                        assert sorted(part) == sorted(sub) and all(_same_csr(part[k], ref[k]) for k in part)
 
 
 def test_translate_barcodes(tmp_path):

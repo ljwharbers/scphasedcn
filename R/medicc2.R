@@ -339,7 +339,7 @@ utils::globalVariables(c("pix", "cl", "i.pix", "x.atom", "n_votes", "i.n_votes",
 #'   the attribute `n_capped` and a warning says so; raise `cap` (and MEDICC2's maximum) to keep them
 #' @param chroms chromosomes kept
 #' @return data.table (MEDICC2 TSV layout); attributes `n_pieces` (pieces before merging) and `n_capped` (sample x
-#'   piece rows with a copy number above `cap`, clipped)
+#'   piece rows clipped in the table written: cn_a or cn_b above `cap` (allele-specific), cn_a + cn_b above it (total))
 #' @export
 medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chroms = paste0("chr", c(1:22, "X"))) {
   d = as.data.table(if (inherits(x, "medicc2_orientation")) x$pieces else x)
@@ -351,7 +351,9 @@ medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chr
     n0 = n0[, .(clone = normal, chrom, start, end, cn_a = 1L, cn_b = fifelse(ploidy == 1L, 0L, 1L), ploidy)]
     d = rbind(d, n0)
   }
-  n_cap = d[, sum(round(cn_a) > cap | round(cn_b) > cap | round(cn_a) + round(cn_b) > cap, na.rm = TRUE)]
+  # clipped rows of the table written: cn_a or cn_b above the cap (allele-specific), their sum above it (total)
+  n_cap = if (allele_specific) d[, sum(round(cn_a) > cap | round(cn_b) > cap, na.rm = TRUE)] else
+    d[, sum(round(cn_a) + round(cn_b) > cap, na.rm = TRUE)]
   if (n_cap) warning(sprintf(paste("medicc2_table: %d sample x piece rows have a copy number above cap = %d and were clipped",
                                    "(raise `cap` and MEDICC2's maximum copy number to keep them)"), n_cap, as.integer(cap)),
                      call. = FALSE)

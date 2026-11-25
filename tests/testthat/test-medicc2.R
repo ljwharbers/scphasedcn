@@ -262,3 +262,14 @@ test_that("medicc2_table counts and warns about copy numbers above the cap", {
   expect_no_warning(t2 <- medicc2_table(d, cap = 12L))
   expect_equal(attr(t2, "n_capped"), 0L)
 })
+
+test_that("medicc2_table counts clipped rows per output kind", {
+  # 5:4 at cap 8: kept in the allele-specific table (5 and 4 <= 8), clipped in the total table (9 > 8)
+  d = data.table(clone = c("K1", "K2"), chrom = "chr1", start = 0, end = 10e6, cn_a = c(5L, 2L), cn_b = c(4L, 1L), ploidy = 2L)
+  expect_no_warning(ta <- medicc2_table(d))
+  expect_equal(attr(ta, "n_capped"), 0L)
+  expect_equal(ta[sample_id == "K1", c(cn_a, cn_b)], c(5L, 4L))
+  expect_warning(tt <- medicc2_table(d, allele_specific = FALSE), "1 sample x piece rows have a copy number above cap = 8")
+  expect_equal(attr(tt, "n_capped"), 1L)
+  expect_equal(tt[sample_id == "K1", cn], 8L)
+})

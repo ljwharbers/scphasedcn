@@ -529,6 +529,12 @@ segment_states_opts = function(fit, grid, opts) {
                 opts$max_contra, opts$gain_support)
 }
 
+# state grid of a clone at baseline B, as fit_clone_states() builds it: `grid` (the diploid grid) at B = 2, else
+# baseline_grid(B) with fit_clone_states()'s default lam / min_df
+clone_state_grid = function(B, grid = cn_grid()) {
+  if (!length(B) || !is.finite(B) || abs(B - 2) < 1e-9) grid else baseline_grid(B)
+}
+
 # baseline B of clones (`par` of fit_clone_states(): column base; 2 without it, for N0 and for unknown clones)
 clone_baseline = function(par, clones) {
   b = if ("base" %in% names(par)) as.numeric(par$base)[match(as.character(clones), as.character(par$clone))] else

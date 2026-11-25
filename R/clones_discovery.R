@@ -996,7 +996,8 @@ subset_contrast_regions = function(cd, regs) {
 #' a chr21 3:0 / 4:0 LOH-gain subclone inside a 2:1 clone, fitted 3:1). For each clone with >= 2 `min_size`
 #' members and each of its non-neutral segments (ploidy 2, >= `split_min_len`; the copy-neutral 2:0 included), every
 #' member is scored on the discovery halves (`win_disc`, `votes_disc`) under the clone state and under each alternative of
-#' [split_alt_states()]. Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
+#' [split_alt_states()] on the clone's state grid (the diploid [cn_grid()] at baseline 2, else the grid of its fitted
+#' baseline `par$base`, as [fit_clone_states()] uses it). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
 #' profiles are relative to the clone baseline), in units of its `sd_null` scaled to the half depth and inflated by the
 #' members' own robust spread, t density at `c * log2(cn / cn_state)` (clone c from `par`). Alleles: the cell's votes
 #' oriented by the clone's leave-one-out pseudobulk, beta-binomial at `0.5 + a_eff (f - 0.5)`, a_eff = the attenuation of
@@ -1016,7 +1017,7 @@ subset_contrast_regions = function(cd, regs) {
 #' state of a mixture is an average: e.g. a fitted 4:1 / 3:1 clone that is a mix of 2:1 and 3:0 / 4:0 cells).
 #' @param members data.table cell, clone (confident members)
 #' @param segments segments table of the members' clones
-#' @param par data.table clone, c, a ([fit_clone_states()] `par`)
+#' @param par data.table clone, c, a and optionally base (the clone baseline; 2 without it) ([fit_clone_states()] `par`)
 #' @param inp scn_features list or `clone_input` (regions, atoms, cells, features for `sd_null`, tpar, rho)
 #' @param win_disc,votes_disc discovery halves of the window depth and the votes ([split_win()], [split_votes()])
 #' @param cdata [contrast_data()] of the test halves
@@ -1061,6 +1062,9 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     mk = members[clone == k, cell]
     pk = par[clone == k]
     if (length(mk) < 2 * opts$min_size || !nrow(pk)) next
+    # the clone's state grid: the diploid grid at baseline 2, else the baseline grid its states were fitted on
+    # (fit_clone_states(); e.g. 3:2 and 3:3 at baseline 3)
+    gk = clone_state_grid(clone_baseline(pk, k), grid)
     ev_all = sg[clone == k & ploidy == 2 & (end - start) >= opts$split_min_len]
     ev = ev_all[label != "neutral"]
     if (!nrow(ev)) next
@@ -1089,10 +1093,10 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     rho_k = if (nrow(rr)) max(stats::median(pmax(rr$num / rr$den, 0)), 1e-4) else inp$rho
     for (i in seq_len(nrow(ev))) {
       s0 = ev$state[i]
-      alts = split_alt_states(s0, grid, opts$split_min_df)
+      alts = split_alt_states(s0, gk, opts$split_min_df)
       x = d[region == ev_reg[i] & is.finite(log2ratio)]
       if (!nrow(alts) || nrow(x) < 2 * opts$min_size) next
-      st = rbind(grid[state == s0], alts)
+      st = rbind(gk[state == s0], alts)
       tp = cl_match_tpar(x, inp$tpar)
       set.seed(seed + length(cands))
       ds = disagree_ll(x$log2ratio, x$sdh, x$oA, x$oN, st, pk$c[1], pk$a[1], rho_k, params$eps, if (is.null(tp)) 5 else tp$t_df,

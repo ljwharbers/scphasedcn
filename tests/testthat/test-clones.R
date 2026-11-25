@@ -1563,3 +1563,25 @@ test_that("the caller and split_disagree() fit and segment clone states through 
   expect_identical(scphasedcn:::segment_states_opts(f, cn_grid(), o),
                    segment_clone(f, 1e-4, 2, cn_grid(), o$min_llr, o$min_excess, o$bal_frac, o$min_bal_len, Inf, 0))
 })
+
+test_that("split_disagree tests the segments of a clone at baseline 3 on its own state grid (3:2 is not in the diploid grid)", {
+  inp = tum2_input()
+  tr = sim_truth(sim_tum2)[mult == FALSE]
+  mk = tr[type == "cloneA", cell]
+  members = data.table(cell = mk, clone = "K3")
+  ch = inp$regions[class == "chrom" & chrom == "chr2"]
+  sg = data.table(clone = "K3", chrom = "chr2", start = ch$start, end = ch$end, n_win = 10L, nA = NA_integer_, nB = NA_integer_,
+                  cn = 5L, state = "3:2", log2 = 0, f = NA_real_, llr = 50, confident = TRUE, label = "amp", ploidy = 2L)
+  par = data.table(clone = "K3", c = 0.8, a = 0.9, rho = 0.01, base = 3)
+  expect_equal(nrow(split_alt_states("3:2", cn_grid())), 0)
+  expect_gt(nrow(split_alt_states("3:2", baseline_grid(3))), 0)
+  set.seed(42); s0 = .Random.seed
+  sp = split_disagree(members, sg, par, inp, inp$win, inp$votes, cdata = NULL, opts = list(min_size = 10), seed = 1)
+  expect_identical(.Random.seed, s0)                                  # T6: the caller's RNG state is restored
+  expect_false(is.null(sp$tests))
+  expect_equal(sp$tests$state, "3:2")
+  expect_true(sp$tests$alt %in% baseline_grid(3)$state)
+  # the same clone at the diploid baseline: no alternative of 3:2 on the diploid grid, nothing tested
+  sp2 = split_disagree(members, sg, copy(par)[, base := 2], inp, inp$win, inp$votes, cdata = NULL, opts = list(min_size = 10), seed = 1)
+  expect_null(sp2$tests)
+})

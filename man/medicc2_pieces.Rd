@@ -51,7 +51,7 @@ eligible by default: the absorbing piece would extend over the gap and claim sta
 Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
 done by \code{\link[=medicc2_table]{medicc2_table()}}.
 Segments labelled \code{imbalance} (allelic imbalance without depth support, \code{segment_clone(gain_support = )}) enter as
-the balanced state at the clone's integer baseline (\code{clones$baseline} rounded; 1:1 at baseline 2 or without it, 2:2
-at baseline 4): MEDICC2 sees no extra copy where the clone's depth does not show one. A clone with an odd integer
-baseline (e.g. 3) has no balanced state at its baseline; its \code{imbalance} segments keep their fitted state.
+the least imbalanced copy-neutral state at the clone's integer baseline nb (\code{clones$baseline} rounded; 2 without it):
+\code{ceiling(nb / 2):floor(nb / 2)} with the major haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2
+at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not show one.
 }

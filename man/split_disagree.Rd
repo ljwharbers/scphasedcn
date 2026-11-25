@@ -40,15 +40,16 @@ split_disagree(
 \item{ref_cells}{depth reference cells of the re-fit (used with >= \code{min_ref} cells)}
 
 \item{fit_states}{optional replacement of the re-fit's state fit (\verb{function(profile, grid)}); default
-\code{\link[=fit_clone_states]{fit_clone_states()}} with the \code{opts} of the run (\code{p_switch}, \code{min_win}, \code{ploidy}, \code{ploidy_tol}), as \code{\link[=caller_tumour]{caller_tumour()}}
-fits its clones (the caller passes its own fit, which also narrows the candidate baselines)}
+\code{\link[=fit_clone_states]{fit_clone_states()}} with the \code{opts} of the run (\code{p_switch}, \code{min_win}, \code{ploidy_tol}) at the parent clone's fitted
+baseline (\code{par$base}, 2 without it), so the two parts are compared on the parent's scale (\code{\link[=caller_tumour]{caller_tumour()}} passes
+its own fit)}
 
-\item{opts}{\code{\link[=clone_defaults]{clone_defaults()}} (\code{min_size}, \code{split_sep}, \code{split_max}, \code{split_cand}, \code{split_min_len}, \code{split_min_df},
+\item{opts}{\code{\link[=clone_defaults]{clone_defaults()}}, checked as \code{\link[=caller_tumour]{caller_tumour()}} checks them (\code{min_size}, \code{split_sep}, \code{split_max}, \code{split_cand}, \code{split_min_len}, \code{split_min_df},
 \code{split_min_excess}, \code{q}, \code{n_perm}, \code{max_cells}, \code{depth_delta}, \code{same_dist}, \code{small_clone}, \code{size_small}, \code{min_ref}, \code{p_switch},
 \code{min_win}, \code{ploidy}, \code{ploidy_tol}, \code{min_llr} and the \code{\link[=segment_clone]{segment_clone()}} rules \code{min_excess}, \code{bal_frac}, \code{min_bal_len},
 \code{max_contra}, \code{gain_support})}
 
-\item{params}{\code{\link[=caller_defaults]{caller_defaults()}} (\code{sd_floor}, \code{eps})}
+\item{params}{\code{\link[=caller_defaults]{caller_defaults()}} (\code{sd_floor}, \code{eps}; and the input null fit when \code{inp} carries none)}
 
 \item{seed}{RNG seed}
 

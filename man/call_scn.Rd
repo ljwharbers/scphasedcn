@@ -27,7 +27,8 @@ call_scn(
 )
 }
 \arguments{
-\item{dir}{extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)}
+\item{dir}{extraction directory (the bins file \verb{bins_<tag>.h5ad}, by default \code{bins_100kb.h5ad}; fragments.tsv.gz +
+.tbi, cells_qc.tsv)}
 
 \item{mode}{"normal" or "tumour"}
 

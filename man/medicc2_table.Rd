@@ -27,7 +27,7 @@ the attribute \code{n_capped} and a warning says so; raise \code{cap} (and MEDIC
 }
 \value{
 data.table (MEDICC2 TSV layout); attributes \code{n_pieces} (pieces before merging) and \code{n_capped} (sample x
-piece rows with a copy number above \code{cap}, clipped)
+piece rows clipped in the table written: cn_a or cn_b above \code{cap} (allele-specific), cn_a + cn_b above it (total))
 }
 \description{
 One row per sample x segment with integer copy numbers capped at \code{cap}: \verb{sample_id, chrom, start, end, cn_a, cn_b}

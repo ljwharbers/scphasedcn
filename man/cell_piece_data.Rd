@@ -22,7 +22,8 @@ cell_piece_data(
 \arguments{
 \item{features}{scn_features list (\code{win}, \code{long}, \code{regions}, \code{votes}, \code{atoms}, \code{cells}; as the tumour mode reads it)}
 
-\item{pieces}{piece table (\verb{piece, chrom, start, end}, one row per piece or per clone x piece)}
+\item{pieces}{piece table (\verb{piece, chrom, start, end}, one row per piece or per clone x piece; \code{flipped} optional,
+see \code{loo})}
 
 \item{blocks}{block orientation (\verb{piece, ps, sign} and, for \code{loo}, \verb{ref, nA_ref, nB_ref}; \code{flipped} optional)}
 
@@ -68,8 +69,10 @@ block table: \code{oA} = votes of the cn_a haplotype (\code{nA} when \code{sign 
 With \code{loo}, the reference clone's pooled votes are first reduced by the cell's own votes when the cell was one of
 the cells that oriented the block (\code{loo} maps cells to the clone whose pool they joined; only blocks whose \code{ref}
 is that clone are affected): the orientation is then the one the other cells give, in the block table's current
-label convention (on a piece whose labels the chaining of \code{\link[=orient_clone_states]{orient_clone_states()}} flipped, \code{flipped}, the sign of
-the remaining votes is negated as \code{sign} is; a table without \code{flipped} takes the flip from the piece's non-tied
-blocks), and the cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
+label convention (on a piece whose labels the chaining of \code{\link[=orient_clone_states]{orient_clone_states()}} flipped, the sign of the
+remaining votes is negated as \code{sign} is). The flip of a piece is the \code{flipped} column of \code{blocks}, else of \code{pieces}
+(e.g. the export's QC table), else it is inferred from the piece's non-tied oriented blocks; where none of these
+gives it (a block table without \code{flipped} whose piece has only tied blocks), the cell's leave-one-out rows of that
+piece are dropped (unoriented) rather than taken as unflipped. The cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
 from the orientation input.
 }

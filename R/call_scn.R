@@ -202,7 +202,7 @@ null_multiplets = function(mult) if (is.null(mult)) NULL else mult[prob > 0.5, c
 #' [chromatin_embedding()] (high-pass filtered log ratios to the all-cell leave-one-out reference, top principal
 #' components) of the given cells on the used bins of an extraction directory, with the cell ids as row
 #' names, ready for [knn_pools()]. Built from depth only (no copy-number features), as kNN pools require.
-#' @param dir extraction directory (bins_100kb.h5ad)
+#' @param dir extraction directory (the bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad`)
 #' @param cells cells to embed (default all)
 #' @param use logical bin filter over all bins of the sample (default [bin_filter()] on chr1-22 + chrX)
 #' @param n_pc components
@@ -315,7 +315,8 @@ utils::globalVariables(c("st", "k", "region"))
 #' groups `groups`, event chromosomes excluded from the null -> input depth t null and allelic rho on the null rows of
 #' the flagged null cells, else of the cells without a call on the null rows ([tumour_null_fit()]) -> [caller_tumour()]
 #' (clones, clone segments, cell assignment, per-cell inherited / confirmed calls).
-#' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
+#' @param dir extraction directory (the bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad`; fragments.tsv.gz +
+#'   .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
 #' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
 #'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells that pass [cell_qc()] are called,

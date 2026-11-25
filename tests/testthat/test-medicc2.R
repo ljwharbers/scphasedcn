@@ -196,3 +196,29 @@ test_that("medicc2_pieces / orient_clone_states take numeric clone ids and do no
   oc = orient_clone_states(pc, x$features, x$assignments, x$clones)
   expect_identical(on$pieces[order(piece, clone), .(cn_a, cn_b, flag)], oc$pieces[, clone := as.character(ids[clone])][order(piece, clone), .(cn_a, cn_b, flag)])
 })
+
+test_that("MEDICC2 export: no segment and no absorbed piece spans a dropped range", {
+  # medicc2_table: chr1 [0, 10 Mb) and [30, 50 Mb) with equal states, [10, 30 Mb) dropped -> two segments
+  d = data.table(clone = rep(c("K1", "K2"), each = 2), chrom = "chr1", start = c(0, 30e6), end = c(10e6, 50e6),
+                 cn_a = rep(c(1L, 2L), each = 2), cn_b = 0L, ploidy = 2L)
+  tb = medicc2_table(d)
+  expect_equal(tb[sample_id == "K1", .(start, end)], data.table(start = c(0L, 30000000L), end = c(10000000L, 50000000L)))
+  expect_true(all(tb[, .N, by = sample_id]$N == 2L))
+  # contiguous pieces with equal states are still merged
+  d2 = copy(d)[start == 30e6, start := 10e6]
+  expect_equal(nrow(medicc2_table(d2)[sample_id == "K1"]), 1L)
+  # medicc2_pieces: a short piece next to a dropped range is absorbed into its contiguous neighbour only
+  seg = function(clone, start, end, state) data.table(clone = clone, chrom = "chr1", start = start, end = end, state = state)
+  sg = rbind(seg("A", c(0, 30.5e6), c(30.5e6, 50e6), c("1:0", "1:1")),
+             seg("B", c(0, 30e6), c(10e6, 50e6), c("1:0", "1:0")))
+  pc = medicc2_pieces(sg, min_len = 1e6)
+  u = unique(pc[, .(start, end)])[order(start)]
+  expect_equal(u, data.table(start = c(0, 30e6), end = c(10e6, 50e6)))
+  pd = attr(pc, "pieces_dropped")
+  expect_equal(pd[reason == "not_all_clones", .(start, end)], data.table(start = 10e6, end = 30e6))
+  # the absorbed short piece takes the contiguous neighbour's states
+  expect_equal(pc[start == 30e6][order(clone), state], c("1:1", "1:0"))
+  # max_gap opts in to absorption across the gap (the old default): the left piece then claims [10, 30 Mb)
+  pg = medicc2_pieces(sg, min_len = 1e6, max_gap = Inf)
+  expect_equal(unique(pg[, .(start, end)])[order(start)], data.table(start = c(0, 30.5e6), end = c(30.5e6, 50e6)))
+})

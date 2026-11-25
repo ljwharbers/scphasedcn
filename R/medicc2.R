@@ -14,16 +14,20 @@
 #' union of the remaining clones' segment breakpoints ([segment_pieces()]) on `chroms`, maps every clone's state to
 #' every piece (segment containing the piece midpoint, as `piece_states()`) and keeps the pieces covered by every kept
 #' clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome start, are dropped). Pieces shorter
-#' than `min_len` are then absorbed into an adjacent piece of the same chromosome (gap <= `max_gap`): the neighbour
-#' whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
-#' the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
-#' not merged here: merging needs the common haplotype orientation and is done by [medicc2_table()].
+#' than `min_len` are then absorbed into an adjacent piece of the same chromosome (gap <= `max_gap`, by default 0:
+#' only a neighbour that touches it): the neighbour whose states differ in the fewest clones, the longer one on ties;
+#' the neighbour keeps its states and extends over the short piece. A short piece without an eligible neighbour is
+#' dropped. A neighbour across a gap (a dropped range, see `pieces_dropped`, or a range without any segment) is not
+#' eligible by default: the absorbing piece would extend over the gap and claim states where not every clone has one.
+#' Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
+#' done by [medicc2_table()].
 #' Segments labelled `imbalance` (allelic imbalance without depth support, `segment_clone(gain_support = )`) enter as
 #' 1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.
 #' @param segments segments table (`clone, chrom, start, end, state, cn, label, ploidy`; `nA, nB, f` optional)
 #' @param clones clones table (`clone`, `doublet`, `n_assigned`); NULL keeps every clone of `segments`
 #' @param min_len pieces shorter than this (bp) are absorbed into a neighbour
-#' @param max_gap maximal gap (bp) between a short piece and the neighbour it is absorbed into
+#' @param max_gap maximal gap (bp) between a short piece and the neighbour it is absorbed into (default 0: contiguous
+#'   neighbours only; a larger value lets the absorbing piece extend over the gap, i.e. claim states there)
 #' @param min_assigned clones with fewer assigned cells are dropped (the normal clone `normal` is always kept)
 #' @param chroms chromosomes exported (MEDICC2: chr1-22 and chrX)
 #' @param normal name of the normal clone
@@ -33,7 +37,7 @@
 #'   orientation, NA when absent). Attributes `clones_dropped` (clone, reason) and `pieces_dropped` (chrom, start, end,
 #'   reason: `not_all_clones` / `short_isolated`) and `n_pieces_raw` (pieces before the coverage filter).
 #' @export
-medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = Inf, min_assigned = 1,
+medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = 0, min_assigned = 1,
                           chroms = paste0("chr", c(1:22, "X")), normal = "N0") {
   sg = as.data.table(segments)[chrom %in% chroms]
   if (!nrow(sg)) stop("medicc2_pieces: no segments on ", paste(chroms, collapse = ", "))
@@ -308,7 +312,8 @@ utils::globalVariables(c("pix", "cl", "i.pix", "x.atom", "n_votes", "i.n_votes",
 #' (allele-specific) or `sample_id, chrom, start, end, cn` (total = cn_a + cn_b, for `--total-copy-numbers
 #' --input-allele-columns cn`). Adjacent pieces of a chromosome whose values are identical in every sample are merged
 #' (after the cap; on cn_a / cn_b, or on cn for the total table), so every sample has the same segments, as MEDICC2
-#' requires. The normal clone `normal` is a sample (MEDICC2 `--normal-name N0`); when absent it is added as 1:1 on
+#' requires; pieces separated by a gap (e.g. a range dropped by [medicc2_pieces()]) are never merged, so no segment
+#' spans a range without states. The normal clone `normal` is a sample (MEDICC2 `--normal-name N0`); when absent it is added as 1:1 on
 #' diploid and 1:0 on haploid pieces (male chrX), so it is the root of the tree. Chromosomes are sorted naturally.
 #' @param x [orient_clone_states()] result, or a long table with `clone, chrom, start, end, cn_a, cn_b` (+ `ploidy`)
 #' @param allele_specific TRUE: cn_a / cn_b columns; FALSE: total cn
@@ -336,7 +341,9 @@ medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chr
   d[, v := val]
   kk = d[order(clone), .(kk = paste(v, collapse = "|")), by = .(chrom, start, end)]
   pcs[kk, kk := i.kk, on = .(chrom, start, end)]
-  pcs[, run := rleid(chrom, kk)]
+  # a run never spans a gap between pieces (a range without states, e.g. dropped by medicc2_pieces())
+  pcs[, gap_ := cumsum(c(TRUE, start[-1] != end[-.N])), by = chrom]
+  pcs[, run := rleid(chrom, kk, gap_)]
   runs = pcs[, .(start = min(start), end = max(end), chrom = chrom[1]), by = run]
   d[pcs, run := i.run, on = .(chrom, start, end)]
   out = d[, .(cn_a = cn_a[1], cn_b = cn_b[1], cn = cn[1]), by = .(sample_id = clone, run)]
@@ -348,4 +355,4 @@ medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chr
   setattr(out, "n_pieces", nrow(pcs))
   out[]
 }
-utils::globalVariables(c("v", "run", "kk", "i.kk", "i.run", "sample_id"))
+utils::globalVariables(c("v", "run", "kk", "i.kk", "i.run", "sample_id", "gap_"))

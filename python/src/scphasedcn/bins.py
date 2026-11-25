@@ -136,12 +136,13 @@ def gc_per_tile(fasta_path: str | None, tiling: Tiling) -> tuple[np.ndarray, np.
     return gc, nn
 
 
-def annotate_tiling(tiling: Tiling, ref: dict, peaks: str | None = None):
-    """Per-tile annotation frame: gc, n_N, frac_blacklist, frac_trf, is_centromere, peak_bp, width."""
+def annotate_tiling(tiling: Tiling, ref: dict, peaks: str | None = None, gc: bool = True):
+    """Per-tile annotation frame: gc, n_N, frac_blacklist, frac_trf, is_centromere, peak_bp, width. `gc` False: no GC
+    content (NaN, n_N 0) although `ref` has a FASTA (a chromosome the FASTA lacks or has with another length)."""
     import pandas as pd
     df = tiling.frame()
     df["width"] = df["end"] - df["start"]
-    gc, nn = gc_per_tile(ref.get("fasta"), tiling)
+    gc, nn = gc_per_tile(ref.get("fasta") if gc else None, tiling)
     df["gc"] = gc; df["n_N"] = nn
     bs, be = read_bed_intervals(ref.get("blacklist"), tiling.chrom)
     df["frac_blacklist"] = overlap_bp(tiling, bs, be) / df["width"].values

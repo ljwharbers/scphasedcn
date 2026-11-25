@@ -4,10 +4,12 @@
 #       columns and a few known values.
 # Why: the two halves of scphasedcn meet at the extraction directory (bins h5ad, fragment table + tabix index, cells QC);
 #      the R tests use simulated data written by R, so only this check reads what the Python side writes.
-# Usage: Rscript tools/check_extraction_io.R <extraction dir>
+# Usage: Rscript tools/check_extraction_io.R <extraction dir>   (or the directory in SCPHASEDCN_EXTRACT_DIR)
 #        The directory is the Python test suite's synthetic sample (python/tests/conftest.py, fixture `extracted`),
-#        written by tools/tiny_extraction.py; the expected values below are documented there.
-# Inputs: <dir>/bins_100kb.h5ad, fragments.tsv.gz (+ .tbi), cells_qc.tsv
+#        written by tools/tiny_extraction.py with the same sample at 50 kb bins in <extraction dir>_50kb; the expected
+#        values below are documented there.
+# Inputs: <dir>/bins_100kb.h5ad (found with bins_file()), fragments.tsv.gz (+ .tbi), cells_qc.tsv;
+#         <dir>_50kb/bins_50kb.h5ad
 # Outputs: none (stops at the first failed check; prints "extraction io ok" at the end)
 
 suppressPackageStartupMessages({
@@ -26,7 +28,8 @@ CELL_A = "AAAACCCCGGGGTTTT"
 CELL_B = "CCCCGGGGTTTTAAAA"
 
 # ---- bins h5ad --------------------------------------------------------------------------------------------------
-scn = read_bins_h5ad(file.path(dir, "bins_100kb.h5ad"))
+check(identical(bins_file(dir), file.path(dir, "bins_100kb.h5ad")), "bins_file: bins_100kb.h5ad")
+scn = read_bins_h5ad(bins_file(dir))
 check(inherits(scn, "scn"), "read_bins_h5ad returns an scn object")
 check(identical(colnames(scn$counts), sort(c(CELL_A, CELL_B))), "two cells, in the file's order")
 check(identical(scn$cells$cell, colnames(scn$counts)), "cells table matches the matrix columns")
@@ -88,4 +91,17 @@ if (nzchar(tbx)) {
 } else {
   cat("skip tabix not on the PATH: the tabix path of read_votes was not checked\n")
 }
+# ---- the same sample at 50 kb bins: bins_50kb.h5ad, found by the sample reader -------------------------------------
+dir50 = paste0(sub("/+$", "", dir), "_50kb")
+if (!dir.exists(dir50)) stop("no ", dir50, " (tools/tiny_extraction.py writes it next to the extraction directory)")
+check(identical(bins_file(dir50), file.path(dir50, "bins_50kb.h5ad")), "bins_file: the one bins_50kb.h5ad")
+sd50 = ns$read_sample_depth(dir50)
+check(identical(as.integer(table(sd50$bins$chrom)[c("chr1", "chr2", "chrM", "chrX")]), c(20L, 10L, 1L, 6L)),
+      "50 kb: 37 bins (chr1 20, chr2 10, chrM 1, chrX 6)")
+check(all(sd50$bins[chrom != "chrM", end - start] == 50000), "50 kb: bin width")
+check(sum(sd50$counts) == sum(scn$counts) && identical(sd50$fragments, file.path(dir50, "fragments.tsv.gz")),
+      "50 kb: the same fragments as at 100 kb")
+b50 = which(sd50$bins$chrom == "chr1" & sd50$bins$start %in% c(0, 50000))
+check(identical(as.numeric(sd50$counts[b50, CELL_A]), c(8, 4)),
+      "50 kb: cell A's 12 fragments of chr1:0-100000 split 8 + 4 at 50 kb")
 cat("extraction io ok\n")

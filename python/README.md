@@ -20,7 +20,7 @@ scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
 `scphasedcn run` extracts every chromosome in parallel and merges; `scphasedcn extract --chrom <c>` and
 `scphasedcn merge` are the same steps for one cluster job per chromosome. `scphasedcn select-hets` selects the
 heterozygous SNVs of a phased VCF (Clair3 + longphase) for `--snps` (optionally only sites of a population `--loci`
-file, whose contig names may differ by the `chr` prefix; selecting no autosomal site is an error). `scphasedcn hybrid-phase` orients those
+file, whose contig names may differ by the `chr` prefix; selecting no site is an error, selecting no autosomal site a loud warning). `scphasedcn hybrid-phase` orients those
 read-backed phase blocks with a population-phased VCF of the same sample and writes one phase set per chromosome
 (recommended for the normal-tissue mode of the caller; see below). `scphasedcn index-check` checks the BAM index
 (exit status 1 when it is missing or older than the BAM) and can write a fresh one to a separate path (`--reindex`,
@@ -48,12 +48,15 @@ Options worth knowing:
 - `--binsize` (default 100000) and `--tag`: the bins are written to `bins_<tag>.h5ad`, the tag by default named after
   the bin size (`100kb` for 100000, `50kb`, `1Mb`; `<n>bp` for a size that is not a whole number of kb; `merge` takes
   the bin size of the partials). The R caller finds the bins file of the directory (`bins_100kb.h5ad` when present,
-  else the single `bins_<tag>.h5ad`), so keep one bins file per extraction directory.
+  else the single `bins_<tag>.h5ad`): one bins file per extraction directory, so `merge` removes any other
+  `bins_*.h5ad` there (e.g. of an earlier run at another bin size) when it writes its own.
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).
-- `merge` without `--chroms` (and without `chroms` in the yaml sample) merges the main chromosomes (chr1-22, X, Y, M)
-  that have a finished partial and lists those without one; with a list, it fails when a listed chromosome has no
-  finished partial (`--allow-missing` merges without it). It also fails when the partials were extracted from different inputs (cells, bin size, BAM, SNP file, `--vote-ps`, masks: recorded in each
+- `merge` without `--chroms` (and without `chroms` in the yaml sample) merges the chromosomes `run` extracts: the main
+  chromosomes (chr1-22, X, Y, M) in the header of the BAM recorded in the partials (when that BAM cannot be read, the
+  main chromosomes with a partial directory, finished or not). It fails when a chromosome to merge has no finished
+  partial (an extract job that died or never ran), naming it; `--allow-missing` merges without it and lists it as
+  `missing` in `summary.json`. A partial directory without `DONE` is always reported. It also fails when the partials were extracted from different inputs (cells, bin size, BAM, SNP file, `--vote-ps`, masks: recorded in each
   partial's `DONE`). `--region` writes `partials/region_<chrom>_<start>-<end>`, which `merge` does not merge.
 
 Fragments whose start lies in the blacklist are flagged (`flags` bit 8) and left out of the depth layers (the
@@ -81,4 +84,6 @@ scphasedcn hybrid-phase --blocks hets.vcf.gz --population popphased_{chrom}.vcf.
 Genome: GRCh38 / hg38 with `chr` names (bundled chromosome sizes, ENCODE blacklist v2 and centromeres; see
 `src/scphasedcn/resources/README.md`). Before the BAM pass, each chromosome must be a reference of the BAM and, when a
 FASTA is given, of the FASTA, with the same length in the chromosome sizes, the BAM header and the FASTA; otherwise the
-extraction stops and names the file that disagrees (for another assembly give its `--chrom-sizes`).
+extraction stops and names the file that disagrees (for another assembly give its `--chrom-sizes`). Exception: a
+FASTA without chrM, or with another chrM length, is a warning, and chrM's bins have no GC content (the caller uses
+chrM only as a per-cell read count).

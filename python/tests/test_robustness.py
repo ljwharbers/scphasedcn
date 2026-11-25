@@ -2,6 +2,7 @@
 synthetic BAM in conftest.bam)."""
 import json
 import shutil
+from pathlib import Path
 
 import anndata as ad
 import pandas as pd
@@ -9,7 +10,7 @@ import pysam
 import pytest
 
 from conftest import CELL_A, CELL_B, name, rewrite_bam, write_vcf
-from scphasedcn.cli import main
+from scphasedcn.cli import main, _run_one as _real_run_one   # before any monkeypatch
 
 
 def _common(genome, bam, out, *extra):
@@ -368,6 +369,28 @@ def test_chromosome_lengths_must_agree(genome, bam, tmp_path):
     assert not (tmp_path / "o" / "partials").exists()
 
 
+def test_fasta_without_chrm_or_with_another_chrm(genome, bam, tmp_path, capsys):
+    """chrM only: a FASTA without it, or with another chrM length, is a warning and chrM's bins have no GC (NaN, as
+    the caller tolerates); the run goes on and merges. Any other chromosome keeps the hard error."""
+    main_chroms = [("chr1", 1_000_000), ("chr2", 500_000), ("chrX", 300_000)]
+    for x, extra in (("nochrM", []), ("otherchrM", [("chrM", 16_571)])):
+        fa = _fasta(tmp_path / f"{x}.fa", main_chroms + extra)
+        o = tmp_path / x
+        capsys.readouterr()
+        assert main(["run", "--jobs", "1", "--fasta", str(fa)] + _common(genome, bam, o)[:-2] + ["--no-masks"]) == 0
+        err = capsys.readouterr().err
+        assert ("chrM is not in the FASTA" if x == "nochrM" else "chrM has 16571 bp in the FASTA") in err
+        a = ad.read_h5ad(o / "bins_100kb.h5ad")
+        gc = a.var["gc"]
+        m = (a.var["chrom"] == "chrM").values
+        assert m.sum() == 1 and gc[m].isna().all() and gc[~m].notna().all()
+        assert (a.var.loc[m, "n_N"] == 0).all()
+        assert json.load(open(o / "summary.json"))["chroms"] == ["chr1", "chr2", "chrX", "chrM"]
+    fa = _fasta(tmp_path / "nochr2.fa", [("chr1", 1_000_000), ("chrX", 300_000)])
+    with pytest.raises(SystemExit, match="chr2 is not in the FASTA"):
+        main(["run", "--jobs", "1", "--fasta", str(fa)] + _common(genome, bam, tmp_path / "o")[:-2] + ["--no-masks"])
+
+
 # --------------------------------------------------------------------------------------------- select-hets loci naming
 _HETS_HDR = ("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n##contig=<ID=chr2,length=100000>\n"
              "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"x\">\n"
@@ -403,6 +426,41 @@ def test_select_hets_loci_with_other_contig_names(tmp_path):
     assert not out2.exists() and not (tmp_path / "none.vcf.gz.tbi").exists()
 
 
+def test_select_hets_chrx_only_call_set(tmp_path, capsys):
+    """A chrX-only call set whose header lists the autosomes too selects its chrX sites (no autosome had records);
+    sites but none on an autosome that had records, or that --contigs names, is a loud warning, not an error. An
+    error leaves no output and no --stats file of an earlier run."""
+    hdr = _HETS_HDR.replace("##contig=<ID=chr2,length=100000>\n",
+                            "##contig=<ID=chr2,length=100000>\n##contig=<ID=chrX,length=100000>\n")
+    x = "".join(f"chrX\t{p}\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n" for p in (1001, 2001))
+    raw = tmp_path / "x.vcf"
+    raw.write_text(hdr + x)
+    out, st = tmp_path / "het.vcf.gz", tmp_path / "stats.tsv"
+    base = ["select-hets", "--vcf", _bgzip(raw), "--out", str(out), "--dp-quantile", "1", "--stats", str(st)]
+    capsys.readouterr()
+    assert main(base) == 0
+    assert [(r.chrom, r.pos) for r in pysam.VariantFile(str(out))] == [("chrX", 1001), ("chrX", 2001)]
+    assert "NO AUTOSOMAL SITE" not in capsys.readouterr().err and st.exists()
+    assert main(base + ["--contigs", "chr1,chrX"]) == 0                                # an autosome named: warn
+    assert "NO AUTOSOMAL SITE selected (2 sites on chrX), although --contigs names chr1" in capsys.readouterr().err
+    raw2 = tmp_path / "x2.vcf"                                                         # chr1 records, none selected
+    raw2.write_text(hdr + "chr1\t1001\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:5:40\n" + x)
+    base2 = ["select-hets", "--vcf", _bgzip(raw2), "--out", str(out), "--dp-quantile", "1", "--stats", str(st)]
+    assert main(base2) == 0
+    assert "NO AUTOSOMAL SITE selected (2 sites on chrX), although chr1 had records" in capsys.readouterr().err
+    assert st.exists() and out.exists()
+    lo = tmp_path / "loci.vcf"                                                         # chrX only, none selected
+    lo.write_text("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                  "chr1\t1001\t.\tA\tG\t.\t.\t.\n")
+    with pytest.raises(SystemExit, match="no site selected"):
+        main(base2 + ["--contigs", "chrX", "--loci", _bgzip(lo), "--no-loci-contigs", ""])
+    assert not st.exists() and not out.exists() and not Path(f"{out}.tbi").exists()
+    st.write_text("stats of an earlier run")
+    with pytest.raises(SystemExit, match="no candidate sites"):
+        main(base2 + ["--min-dp", "100"])
+    assert not st.exists()
+
+
 # --------------------------------------------------------------------------------------------- biallelic SNV test
 def test_spanning_deletion_and_n_alleles_are_not_snvs(tmp_path):
     from scphasedcn.alleles import load_snps
@@ -420,11 +478,22 @@ def test_spanning_deletion_and_n_alleles_are_not_snvs(tmp_path):
 
 # --------------------------------------------------------------------------------------------- a worker killed
 def _die_on_chr2(ns):
-    """Stand-in for cli._run_one in a worker: chr2 dies like an OOM-killed process; other chromosomes are done."""
+    """Stand-in for cli._run_one in a worker: chr1 is extracted for real; chr2 dies like an OOM-killed process once
+    chr1's partial is finished (a broken pool terminates the other workers, so it must not die earlier)."""
     import os
+    import time
     if ns.chrom == "chr2":
+        done = Path(ns.out) / "partials" / "chr1" / "DONE"
+        t0 = time.time()
+        while time.time() - t0 < 120:
+            try:
+                if "layers" in json.loads(done.read_text()):     # DONE is written atomically, last
+                    break
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.05)
         os._exit(9)
-    return ns.chrom, 0, ""
+    return _real_run_one(ns)
 
 
 def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
@@ -432,8 +501,7 @@ def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
     import multiprocessing
     import scphasedcn.cli as cli
     out = tmp_path / "o"
-    assert main(["extract", "--chrom", "chr1"] + _common(genome, bam, out)) == 0      # finished before
-    done = (out / "partials" / "chr1" / "DONE").read_bytes()
+    assert main(["extract", "--chrom", "chr2"] + _common(genome, bam, out)) == 0      # finished in an earlier run
     real = concurrent.futures.ProcessPoolExecutor
 
     class ForkPool(real):
@@ -441,35 +509,129 @@ def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
             super().__init__(max_workers=max_workers, mp_context=multiprocessing.get_context("fork"))
     monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", ForkPool)
     monkeypatch.setattr(cli, "_run_one", _die_on_chr2)
-    with pytest.raises(SystemExit, match=r"(?s)worker process died.*chr2.*--jobs"):
+    with pytest.raises(SystemExit, match=r"(?s)worker process died.*without a finished partial \(no DONE\): chr2\..*--jobs"):
         main(["run", "--chroms", "chr1,chr2", "--jobs", "2"] + _common(genome, bam, out))
-    assert (out / "partials" / "chr1" / "DONE").read_bytes() == done                # the finished partial survives
-    assert not (out / "partials" / "chr2" / "DONE").exists()
+    assert not (out / "partials" / "chr2" / "DONE").exists()                         # not the earlier run's DONE
+    # the surviving chromosome was extracted for real: its partial is complete and merges like a separate extraction
+    ref = tmp_path / "ref"
+    assert main(["extract", "--chrom", "chr1"] + _common(genome, bam, ref)) == 0
+    for x in (out, ref):
+        assert main(["merge", "--out", str(x), "--chroms", "chr1"]) == 0
+    a, b = (ad.read_h5ad(x / "bins_100kb.h5ad") for x in (out, ref))
+    assert a.X.sum() > 0 and (a.X != b.X).nnz == 0 and all((a.layers[k] != b.layers[k]).nnz == 0 for k in b.layers)
+    pd.testing.assert_frame_equal(a.obs, b.obs)
+    pd.testing.assert_frame_equal(_frags(out), _frags(ref))
+
+
+def test_run_removes_done_of_earlier_runs_before_extracting(genome, bam, tmp_path, monkeypatch):
+    """A chromosome queued but never started when the pool breaks must not keep the DONE of an earlier run in the same
+    output directory (it would be reported, and merged, as finished)."""
+    import concurrent.futures
+    from concurrent.futures.process import BrokenProcessPool
+    out = tmp_path / "o"
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1"] + _common(genome, bam, out)) == 0   # earlier run
+
+    class BrokenPool:                                  # breaks before any chromosome starts
+        def __init__(self, max_workers=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def map(self, fn, it):
+            raise BrokenProcessPool("a worker died")
+    with monkeypatch.context() as mp:
+        mp.setattr(concurrent.futures, "ProcessPoolExecutor", BrokenPool)
+        with pytest.raises(SystemExit, match=r"without a finished partial \(no DONE\): chr1, chr2\."):
+            main(["run", "--chroms", "chr1,chr2", "--jobs", "2"] + _common(genome, bam, out))
+    assert not any((out / "partials" / c / "DONE").exists() for c in ("chr1", "chr2"))
+    # a later run rewriting one layer keeps the inputs of the others (passed on from the DONE it removed)
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1"] + _common(genome, bam, out)) == 0
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "fragments"]
+                + _common(genome, bam, out)) == 0
+    done = json.load(open(out / "partials" / "chr1" / "DONE"))
+    assert done["layers"]["depth"]["inputs"]["binsize"] == 100_000
 
 
 # --------------------------------------------------------------------------------------------- records without SEQ / CIGAR
-def test_records_without_seq_or_cigar_are_counted_and_skipped(genome, bam, vcf, tmp_path):
+def _strip_seq(r):
+    """SEQ `*` on CELL_A's chr1 record c ([20000, 22000)) and on CELL_B's chr2 R2 (over SNPs 1001 and 1501)."""
+    if (r.get_tag("CB"), r.reference_name, r.reference_start) in ((CELL_A, "chr1", 20000), (CELL_B, "chr2", 950)):
+        r.query_sequence = None
+    return r
+
+
+def test_records_without_seq_count_in_depth_and_fragments(genome, bam, tmp_path):
+    """Depth and fragments need only the CIGAR: a BAM with SEQ stripped gives the same depth layers, QC and fragments
+    table as the full BAM (without SNPs, --layers depth,fragments)."""
+    b = rewrite_bam(bam, tmp_path / "noseq.bam", _strip_seq)
+    for x, bb in (("full", bam), ("noseq", b)):
+        o = tmp_path / x
+        assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "depth,fragments"]
+                    + _common(genome, bb, o)) == 0
+    full, noseq = (ad.read_h5ad(tmp_path / x / "bins_100kb.h5ad") for x in ("full", "noseq"))
+    assert full.X.sum() > 0 and (full.X != noseq.X).nnz == 0
+    assert all((full.layers[k] != noseq.layers[k]).nnz == 0 for k in full.layers)
+    pd.testing.assert_frame_equal(full.obs, noseq.obs)
+    pd.testing.assert_frame_equal(_frags(tmp_path / "full"), _frags(tmp_path / "noseq"))
+    s = json.load(open(tmp_path / "noseq" / "summary.json"))
+    assert s["n_no_seq"] == 2 and s["n_no_cigar"] == 0
+
+
+def test_records_without_seq_have_no_snp_observation(genome, bam, vcf, tmp_path):
+    """In an allele run, a record without SEQ over SNPs is a fragment without SNP observation (hap 0, nsnp 0, ps -1):
+    the allele counts lose its observations, nothing else changes."""
+    b = rewrite_bam(bam, tmp_path / "noseq.bam", _strip_seq)
+    for x, bb in (("full", bam), ("noseq", b)):
+        assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--snps", str(vcf), "--phased"]
+                    + _common(genome, bb, tmp_path / x)) == 0
+    f0, f1 = _frags(tmp_path / "full"), _frags(tmp_path / "noseq")
+    r2 = (f1.cell == CELL_B) & (f1.start == 950)
+    assert f1.loc[r2, ["hap", "nsnp", "ps"]].values.tolist() == [[0, 0, -1]]
+    assert f0.loc[r2, ["hap", "nsnp", "ps"]].values.tolist() == [[2, 2, 1000]]
+    pd.testing.assert_frame_equal(f0.loc[~r2], f1.loc[~r2])
+    a0, a1 = (ad.read_h5ad(tmp_path / x / "alleles_dna.h5ad") for x in ("full", "noseq"))
+    pd.testing.assert_frame_equal(a0.var, a1.var)                       # n_other / n_lowbq unchanged
+    d = (a0.X - a1.X).toarray()
+    snp = list(a0.var["pos"])
+    assert d[1, snp.index(1001)] == 1 and d[1, snp.index(1501)] == 1 and abs(d).sum() == 2   # R2 only (cell B)
+    assert ((a0.layers["AD"] - a1.layers["AD"]).toarray()[1, snp.index(1001)]) == 1           # R2 was alt at 1001
+    q0, q1 = (pd.read_csv(tmp_path / x / "cells_qc.tsv", sep="\t", index_col=0) for x in ("full", "noseq"))
+    assert q1.loc[CELL_B, "n_hapB"] == q0.loc[CELL_B, "n_hapB"] - 1 and q1.loc[CELL_B, "n_pass"] == q0.loc[CELL_B, "n_pass"]
+    assert json.load(open(tmp_path / "noseq" / "summary.json"))["n_no_seq"] == 2
+
+
+def test_records_without_cigar_are_skipped_and_counted(genome, bam, tmp_path):
+    """A primary record without CIGAR has no reference span: skipped before the per-record counters, the same way for
+    listed cells, "-" and unlisted barcodes, so n_records stays the sum of its categories; counted in n_no_cigar."""
     def edit(r):
-        if r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 20000:
-            r.query_sequence = None                                   # SEQ *
-        elif r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 30000:
-            r.cigartuples = None                                      # no CIGAR
-        elif r.get_tag("CB") == CELL_B and r.reference_name == "chr2" and r.reference_start == 950:
-            r.query_sequence = None                                   # R2 covers two SNPs
+        if (r.get_tag("CB"), r.reference_name, r.reference_start) in (
+                (CELL_A, "chr1", 30000), ("-", "chr1", 17000), ("GGGGTTTTAAAACCCC", "chr1", 15000)):
+            r.cigartuples = None
         return r
-    b = rewrite_bam(bam, tmp_path / "noseq.bam", edit)
+    b = rewrite_bam(bam, tmp_path / "nocigar.bam", edit)
+    for x, bb in (("full", bam), ("o", b)):
+        assert main(["extract", "--chrom", "chr1"] + _common(genome, bb, tmp_path / x)) == 0
+        assert main(["merge", "--out", str(tmp_path / x), "--chroms", "chr1"]) == 0
     o = tmp_path / "o"
-    for ch in ("chr1", "chr2"):
-        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, b, o)) == 0
-    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0
-    p1, p2 = (json.load(open(o / "partials" / c / "params.json")) for c in ("chr1", "chr2"))
-    assert p1["n_no_seq_cigar"] == 2 and p2["n_no_seq_cigar"] == 1
-    assert json.load(open(o / "summary.json"))["n_no_seq_cigar"] == 3
-    f = _frags(o)
-    assert not f["start"].isin([20000, 30000]).any() and not ((f.cell == CELL_B) & (f.start == 950)).any()
+    p = json.load(open(o / "partials" / "chr1" / "params.json"))
+    assert p["n_no_cigar"] == 3 and p["n_no_seq"] == 0
+    assert json.load(open(o / "summary.json"))["n_no_cigar"] == 3
+    cats = ["n_secondary", "n_supplementary", "n_duplicate", "n_primary", "n_qcfail"]
+    for d in (p["dash"], p["unlisted"]):
+        assert d["n_records"] == sum(d[k] for k in cats)
+    assert p["dash"]["n_records"] == 1 and p["dash"]["n_pass"] == 0                    # d2 (duplicate) only
+    assert p["unlisted"]["n_records"] == 1 and p["unlisted"]["n_pass"] == 1
     q = pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0)
-    assert q.loc[CELL_A, "n_primary"] == 19 and q.loc[CELL_A, "n_pass"] == 18     # 21 / 20 without the edits
-    assert q.loc[CELL_A, ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]].sum() == 19
+    assert (q["n_records"] == q[cats].sum(axis=1)).all()
+    q0 = pd.read_csv(tmp_path / "full" / "cells_qc.tsv", sep="\t", index_col=0)
+    for k in ("n_records", "n_primary", "n_pass"):                                    # one record less: e
+        assert q.loc[CELL_A, k] == q0.loc[CELL_A, k] - 1 and q.loc[CELL_B, k] == q0.loc[CELL_B, k]
+    assert q.loc[CELL_A, ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]].sum() == q.loc[CELL_A, "n_primary"]
+    assert not _frags(o)["start"].isin([30000]).any()
 
 
 # --------------------------------------------------------------------------------------------- bins tag
@@ -485,11 +647,49 @@ def test_tag_follows_the_bin_size(genome, bam, tmp_path):
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0            # merge: the tag of the partials
     assert (o / "bins_50kb.h5ad").exists()
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2", "--tag", "x"]) == 0
-    assert (o / "bins_x.h5ad").exists()
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_x.h5ad"]           # one bins file per directory
     # a later run that rewrites the fragments only (default --binsize): the depth layer keeps its 50 kb bins
-    (o / "bins_50kb.h5ad").unlink()
     assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "fragments"] + _common(genome, bam, o)) == 0
-    assert (o / "bins_50kb.h5ad").exists() and not (o / "bins_100kb.h5ad").exists()
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_50kb.h5ad"]
+
+
+def test_merge_removes_the_bins_file_of_another_bin_size(genome, bam, tmp_path, capsys):
+    """Re-extracting at another bin size into the same directory: the R caller prefers bins_100kb.h5ad, so a stale
+    one beside the new bins_50kb.h5ad would be paired with the new cells_qc.tsv and fragments.tsv.gz."""
+    o = tmp_path / "o"
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1"] + _common(genome, bam, o)) == 0
+    assert (o / "bins_100kb.h5ad").exists()
+    (o / "bins_other.h5ad").write_text("")
+    (o / "keep_bins_100kb.h5ad").write_text("")                                          # not a bins file name
+    capsys.readouterr()
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--binsize", "50000"] + _common(genome, bam, o)) == 0
+    assert sorted(f.name for f in o.glob("*.h5ad")) == ["bins_50kb.h5ad", "keep_bins_100kb.h5ad"]
+    err = capsys.readouterr().err
+    assert "removed bins_100kb.h5ad" in err and "removed bins_other.h5ad" in err
+
+
+def test_tag_of_a_depth_layer_without_per_layer_inputs(genome, bam, tmp_path):
+    """A depth layer kept from a partial of scphasedcn <= 0.1.1 (no per-layer inputs in DONE): the tag follows the bin
+    size of the partial's own bins.tsv, not the top-level `binsize` of the latest extract run (which may have
+    rewritten other layers only)."""
+    o = tmp_path / "o"
+    assert main(["run", "--chroms", "chrM,chr1,chr2", "--jobs", "1", "--binsize", "50000"]
+                + _common(genome, bam, o)) == 0
+    for c in ("chrM", "chr1", "chr2"):                  # a later fragments-only run at the default bin size, by hand
+        P = o / "partials" / c
+        done = json.load(open(P / "DONE"))
+        done["binsize"] = 100_000; done["layers"]["depth"]["inputs"] = None
+        (P / "DONE").write_text(json.dumps(done))
+        prm = json.load(open(P / "params.json")); prm["binsize"] = 100_000
+        (P / "params.json").write_text(json.dumps(prm))
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["merge", "--out", str(o), "--chroms", "chrM,chr1,chr2"]) == 0
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_50kb.h5ad"]
+    for c in ("chrM", "chr1", "chr2"):                  # partials of scphasedcn <= 0.1.1: empty DONE
+        (o / "partials" / c / "DONE").write_text("")
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["merge", "--out", str(o), "--chroms", "chrM,chr1,chr2"]) == 0
+    assert sorted(f.name for f in o.glob("bins_*.h5ad")) == ["bins_50kb.h5ad"]
 
 
 # --------------------------------------------------------------------------------------------- FRiP
@@ -520,21 +720,60 @@ def test_merge_needs_an_output_directory():
         main(["merge"])
 
 
-def test_merge_without_chroms_merges_the_finished_partials(genome, bam, tmp_path, capsys):
+def test_merge_without_chroms_merges_the_chromosomes_of_the_bam(genome, bam, tmp_path, capsys):
+    """Without --chroms, merge takes the set `run` extracts: the main chromosomes of the BAM header (the fixture BAM
+    has chr1, chr2, chrM, chrX and no chrY). One without a finished partial (an extract job that died or never ran)
+    is missing: an error naming it, or listed in summary.json with --allow-missing."""
     o = tmp_path / "o"
     for ch in ("chr2", "chr1"):
         assert main(["extract", "--chrom", ch] + _common(genome, bam, o)) == 0
     assert main(["extract", "--region", "chr1:0-50000"] + _common(genome, bam, o)) == 0   # never merged
-    (o / "partials" / "chrX").mkdir()                                                    # unfinished: no DONE
+    (o / "partials" / "chrX").mkdir()                                                    # died: no DONE
+    with pytest.raises(SystemExit, match=r"no finished partial .* for chrX, chrM; .*--allow-missing"):
+        main(["merge", "--out", str(o)])
+    assert not (o / "summary.json").exists()
     capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--allow-missing"]) == 0
+    s = json.load(open(o / "summary.json"))
+    assert s["chroms"] == ["chr1", "chr2"] and s["missing"] == ["chrX", "chrM"]
+    err = capsys.readouterr().err
+    assert "main chromosomes of the BAM" in err and "chr1, chr2, chrX, chrM" in err and "chrY" not in err
+    # every chromosome of the BAM extracted: merges without --chroms although the BAM has no chrY
+    for ch in ("chrM", "chrX"):
+        assert main(["extract", "--chrom", ch] + _common(genome, bam, o)) == 0
     assert main(["merge", "--out", str(o)]) == 0
     s = json.load(open(o / "summary.json"))
-    assert s["chroms"] == ["chr1", "chr2"] and s["missing"] == []
-    err = capsys.readouterr().err
-    assert "merging chr1, chr2" in err and "chrX" in err and "chrY" in err
-    # an explicit list keeps the missing-partial error and --allow-missing
+    assert s["chroms"] == ["chr1", "chr2", "chrX", "chrM"] and s["missing"] == []
+    # an explicit list keeps the missing-partial error and --allow-missing; an unfinished partial outside it is reported
+    (o / "partials" / "chrX" / "DONE").unlink()
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0
+    assert "unfinished partials (no DONE; not merged): chrX" in capsys.readouterr().err
     with pytest.raises(SystemExit, match="chrX"):
         main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX"])
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX", "--allow-missing"]) == 0
     with pytest.raises(SystemExit, match="no finished partials"):
         main(["merge", "--out", str(tmp_path / "empty")])
+
+
+def test_merge_without_chroms_and_without_the_bam(genome, bam, tmp_path, capsys):
+    """When the recorded BAM cannot be read (moved, or another file at its path), the default set is the main
+    chromosomes with a partial directory, finished or not."""
+    b = tmp_path / "moved.bam"
+    shutil.copy(bam, b); shutil.copy(str(bam) + ".bai", str(b) + ".bai")
+    o = tmp_path / "o"
+    for ch in ("chr1", "chr2"):
+        assert main(["extract", "--chrom", ch] + _common(genome, b, o)) == 0
+    (o / "partials" / "chrX").mkdir()                                                    # died: no DONE
+    b.unlink()
+    with pytest.raises(SystemExit, match=r"no finished partial .* for chrX;"):
+        main(["merge", "--out", str(o)])
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--allow-missing"]) == 0
+    assert json.load(open(o / "summary.json"))["missing"] == ["chrX"]
+    assert "with a partial directory, finished or not" in capsys.readouterr().err
+    b.write_bytes(b"not the BAM the partials were made from")                         # another file at its path
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--allow-missing"]) == 0
+    assert json.load(open(o / "summary.json"))["missing"] == ["chrX"]
+    assert "not the file the partials were extracted from" in capsys.readouterr().err

@@ -294,18 +294,42 @@ chr1p loss):</p>
 <span><span class="co">#&gt;                                                                                                                                                                                                                                                      &lt;char&gt;</span></span></code></pre></div>
 </div>
 <div class="section level2">
+<h2 id="single-cell-track-plots">Single-cell track plots<a class="anchor" aria-label="anchor" href="#single-cell-track-plots"></a>
+</h2>
+<p><code><a href="../reference/cell_tracks.html">cell_tracks()</a></code> collects, per cell, the data behind the
+calls: the depth log2 ratio (1 Mb and 5 Mb windows), the phased B-allele
+fraction and the fitted copy-number segments (the cell’s events in
+normal mode, its clone’s segments in tumour mode).
+<code><a href="../reference/plot_cell_tracks.html">plot_cell_tracks()</a></code> plots one cell and
+<code><a href="../reference/plot_cells_pdf.html">plot_cells_pdf()</a></code> writes many cells to a multi-page PDF.
+They need the features with their allele votes
+(<code><a href="../reference/cell_features.html">cell_features()</a></code>; the result does not keep them) and the
+suggested packages ggplot2 and patchwork (ggrastr, when installed,
+rasterises the 1 Mb points).</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">feat</span> <span class="op">=</span> <span class="fu"><a href="../reference/cell_features.html">cell_features</a></span><span class="op">(</span><span class="va">dir</span>, cells <span class="op">=</span> <span class="va">res</span><span class="op">$</span><span class="va">cells</span><span class="op">$</span><span class="va">cell</span>, cell_meta <span class="op">=</span> <span class="va">res</span><span class="op">$</span><span class="va">cells</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span><span class="va">cell</span>, <span class="va">cell_type</span><span class="op">)</span><span class="op">]</span>, method <span class="op">=</span> <span class="st">"celltype"</span>,</span>
+<span>                     sex <span class="op">=</span> <span class="st">"female"</span>, centromeres <span class="op">=</span> <span class="va">cen</span><span class="op">)</span></span>
+<span><span class="va">tr</span> <span class="op">=</span> <span class="fu"><a href="../reference/cell_tracks.html">cell_tracks</a></span><span class="op">(</span><span class="va">feat</span>, <span class="va">res</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/plot_cell_tracks.html">plot_cell_tracks</a></span><span class="op">(</span><span class="va">tr</span>, <span class="va">res</span><span class="op">$</span><span class="va">events</span><span class="op">$</span><span class="va">cell</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span><span class="op">)</span></span>
+<span><span class="fu"><a href="../reference/plot_cells_pdf.html">plot_cells_pdf</a></span><span class="op">(</span><span class="va">tr</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"cells.pdf"</span><span class="op">)</span>, cells <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/unique.html" class="external-link">unique</a></span><span class="op">(</span><span class="va">res</span><span class="op">$</span><span class="va">events</span><span class="op">$</span><span class="va">cell</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<p><code>system.file("scripts", "plot_cells.R", package = "scphasedcn")</code>
+does the same for a written run on the command line
+(<code>--run &lt;output dir&gt;</code>; one PDF per clone or depth
+stratum, see <code>--help</code>).</p>
+</div>
+<div class="section level2">
 <h2 id="from-the-command-line">From the command line<a class="anchor" aria-label="anchor" href="#from-the-command-line"></a>
 </h2>
 <p>The package ships a command-line front end; its path is</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"scripts"</span>, <span class="st">"call_scn.R"</span>, package <span class="op">=</span> <span class="st">"scphasedcn"</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] "/home/runner/work/_temp/Library/scphasedcn/scripts/call_scn.R"</span></span></code></pre></div>
-<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="va">CALL</span><span class="op">=</span><span class="va">$(</span><span class="ex">Rscript</span> <span class="at">-e</span> <span class="st">'cat(system.file("scripts", "call_scn.R", package = "scphasedcn"))'</span><span class="va">)</span></span>
-<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a><span class="ex">Rscript</span> <span class="va">$CALL</span> <span class="at">--dir</span> results/sample/extract <span class="at">--out</span> results/sample/caller <span class="at">--sex</span> female <span class="at">--mode</span> normal <span class="dt">\</span></span>
-<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a>    <span class="at">--cell-meta</span> cell_meta.tsv <span class="at">--null-cells</span> select</span>
-<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a><span class="ex">Rscript</span> <span class="va">$CALL</span> <span class="at">--dir</span> results/tumour/extract <span class="at">--out</span> results/tumour/caller <span class="at">--sex</span> male <span class="at">--mode</span> tumour <span class="dt">\</span></span>
-<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a>    <span class="at">--events</span> <span class="st">"20q_gain=chr20:28000000-;3p_loss=chr3:1-90000000"</span></span>
-<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a><span class="ex">Rscript</span> <span class="va">$CALL</span> <span class="at">--help</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="va">CALL</span><span class="op">=</span><span class="va">$(</span><span class="ex">Rscript</span> <span class="at">-e</span> <span class="st">'cat(system.file("scripts", "call_scn.R", package = "scphasedcn"))'</span><span class="va">)</span></span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a><span class="ex">Rscript</span> <span class="va">$CALL</span> <span class="at">--dir</span> results/sample/extract <span class="at">--out</span> results/sample/caller <span class="at">--sex</span> female <span class="at">--mode</span> normal <span class="dt">\</span></span>
+<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a>    <span class="at">--cell-meta</span> cell_meta.tsv <span class="at">--null-cells</span> select</span>
+<span id="cb9-4"><a href="#cb9-4" tabindex="-1"></a><span class="ex">Rscript</span> <span class="va">$CALL</span> <span class="at">--dir</span> results/tumour/extract <span class="at">--out</span> results/tumour/caller <span class="at">--sex</span> male <span class="at">--mode</span> tumour <span class="dt">\</span></span>
+<span id="cb9-5"><a href="#cb9-5" tabindex="-1"></a>    <span class="at">--events</span> <span class="st">"20q_gain=chr20:28000000-;3p_loss=chr3:1-90000000"</span></span>
+<span id="cb9-6"><a href="#cb9-6" tabindex="-1"></a><span class="ex">Rscript</span> <span class="va">$CALL</span> <span class="at">--help</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="parameters">Parameters<a class="anchor" aria-label="anchor" href="#parameters"></a>
@@ -318,7 +342,7 @@ and pass it with <code>--caller-config</code> (or
 <code>caller_params(file = ...)</code> in R). Every run writes the
 values it used to <code>params.yaml</code>, which reads back with
 <code><a href="../reference/caller_params.html">caller_params()</a></code>.</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">p</span> <span class="op">=</span> <span class="fu"><a href="../reference/caller_params.html">caller_params</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="va">p</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"null_q"</span>, <span class="st">"eps"</span>, <span class="st">"mol_gap"</span>, <span class="st">"strata_breaks"</span><span class="op">)</span><span class="op">]</span></span>
 <span><span class="co">#&gt; $null_q</span></span>
@@ -373,7 +397,7 @@ no stable set exists the null is fitted on all cells, tumour cells
 included, so it absorbs the tumour’s events (a note says so). When you
 know the normal cells (e.g. from a matched RNA annotation), flag them as
 <code>flat</code>.</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_t</span> <span class="op">=</span> <span class="fu"><a href="../reference/call_scn.html">call_scn</a></span><span class="op">(</span><span class="st">"results/tumour/extract"</span>, mode <span class="op">=</span> <span class="st">"tumour"</span>, sex <span class="op">=</span> <span class="st">"male"</span>,</span>
 <span>                 events <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>`20q_gain` <span class="op">=</span> <span class="st">"chr20:28000000-"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="va">res_t</span><span class="op">$</span><span class="va">clones</span></span>
@@ -384,7 +408,7 @@ assigns each clone’s allele-specific copy numbers (<code>cn_a</code>,
 <code>cn_b</code>) from the molecule votes of the features, and
 <code><a href="../reference/medicc2_table.html">medicc2_table()</a></code> makes MEDICC2’s input table (write it
 yourself):</p>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">feat</span> <span class="op">=</span> <span class="fu"><a href="../reference/cell_features.html">cell_features</a></span><span class="op">(</span><span class="st">"results/tumour/extract"</span>, method <span class="op">=</span> <span class="st">"model"</span>, sex <span class="op">=</span> <span class="st">"male"</span><span class="op">)</span></span>
 <span><span class="va">res_t</span> <span class="op">=</span> <span class="fu"><a href="../reference/call_scn.html">call_scn</a></span><span class="op">(</span><span class="st">"results/tumour/extract"</span>, mode <span class="op">=</span> <span class="st">"tumour"</span>, features <span class="op">=</span> <span class="va">feat</span><span class="op">)</span></span>
 <span><span class="va">pcs</span> <span class="op">=</span> <span class="fu"><a href="../reference/medicc2_pieces.html">medicc2_pieces</a></span><span class="op">(</span><span class="va">res_t</span><span class="op">$</span><span class="va">segments</span>, <span class="va">res_t</span><span class="op">$</span><span class="va">clones</span><span class="op">)</span></span>

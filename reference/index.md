@@ -100,6 +100,9 @@
 - [`cell_qc()`](https://ljwharbers.github.io/scphasedcn/reference/cell_qc.md)
   : Cell QC of the caller
 
+- [`cell_tracks()`](https://ljwharbers.github.io/scphasedcn/reference/cell_tracks.md)
+  : Single-cell depth and B-allele fraction tracks
+
 - [`check_regions()`](https://ljwharbers.github.io/scphasedcn/reference/check_tables.md)
   [`check_votes()`](https://ljwharbers.github.io/scphasedcn/reference/check_tables.md)
   [`check_atoms()`](https://ljwharbers.github.io/scphasedcn/reference/check_tables.md)
@@ -311,6 +314,12 @@
 
 - [`phasing_by_chrom()`](https://ljwharbers.github.io/scphasedcn/reference/phasing_by_chrom.md)
   : Phasing regime per chromosome
+
+- [`plot_cell_tracks()`](https://ljwharbers.github.io/scphasedcn/reference/plot_cell_tracks.md)
+  : Plot the tracks of one cell
+
+- [`plot_cells_pdf()`](https://ljwharbers.github.io/scphasedcn/reference/plot_cells_pdf.md)
+  : Write the tracks of many cells to a multi-page PDF
 
 - [`pool_scale()`](https://ljwharbers.github.io/scphasedcn/reference/pool_scale.md)
   : Per-region scale of pooled null scores

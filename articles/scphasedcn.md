@@ -240,6 +240,35 @@ scphasedcn_summary(res)
 #>                                                                                                                                                                                                                                                      <char>
 ```
 
+## Single-cell track plots
+
+[`cell_tracks()`](https://ljwharbers.github.io/scphasedcn/reference/cell_tracks.md)
+collects, per cell, the data behind the calls: the depth log2 ratio (1
+Mb and 5 Mb windows), the phased B-allele fraction and the fitted
+copy-number segments (the cell’s events in normal mode, its clone’s
+segments in tumour mode).
+[`plot_cell_tracks()`](https://ljwharbers.github.io/scphasedcn/reference/plot_cell_tracks.md)
+plots one cell and
+[`plot_cells_pdf()`](https://ljwharbers.github.io/scphasedcn/reference/plot_cells_pdf.md)
+writes many cells to a multi-page PDF. They need the features with their
+allele votes
+([`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md);
+the result does not keep them) and the suggested packages ggplot2 and
+patchwork (ggrastr, when installed, rasterises the 1 Mb points).
+
+``` r
+
+feat = cell_features(dir, cells = res$cells$cell, cell_meta = res$cells[, .(cell, cell_type)], method = "celltype",
+                     sex = "female", centromeres = cen)
+tr = cell_tracks(feat, res)
+plot_cell_tracks(tr, res$events$cell[1])
+plot_cells_pdf(tr, file.path(tempdir(), "cells.pdf"), cells = unique(res$events$cell))
+```
+
+`system.file("scripts", "plot_cells.R", package = "scphasedcn")` does
+the same for a written run on the command line (`--run <output dir>`;
+one PDF per clone or depth stratum, see `--help`).
+
 ## From the command line
 
 The package ships a command-line front end; its path is

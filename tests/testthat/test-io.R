@@ -183,3 +183,21 @@ test_that("make_cell_meta: an existing qc_pass column is used as it is; qc_args 
   expect_identical(make_cell_meta(qc[, !"qc_pass"], qc_args = list(min_frag = 30000))$qc_pass, c(TRUE, FALSE, FALSE))
 })
 
+test_that("subset_scn: integer and character selectors keep the requested order; duplicates and unknown cells stop", {
+  m = matrix(as.numeric(1:12), 3, 4)
+  s = new_scn(m, data.table(chrom = "chr1", start = c(0, 100, 200), end = c(100, 200, 300)), data.table(cell = c("a", "b", "c", "d")),
+              obsm = list(e = matrix(1:8, 4, 2)))
+  for (sel in list(c(3L, 1L), c(3, 1), c("c", "a"))) {
+    x = subset_scn(s, cells = sel)
+    expect_identical(x$cells$cell, c("c", "a"))
+    expect_identical(as.matrix(x$counts), m[, c(3, 1)], ignore_attr = TRUE)
+    expect_identical(x$obsm$e, matrix(1:8, 4, 2)[c(3, 1), ])
+  }
+  expect_identical(subset_scn(s, cells = c(TRUE, FALSE, TRUE, FALSE))$cells$cell, c("a", "c"))
+  expect_identical(subset_scn(s, cells = -1)$cells$cell, c("b", "c", "d"))
+  expect_identical(subset_scn(s)$cells$cell, c("a", "b", "c", "d"))
+  expect_identical(subset_scn(s, cells = c(2, 1), bins = c(3, 1))$bins$start, c(200, 0))
+  expect_error(subset_scn(s, cells = c(1, 1)), "duplicate")
+  expect_error(subset_scn(s, cells = c("a", "a")), "duplicate")
+  expect_error(subset_scn(s, cells = c("a", "z")), "not in")
+})

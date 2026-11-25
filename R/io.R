@@ -56,12 +56,18 @@ print.scn = function(x, ...) {
 
 #' Subset an scn object by cells and/or bins
 #' @param scn scn object
-#' @param cells logical/integer/character selector of cells (NULL = all)
+#' @param cells logical, integer or character (cell names) selector of cells (NULL = all). Integer and character
+#'   selectors give the cells in the requested order (negative integers drop cells); a selector that names a cell
+#'   twice, or a cell (name or index) the object does not have, stops
 #' @param bins logical/integer selector of bins (NULL = all)
 #' @return scn
 #' @export
 subset_scn = function(scn, cells = NULL, bins = NULL) {
-  ci = if (is.null(cells)) seq_len(ncol(scn$counts)) else if (is.character(cells)) match(cells, scn$cells$cell) else which(seq_len(ncol(scn$counts)) %in% seq_len(ncol(scn$counts))[cells])
+  n = ncol(scn$counts)
+  if (is.factor(cells)) cells = as.character(cells)
+  ci = if (is.null(cells)) seq_len(n) else if (is.character(cells)) match(cells, scn$cells$cell) else seq_len(n)[cells]
+  if (anyNA(ci)) stop("subset_scn: ", sum(is.na(ci)), " selected cell(s) not in the object", call. = FALSE)
+  if (anyDuplicated(ci)) stop("subset_scn: the cell selector has duplicate cells", call. = FALSE)
   bi = if (is.null(bins)) seq_len(nrow(scn$counts)) else seq_len(nrow(scn$counts))[bins]
   out = scn
   out$counts = scn$counts[bi, ci, drop = FALSE]

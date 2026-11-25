@@ -403,6 +403,28 @@ test_that("cell_features on sim_tum2 (male): chrX depth-only, clone-grouped orie
   expect_lt(abs(median(y$f[type == "normal" & single]) - 0.5), 0.05)
 })
 
+test_that("cell_features passes params$gc_method to the model normalisation; feature_windows follows the features", {
+  sim_features("sim_tum2", method = "celltype", sex = "male", classes = c("arm", "chrom"), groups = "cell_type",
+               null_exclude = c("chr1", "chr2", "chr8", "chr21", "chr22"))
+  d = feat_cache[["sim_tum2_dir"]]
+  cells = sim_tum2$scn$cells$cell
+  run = function(p) suppressMessages(cell_features(d, cells = cells, method = "model", sex = "male", classes = "chrom",
+                                                   centromeres = sim_centromeres(sim_tum2$scn$bins), keep_votes = FALSE,
+                                                   params = p))
+  f_low = run(caller_defaults())
+  p_rat = caller_defaults(); p_rat$gc_method = "ratio"
+  f_rat = run(p_rat)
+  expect_identical(f_rat$params$gc_method, "ratio")
+  expect_true(any(grepl("per-cell GC ratio", f_rat$notes)))
+  expect_true(any(grepl("per-cell GC lowess", f_low$notes)))
+  expect_false(isTRUE(all.equal(f_low$long$e, f_rat$long$e)))
+  w = suppressMessages(feature_windows(d, f_rat, "model"))
+  expect_equal(w$e, f_rat$win$e)
+  # the caller yaml switches it on
+  tf = tempfile(fileext = ".yaml"); writeLines("gc_method: \"ratio\"", tf)
+  expect_identical(caller_params(tf)$gc_method, "ratio")
+})
+
 # ---- population-phase orientation prior ------------------------------------------------------------------
 
 # frozen copy of orient_layer() (the block orientation must stay bit-identical)

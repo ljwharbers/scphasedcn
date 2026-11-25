@@ -969,10 +969,11 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   if (is.null(use)) use = bin_filter(scn$bins, scn$counts) & scn$bins$chrom %in% c(AUTOSOMES_CALLER, "chrX")
   note(sprintf("usable bins: %d of %d", sum(use), length(use)))
   norm = normalise_depth(scn, method = method, use = use, cell_type = meta$cell_type, ref_cells = ref_cells,
-                         min_cells_type = min_cells_type)
+                         min_cells_type = min_cells_type, gc_method = params$gc_method)
   norm$ratio = NULL
-  note(sprintf("depth: %s (ref cells: %s, min_cells_type %d)", method,
-               if (is.null(ref_cells)) "all" else length(cell_selector(scn, ref_cells)), as.integer(min_cells_type)))
+  note(sprintf("depth: %s (ref cells: %s, min_cells_type %d%s)", method,
+               if (is.null(ref_cells)) "all" else length(cell_selector(scn, ref_cells)), as.integer(min_cells_type),
+               if (method == "model") paste0(", per-cell GC ", norm$params$gc_method) else ""))
 
   regions = region_set(scn$bins, centromeres, classes = classes, events = events, sex = sex, null_exclude = null_exclude,
                        use = use, params = params)

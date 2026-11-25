@@ -344,6 +344,10 @@ cell_piece_states = function(features, pieces, blocks = NULL, cells = NULL, para
   base = if (use_ref) L$ploidy else 2
   if (!is.null(baseline)) {
     # the cells' baselines: the copy number of their median depth (centred on it), times ploidy / 2 with a reference
+    if (!is.numeric(baseline) || (length(baseline) != 1 && is.null(names(baseline))))
+      stop("cell_piece_states: `baseline` must be one number or a numeric vector named by cell")
+    if (!is.null(names(baseline)) && !any(names(baseline) %in% L$cell))
+      stop("cell_piece_states: the names of `baseline` match none of the scored cells")
     bc = if (length(baseline) == 1 && is.null(names(baseline))) rep(as.numeric(baseline), nrow(L)) else
       as.numeric(baseline[L$cell])
     bc[!is.finite(bc)] = 2

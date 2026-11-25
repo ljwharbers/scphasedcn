@@ -284,3 +284,11 @@ test_that("cell_piece_data loo: the piece-level flip comes from the pieces when 
   o2 = x$cells[x$lab == "s10"]
   expect_true(all(cell_piece_data(x$features, p1, bt, cells = o2, loo = loo)[piece == "p1b", oN] == 0))
 })
+
+test_that("cell_piece_states(baseline = ): an unnamed vector or names matching no cell stop", {
+  x = mc_toy(n_each = 2L)
+  run = function(b) cell_piece_states(x$features, x$pieces, x$blocks, clones = x$clones, ref_cells = x$ref, baseline = b)
+  expect_error(run(rep(3, length(x$cells))), "one number or a numeric vector named by cell")
+  expect_error(run(c(other_cell = 3)), "match none of the scored cells")
+  expect_error(run("3"), "one number or a numeric vector named by cell")
+})

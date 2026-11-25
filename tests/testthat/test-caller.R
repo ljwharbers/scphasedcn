@@ -1900,3 +1900,20 @@ test_that("select_null_cells (empirical): null cells all in one fold are thresho
   expect_identical(s1$null_cells, s0$null_cells)
   expect_identical(s1$calls, s0$calls)
 })
+
+test_that("complete_tpar: two named events of different sd_class in one stratum each get their own sd_class's fit", {
+  tpar = data.table(class = c("10Mb", "20Mb"), stratum = "<20k", t_m = c(0.1, -0.3), t_s = c(1, 1.5), t_df = c(5, 9), n = 100L)
+  d = data.table(class = "event", sd_class = c("10Mb", "20Mb", "10Mb", "20Mb"), stratum = c("<20k", "<20k", ">=50k", ">=50k"),
+                 z = c(-3, -3, 2, 2), sd_null = 0.2, nA = 0, n_hap = 0)
+  tp = complete_tpar(d, tpar)
+  m = match_depth_null(d, tp)
+  expect_equal(m$t_m, c(0.1, -0.3, 0.1, -0.3))
+  expect_equal(m$t_df, c(5, 9, 5, 9))
+  # scored as the same rows under their sd_class
+  st = caller_states("normal")
+  s = score_cells(d, st, tp, 0.002)
+  s2 = score_cells(copy(d)[, class := sd_class], st, complete_tpar(copy(d)[, class := sd_class], tpar), 0.002)
+  expect_equal(s$s_comb, s2$s_comb)
+  # one sd_class per class x stratum: the table keeps its class x stratum layout
+  expect_false("sd_class" %in% names(complete_tpar(d[sd_class == "10Mb"], tpar)))
+})

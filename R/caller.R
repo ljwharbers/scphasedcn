@@ -765,7 +765,7 @@ atoms_in_tiles = function(atoms, tiles) {
   as.integer(atoms$atom[hit])
 }
 
-# t fits for every class x stratum of d: a missing group takes, in this order, the fit of the row's sd_class in
+# t fits for every class x stratum (x sd_class) of d: a missing group takes, in this order, the fit of the row's sd_class in
 # that stratum, the class pooled over strata (fit on the pooled null rows is not available here, so the medians
 # over the class's strata), the sd_class pooled over strata (a named event in a stratum without a fit of its
 # sd_class). With none of these (a class and sd_class without any null row, e.g. an event whose sd_class is not
@@ -786,9 +786,17 @@ complete_tpar = function(d, tpar) {
     if (nrow(src) == 0 && any(tpar$class == m$class, na.rm = TRUE)) src = pooled(tpar[class == m$class])
     if (nrow(src) == 0 && any(tpar$class == m$sd_class, na.rm = TRUE)) src = pooled(tpar[class == m$sd_class])
     if (nrow(src) == 0) src = data.table(t_m = NA_real_, t_s = NA_real_, t_df = NA_real_)
-    add[[i]] = data.table(class = m$class, stratum = m$stratum, t_m = src$t_m[1], t_s = src$t_s[1], t_df = src$t_df[1], n = 0L)
+    add[[i]] = data.table(class = m$class, stratum = m$stratum, t_m = src$t_m[1], t_s = src$t_s[1], t_df = src$t_df[1], n = 0L,
+                          sd_class = m$sd_class)
   }
-  rbind(tpar, rbindlist(add), fill = TRUE)
+  add = rbindlist(add)
+  # one class x stratum completed for several sd_classes (named events of different sizes in one stratum): the added
+  # rows keep their sd_class, on which match_depth_null() matches rows that have one; otherwise the table keeps its
+  # class x stratum layout
+  if (anyDuplicated(add[, .(class, stratum)])) {
+    if (!"sd_class" %in% names(tpar)) tpar = copy(tpar)[, sd_class := NA_character_]
+  } else add[, sd_class := NULL]
+  rbind(tpar, add, fill = TRUE)
 }
 
 #' Robust overdispersion of null allele votes
@@ -1322,6 +1330,7 @@ gain_gate_z = function(rows, scores, gate_q, tpar, params) {
         b = !paste(key$class, key$stratum, sep = "\r") %in% tk & !is.na(src$sd_class[ok]) &
           paste(src$sd_class[ok], key$stratum, sep = "\r") %in% tk
         set(key, i = which(b), j = "class", value = as.character(src$sd_class[ok][b]))
+        key[, sd_class := as.character(src$sd_class[ok])]      # fits completed per sd_class (complete_tpar())
       }
       tp = match_depth_null(key, tpar)
       m[ok] = tp$t_m; s[ok] = tp$t_s; q[ok] = stats::qt(gate_q, tp$t_df)

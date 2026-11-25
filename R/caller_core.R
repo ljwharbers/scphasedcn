@@ -313,15 +313,23 @@ fit_depth_null = function(d, by = c("class", "stratum"), n_max = 20000, seed = 1
 #' Per-row Student-t null parameters
 #'
 #' Looks up the [fit_depth_null()] parameters of each row's group (default
-#' class x stratum), as the scorer does; stops when a group has no fit.
-#' @param d rows to score (with the `by` columns)
-#' @param tpar output of [fit_depth_null()]
+#' class x stratum), as the scorer does; stops when a group has no fit. A completed table whose rows carry an
+#' `sd_class` (a class x stratum completed for several sd_classes, e.g. named events of different sizes in one
+#' stratum) gives a row of `d` with that `sd_class` the fit of its own sd_class.
+#' @param d rows to score (with the `by` columns; `sd_class` used when `tpar` has that column)
+#' @param tpar output of [fit_depth_null()] (completed for the classes without null rows by the callers)
 #' @param by grouping columns
 #' @return data.table `t_m`, `t_s`, `t_df` with one row per row of `d` (pass to [ll_depth_shift()])
 #' @export
 match_depth_null = function(d, tpar, by = c("class", "stratum")) {
   key = function(x) do.call(paste, c(lapply(by, function(b) as.character(x[[b]])), sep = "\r"))
-  k = match(key(d), key(tpar))
+  kt = key(tpar)
+  k = match(key(d), kt)
+  if ("sd_class" %in% names(tpar) && "sd_class" %in% names(d) && any(!is.na(tpar$sd_class))) {
+    ks = match(paste(key(d), as.character(d$sd_class), sep = "\n"),
+               fifelse(is.na(tpar$sd_class), NA_character_, paste(kt, as.character(tpar$sd_class), sep = "\n")))
+    k = fifelse(is.na(ks), k, ks)
+  }
   if (anyNA(k)) stop(sprintf("match_depth_null: no t fit for %s", paste(head(unique(key(d)[is.na(k)]), 5), collapse = ", ")))
   data.table(t_m = tpar$t_m[k], t_s = tpar$t_s[k], t_df = tpar$t_df[k])
 }

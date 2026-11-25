@@ -104,7 +104,8 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'   * `pool_tail_xfit` cross-fit the pooled tail ([pooled_thresholds()]): the region scale and the
 #'     threshold are estimated on pools of two disjoint halves of the null cells (TRUE);
 #'   * `win_allelic` windowed, orientation-free allele term of [cell_features()] ([window_allelic_features()]):
-#'     `"auto"` (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never);
+#'     `"auto"` (computed with chromosome-scale, i.e. hybrid, phasing), TRUE (always) or FALSE (never); any other value
+#'     stops;
 #'   * `win_size` window size of that term (1e6 bp): the phase is trusted only inside one window x phase set;
 #'   * `win_f` fractions of the windowed term in addition to `1 - eps` (the loss / CN-LOH rows, always included); 0.98
 #'     by default (= `1 - eps`); gain fractions are not specific at window level ([win_f_grid()]);

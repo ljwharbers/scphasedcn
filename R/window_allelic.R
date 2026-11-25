@@ -187,12 +187,26 @@ window_allelic_features = function(votes, atoms, regions, params = caller_defaul
   finish(o, rho, w)
 }
 
+# `params$win_allelic` checked: TRUE, FALSE (also "true" / "false", any case) or "auto" (any case; unset = "auto");
+# any other value stops (it used to behave as "auto" silently)
+check_win_allelic = function(params) {
+  wa = params$win_allelic %||% "auto"
+  if (length(wa) == 1L && !is.na(wa)) {
+    if (is.logical(wa)) return(wa)
+    if (is.character(wa)) {
+      w = tolower(wa)
+      if (w %in% c("true", "false")) return(w == "true")
+      if (w == "auto") return("auto")
+    }
+  }
+  stop("params$win_allelic must be TRUE, FALSE or \"auto\", not '", paste(format(wa), collapse = ", "), "'", call. = FALSE)
+}
+
 # whether the windowed allele term is computed for a features run: `params$win_allelic` "auto" (= chromosome-scale
 # orientation), TRUE (always) or FALSE (never)
 win_allelic_on = function(params, orientation) {
-  wa = params$win_allelic %||% "auto"
-  if (isFALSE(wa) || identical(tolower(as.character(wa)), "false")) return(FALSE)
-  if (isTRUE(wa) || identical(tolower(as.character(wa)), "true")) return(TRUE)
+  wa = check_win_allelic(params)
+  if (is.logical(wa)) return(wa)
   identical(unname(orientation), "chromosome")
 }
 

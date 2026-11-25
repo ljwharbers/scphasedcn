@@ -274,3 +274,16 @@ test_that("window_allelic_features (fitted rho) leaves the caller's RNG state as
   expect_true(is.finite(attr(wa, "rho")))
 })
 
+test_that("win_allelic accepts TRUE / FALSE / 'true' / 'false' / 'auto' only", {
+  on = function(v, o = "chromosome") win_allelic_on(modifyList(caller_defaults(), list(win_allelic = v)), o)
+  expect_true(on(TRUE, "loo")); expect_true(on("true", "loo")); expect_true(on("TRUE", "loo"))
+  expect_false(on(FALSE)); expect_false(on("false")); expect_false(on("False"))
+  expect_true(on("auto")); expect_false(on("auto", "loo")); expect_true(on("AUTO"))
+  p = caller_defaults(); p$win_allelic = NULL
+  expect_true(win_allelic_on(p, "chromosome"))                          # unset = "auto"
+  for (bad in list("yes", "always", 1, NA, c(TRUE, FALSE), character()))
+    expect_error(on(bad), "win_allelic must be TRUE, FALSE or \"auto\"")
+  # cell_features stops before reading anything
+  expect_error(cell_features(tempfile(), sex = "female", params = modifyList(caller_defaults(), list(win_allelic = "yes"))),
+               "win_allelic")
+})

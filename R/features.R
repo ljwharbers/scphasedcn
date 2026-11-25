@@ -939,6 +939,7 @@ cell_features = function(dir, cells = NULL, cell_meta = NULL, method = c("cellty
   method = norm_method(method)
   phasing = match.arg(phasing, c("auto", "chromosome", "block", "loo", "mirrored"))
   sex = check_sex(sex, "cell_features")
+  check_win_allelic(params)                          # before any reading
   t0 = Sys.time()
   notes = character()
   note = function(...) {

@@ -78,4 +78,6 @@ scphasedcn hybrid-phase --blocks hets.vcf.gz --population popphased_{chrom}.vcf.
   switch-disagreement rate and the minority fraction.
 
 Genome: GRCh38 / hg38 with `chr` names (bundled chromosome sizes, ENCODE blacklist v2 and centromeres; see
-`src/scphasedcn/resources/README.md`).
+`src/scphasedcn/resources/README.md`). Before the BAM pass, each chromosome must be a reference of the BAM and, when a
+FASTA is given, of the FASTA, with the same length in the chromosome sizes, the BAM header and the FASTA; otherwise the
+extraction stops and names the file that disagrees (for another assembly give its `--chrom-sizes`).

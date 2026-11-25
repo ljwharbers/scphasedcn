@@ -1716,3 +1716,18 @@ test_that("gain_support_pass at a half-integer baseline: a gain is above the int
   expect_true(all(st[o3$path] == "3:1"))
   expect_true(all(o3$nodepth))
 })
+
+test_that("clean_reference: a negative threshold does not remove cells without positive evidence (score <= 0)", {
+  r = tum2_result()
+  inp = tum2_input()
+  m = r$assignments[assigned == TRUE, .(cell, clone)]
+  cr = clean_reference(inp, r$assignments, r$segments, thr = -1, par = r$null_fit$clones$par, members = m)
+  tb = cr$table
+  expect_gt(nrow(tb[score <= 0 & score > -1]), 0)
+  expect_false(any(tb[score <= 0, flag]))
+  expect_identical(tb$flag, tb$score > 0)
+  # a positive threshold: unchanged rule
+  c2 = clean_reference(inp, r$assignments, r$segments, thr = 2, par = r$null_fit$clones$par, members = m)
+  expect_identical(c2$table$flag, c2$table$score > 2)
+  expect_setequal(c2$pool, c2$table[score <= 2, cell])
+})

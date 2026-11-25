@@ -239,3 +239,29 @@ test_that("call_scn.R --dir without a bins file names what it looked for", {
   expect_false(is.null(attr(log, "status")))
   expect_true(any(grepl("no bins file (bins_<tag>.h5ad, by default bins_100kb.h5ad)", log, fixed = TRUE)))
 })
+
+test_that("write_bins_h5ad: a missing string reads back as NA (anndata categorical, code -1), not as the string \"NA\"", {
+  s = simulate_scn(n_cells = 6, seed = 1, snp_density = 1 / 2e5)
+  scn = s$scn
+  scn$cells[, cell_type := c("a", NA, "NA", "b", NA, "a")]
+  scn$cells[, none := NA_character_]
+  scn$bins[, arm := ifelse(seq_len(.N) %% 7 == 0, NA_character_, arm)]
+  f = tempfile(fileext = ".h5ad")
+  write_bins_h5ad(scn, f)
+  b = read_bins_h5ad(f)
+  expect_identical(b$cells$cell_type, c("a", NA, "NA", "b", NA, "a"))   # the string "NA" stays a string
+  expect_identical(b$cells$none, rep(NA_character_, 6))
+  expect_identical(b$bins$arm, scn$bins$arm)
+  expect_identical(b$cells$sex, scn$cells$sex)                         # a column without NA: a plain string array
+  at = rhdf5::h5readAttributes(f, "obs/cell_type")
+  expect_identical(at[["encoding-type"]], "categorical")
+  expect_false(at$ordered)
+  expect_identical(as.integer(rhdf5::h5read(f, "obs/cell_type/codes")), c(1L, -1L, 0L, 2L, -1L, 1L))
+  expect_identical(rhdf5::h5readAttributes(f, "obs/sex")[["encoding-type"]], "string-array")
+  # the alleles file (same data-frame writer): a missing value in a SNP column
+  snps = copy(scn$alleles$snps)[, ref := ifelse(seq_len(.N) == 2, NA_character_, ref)]
+  fa = tempfile(fileext = ".h5ad")
+  write_alleles_h5ad(list(AD = scn$alleles$AD, DP = scn$alleles$DP, snps = snps), scn$cells, fa)
+  expect_identical(scphasedcn:::h5_read_df(fa, "var")$ref, snps$ref)
+  rhdf5::h5closeAll()
+})

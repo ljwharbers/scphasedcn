@@ -161,7 +161,9 @@ h5_write_df = function(df, file, name, index_col) {
     if (is.factor(v)) v = as.character(v)
     if (is.logical(v)) { rhdf5::h5write(as.integer(v), file, path); h5_write_encoding(file, path, "array", "0.2.0"); next }
     if (is.character(v)) {
-      v[is.na(v)] = "NA"
+      # a missing string as anndata writes it: the column is categorical and the missing entries have code -1
+      # (a string-array has no missing value; writing "NA" would read back as the string "NA")
+      if (anyNA(v)) { h5_write_categorical(v, file, path); next }
       rhdf5::h5write(v, file, path)
       h5_write_encoding(file, path, "string-array", "0.2.0")
       next
@@ -172,6 +174,34 @@ h5_write_df = function(df, file, name, index_col) {
   h5_write_encoding(file, name, "dataframe", "0.2.0")
   h5_attr_scalar(index_col, file, name, "_index")
   h5_attr_scalar(if (length(cols)) cols else numeric(0), file, name, "column-order")
+  invisible(TRUE)
+}
+
+# a character vector with missing values as an anndata categorical (encoding categorical 0.2.0): `categories` (the
+# distinct non-missing strings, sorted), `codes` (0-based, -1 = missing) and the scalar boolean attribute `ordered`
+# (FALSE; older anndata passes it on to pandas as is, which accepts only a bool)
+h5_write_categorical = function(v, file, path) {
+  cats = c_sort(v)
+  codes = match(v, cats) - 1L
+  codes[is.na(codes)] = -1L
+  rhdf5::h5createGroup(file, path)
+  rhdf5::h5write(as.integer(codes), file, paste0(path, "/codes"))
+  h5_write_encoding(file, paste0(path, "/codes"), "array", "0.2.0")
+  rhdf5::h5write(cats, file, paste0(path, "/categories"))
+  h5_write_encoding(file, paste0(path, "/categories"), "string-array", "0.2.0")
+  h5_write_encoding(file, path, "categorical", "0.2.0")
+  h5_attr_bool(FALSE, file, path, "ordered")
+  invisible(TRUE)
+}
+
+# a scalar boolean attribute in h5py's layout (rhdf5 writes a logical as the enum {FALSE = 0, TRUE = 1} on an 8-bit
+# integer, which h5py reads as a numpy bool)
+h5_attr_bool = function(value, file, name, attr) {
+  fid = rhdf5::H5Fopen(file)
+  on.exit(rhdf5::H5Fclose(fid), add = TRUE)
+  obj = rhdf5::H5Oopen(fid, name)
+  on.exit(rhdf5::H5Oclose(obj), add = TRUE, after = FALSE)
+  rhdf5::h5writeAttribute(isTRUE(value), obj, attr, asScalar = TRUE)
   invisible(TRUE)
 }
 

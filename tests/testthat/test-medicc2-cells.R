@@ -263,3 +263,24 @@ test_that("cell_piece_states: per-cell baselines put the depth on the cell's sca
   # cells without a baseline stay diploid
   expect_identical(r3$states[!cell %in% bal], r0$states[!cell %in% bal])
 })
+
+test_that("cell_piece_data loo: the piece-level flip comes from the pieces when the blocks lack it; unknown flips drop the loo rows", {
+  x = mc_toy(n_each = 6L)
+  rc = x$cells[x$lab == "s20"]
+  loo = data.table(cell = rc, clone = "K20")
+  # a flipped piece whose reference blocks are all tied (no block says which way the piece was flipped)
+  bt = copy(x$blocks)[piece == "p1b"][, `:=`(ref = "K20", nA_ref = 5, nB_ref = 5, sign = 0L)]
+  p1 = copy(x$pieces)[piece == "p1b", `:=`(cn_a = cn_b, cn_b = cn_a)]
+  dk = cell_piece_data(x$features, p1, copy(bt)[, flipped := TRUE], cells = rc, loo = loo)[piece == "p1b"]
+  expect_gt(min(dk$oN), 0)
+  # the flip given by the pieces table (e.g. the export's QC) gives the same as the flip on the blocks
+  dp = cell_piece_data(x$features, copy(p1)[, flipped := piece == "p1b"], bt, cells = rc, loo = loo)[piece == "p1b"]
+  expect_equal(dp$oA, dk$oA)
+  expect_equal(dp$oN, dk$oN)
+  # without any flip information the loo rows of the piece are dropped, not taken as unflipped
+  du = cell_piece_data(x$features, p1, bt, cells = rc, loo = loo)[piece == "p1b"]
+  expect_true(all(du$oN == 0))
+  # cells outside the reference clone are not affected (tied blocks stay unoriented for them)
+  o2 = x$cells[x$lab == "s10"]
+  expect_true(all(cell_piece_data(x$features, p1, bt, cells = o2, loo = loo)[piece == "p1b", oN] == 0))
+})

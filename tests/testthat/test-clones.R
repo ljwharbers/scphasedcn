@@ -1434,7 +1434,7 @@ test_that("cell_state_scores: the neutral of a haploid row is one copy (male chr
   expect_equal(sc$shift0_, 0.8 * log2(1 / c(2, 2, 3, 3)))
   # a haploid 2:0 sits one copy above the neutral (it scored 0 when the neutral was taken at 2 copies)
   expect_equal(unique(sc[, signif(c * log2(pmax(cn, 0.2) / base_) - shift0_, 6)]), signif(0.8, 6))
-  # relative to a reference pool (>= 10 cells) the neutral is c log2(2 / B) on haploid rows too
+  # relative to a reference pool the neutral is c log2(2 / B) on haploid rows too
   sr = scphasedcn:::cell_state_scores(inp, reg, rr, m, inp$tpar, inp$rho, caller_defaults(), ref_cells = n0)[match(cc, cell)]
   expect_equal(sr$shift0_, 0.8 * log2(2 / c(2, 2, 3, 3)))
   # diploid rows are unchanged: c log2(2 / B) with or without the pool
@@ -1442,6 +1442,41 @@ test_that("cell_state_scores: the neutral of a haploid row is one copy (male chr
   sa = scphasedcn:::cell_state_scores(inp, inp$regions[class == "chrom" & chrom == "chr1"][1], ra, m, inp$tpar, inp$rho,
                                       caller_defaults())[match(cc, cell)]
   expect_equal(sa$shift0_, 0.8 * log2(2 / c(2, 2, 3, 3)))
+})
+
+test_that("a reference pool of any size is a pool: cell_state_scores and assign_cells with fewer than 10 pool cells", {
+  # the caller's pool (st$ref) has at least min_ref cells or none, and its clone profiles are pool-relative exactly
+  # then: with a user min_ref below 10 the scores and the assignment are pool-relative as well
+  inp = clone_input(tum2_input()); r0 = tum2_result()
+  m = r0$assignments[confident == TRUE, .(cell, clone)]
+  reg = inp$regions[class == "chrom" & chrom == "chrX"][1]
+  n6 = m[clone == "N0", cell][1:6]
+  k = m[clone != "N0", .N, by = clone][order(-N), clone][1]
+  cc = m[clone == k, cell][1:4]
+  rr = data.table(cell = cc, region = reg$region, cn = 2L, ploidy = 1L, f_state = 1, c = 0.8, a = 0.9, oclone = k,
+                  base_b = c(2, 2, 3, 3))
+  s6 = scphasedcn:::cell_state_scores(inp, reg, rr, m, inp$tpar, inp$rho, caller_defaults(), ref_cells = n6)[match(cc, cell)]
+  expect_equal(s6$shift0_, 0.8 * log2(2 / c(2, 2, 3, 3)))
+  # the depth is relative to the 6 cells' mean
+  rf = region_features(inp, reg, cells = c(cc, n6))
+  expect_equal(s6$log2ratio, rf[match(cc, cell), log2ratio] - mean(rf[cell %in% n6, log2ratio], na.rm = TRUE))
+  # assign_cells: the 6-cell pool centres the depth (it was ignored below 10 cells)
+  sg = r0$segments
+  pieces = segment_pieces(sg, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  par = r0$null_fit$clones$par
+  a0 = assign_cells(fp, m, sg, inp$tpar, inp$rho, par = par)
+  a6 = assign_cells(fp, m, sg, inp$tpar, inp$rho, par = par, ref_cells = n6)
+  expect_false(isTRUE(all.equal(attr(a6, "ll"), attr(a0, "ll"))))
+  # ... as a pool-centred feature table without the pool argument would at baseline 2 on diploid pieces
+  fc = copy(fp$features)
+  fc[fc[cell %in% n6, .(rmean = mean(log2ratio, na.rm = TRUE)), by = region], log2ratio := log2ratio - i.rmean, on = "region"]
+  auto = !pieces$chrom %in% c("chrX", "chrY")
+  fpa = fp; fpa$pieces = pieces[auto]; fpa$features = fp$features[region %in% pieces$region[auto]]
+  fca = fpa; fca$features = fc[region %in% pieces$region[auto]]
+  par2 = copy(as.data.table(par))[, base := 2]
+  expect_equal(attr(assign_cells(fpa, m, sg, inp$tpar, inp$rho, par = par2, ref_cells = n6), "ll"),
+               attr(assign_cells(fca, m, sg, inp$tpar, inp$rho, par = par2), "ll"))
 })
 
 test_that("assign_cells: a piece without a state of a clone is taken at the clone's baseline", {

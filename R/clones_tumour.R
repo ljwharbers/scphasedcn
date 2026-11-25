@@ -361,7 +361,10 @@ tumour_null_fit = function(long, params = caller_defaults(), exclude = NULL, sel
 cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_cells = NULL) {
   # rows: data.table cell, region, cn, ploidy, f_state, c, a, oclone (orientation clone)
   d = region_features(inp, regs, cells = unique(rows$cell))
-  if (length(ref_cells) >= 10) {
+  # a reference pool whenever `ref_cells` is given (the caller's st$ref: at least min_ref cells or none), as in
+  # assign_cells() and clone_profiles()
+  use_ref = length(ref_cells) > 0
+  if (use_ref) {
     rf = region_features(inp, regs, cells = ref_cells)
     rm_ = rf[, .(rmean = mean(log2ratio, na.rm = TRUE)), by = region]
     d[rm_, log2ratio := log2ratio - i.rmean, on = "region"]
@@ -377,7 +380,7 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
   # hypothesis carries its own clone's contrast (c_own): its neutral sits at c_own log2(n0 / base_)
   if (!"base_b" %in% names(d)) d[, base_b := 2]
   d[is.na(base_b), base_b := 2]
-  d[, base_ := base_b * (if (length(ref_cells) >= 10) ploidy / 2 else 1)]
+  d[, base_ := base_b * (if (use_ref) ploidy / 2 else 1)]
   d[, c0_ := if ("c_own" %in% names(d)) fifelse(is.na(c_own), c, c_own) else c]
   d[, shift0_ := c0_ * log2(fifelse(ploidy == 1L, 1, 2) / base_)]
   d[, c0_ := NULL]

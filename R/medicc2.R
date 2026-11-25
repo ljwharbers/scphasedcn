@@ -37,9 +37,12 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = Inf,
                           chroms = paste0("chr", c(1:22, "X")), normal = "N0") {
   sg = as.data.table(segments)[chrom %in% chroms]
   if (!nrow(sg)) stop("medicc2_pieces: no segments on ", paste(chroms, collapse = ", "))
+  # clone ids as character (numeric ids would select the state matrix columns by position); the clones table is
+  # copied, so the caller's table is not modified
+  sg[, clone := as.character(clone)]
   dropped = data.table(clone = character(), reason = character())
   if (!is.null(clones)) {
-    cl = as.data.table(clones)
+    cl = copy(as.data.table(clones))[, clone := as.character(clone)]
     if (!"doublet" %in% names(cl)) cl[, doublet := FALSE]
     if (!"n_assigned" %in% names(cl)) cl[, n_assigned := NA_real_]
     cl[, reason := fifelse(doublet %in% TRUE, "doublet",
@@ -170,7 +173,7 @@ utils::globalVariables(c("doublet", "n_assigned", "reason", "x.major", "x.minor"
 orient_clone_states = function(pieces, features, assignments, clones = NULL, use = c("confident", "assigned"), near = 0.05,
                                chain = c("parsimony", "phase", "none"), min_link = 50) {
   use = match.arg(use); chain = match.arg(chain)
-  pl = copy(as.data.table(pieces))
+  pl = copy(as.data.table(pieces))[, clone := as.character(clone)]
   votes = features$votes; atoms = as.data.table(features$atoms)
   if (is.null(votes) || is.null(atoms)) stop("orient_clone_states: `features` needs votes and atoms")
   cells = features$cells
@@ -182,8 +185,9 @@ orient_clone_states = function(pieces, features, assignments, clones = NULL, use
   pl[pc, pix := i.pix, on = "piece"]
   pl[, cl := match(clone, K)]
   # cell index -> clone index (cells pooled per clone)
-  asg = as.data.table(assignments)
+  asg = copy(as.data.table(assignments))
   if (!use %in% names(asg)) stop("orient_clone_states: assignments lack `", use, "`")
+  asg[, clone := as.character(clone)]
   asg = asg[get(use) %in% TRUE & clone %in% K]
   ci_cl = rep(NA_integer_, length(cells))
   k = match(asg$cell, cells)
@@ -203,7 +207,7 @@ orient_clone_states = function(pieces, features, assignments, clones = NULL, use
   # reference clone per piece
   att = rep(1, length(K))
   if (!is.null(clones) && "a" %in% names(clones)) {
-    ca = as.data.table(clones)[, .(clone, a = as.numeric(a))]
+    ca = as.data.table(clones)[, .(clone = as.character(clone), a = as.numeric(a))]
     att = ca$a[match(K, ca$clone)]
     att[is.na(att)] = 1
   }
@@ -316,7 +320,8 @@ utils::globalVariables(c("pix", "cl", "i.pix", "x.atom", "n_votes", "i.n_votes",
 medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chroms = paste0("chr", c(1:22, "X"))) {
   d = as.data.table(if (inherits(x, "medicc2_orientation")) x$pieces else x)
   if (!all(c("clone", "chrom", "start", "end", "cn_a", "cn_b") %in% names(d))) stop("medicc2_table: need clone, chrom, start, end, cn_a, cn_b")
-  d = d[chrom %in% chroms, .(clone, chrom, start, end, cn_a, cn_b, ploidy = if ("ploidy" %in% names(d)) as.integer(ploidy) else 2L)]
+  d = d[chrom %in% chroms, .(clone = as.character(clone), chrom, start, end, cn_a, cn_b,
+                              ploidy = if ("ploidy" %in% names(d)) as.integer(ploidy) else 2L)]
   if (!normal %in% d$clone) {
     n0 = d[, .(ploidy = min(ploidy)), by = .(chrom, start, end)]
     n0 = n0[, .(clone = normal, chrom, start, end, cn_a = 1L, cn_b = fifelse(ploidy == 1L, 0L, 1L), ploidy)]

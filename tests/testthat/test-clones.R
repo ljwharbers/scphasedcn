@@ -1585,3 +1585,20 @@ test_that("split_disagree tests the segments of a clone at baseline 3 on its own
   sp2 = split_disagree(members, sg, copy(par)[, base := 2], inp, inp$win, inp$votes, cdata = NULL, opts = list(min_size = 10), seed = 1)
   expect_null(sp2$tests)
 })
+
+test_that("clone_state_distance / clone_trunks take numeric clone ids (columns by name, not by position)", {
+  seg = function(clone, states) data.table(clone = clone, chrom = "chr1", start = c(0, 30e6), end = c(30e6, 60e6), state = states,
+                                           ploidy = 2L)
+  sg = rbind(seg("K2", c("1:1", "1:0")), seg("K5", c("1:1", "2:1")), seg("K9", c("1:1", "1:0")))
+  sg[, `:=`(cn = nA_of(state) + nB_of(state), label = state_label(nA_of(state), nB_of(state), 2L))]
+  sn = copy(sg)[, clone := as.numeric(sub("K", "", clone))]
+  sn_in = copy(sn)
+  dc = clone_state_distance(sg)
+  dn = clone_state_distance(sn)
+  expect_identical(sn, sn_in)
+  expect_equal(unname(dn), unname(dc))
+  expect_identical(rownames(dn), c("2", "5", "9"))
+  expect_equal(dn["2", "9"], 0)
+  expect_equal(dn["2", "5"], 30e6)
+  expect_identical(unname(clone_trunks(sn, max_dist = 1e7)), unname(clone_trunks(sg, max_dist = 1e7)))
+})

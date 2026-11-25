@@ -176,3 +176,23 @@ test_that("medicc2_table: N0 sample, merging, total = a + b, cap and order", {
   expect_equal(max(medicc2_table(d2)$cn_a), 8L)
   expect_equal(max(medicc2_table(d2, allele_specific = FALSE)$cn), 8L)
 })
+
+test_that("medicc2_pieces / orient_clone_states take numeric clone ids and do not modify the caller's tables", {
+  x = m2_toy()
+  ids = c(A = 3, B = 5, C = 7, N0 = 9, D = 11, E = 13)
+  sg = copy(x$segments)[, clone := ids[clone]]
+  cl = copy(x$clones)[, clone := ids[clone]]
+  cl_in = copy(cl)
+  pn = medicc2_pieces(sg, cl, min_len = 1e6, normal = 9)
+  pc = medicc2_pieces(x$segments, x$clones, min_len = 1e6)
+  expect_identical(cl, cl_in)                                        # no `reason` column added to the caller's table
+  expect_type(pn$clone, "character")
+  key = function(p) p[, .(piece, clone, state, cn, imbalanced)][order(piece, clone)]
+  pc_n = copy(pc)[, clone := as.character(ids[clone])]
+  expect_identical(key(pn), key(pc_n))
+  expect_identical(attr(pn, "clones_dropped")[order(clone), reason], attr(pc, "clones_dropped")[order(clone), reason])
+  asg = copy(x$assignments)[, clone := ids[clone]]
+  on = orient_clone_states(pn, x$features, asg, cl)
+  oc = orient_clone_states(pc, x$features, x$assignments, x$clones)
+  expect_identical(on$pieces[order(piece, clone), .(cn_a, cn_b, flag)], oc$pieces[, clone := as.character(ids[clone])][order(piece, clone), .(cn_a, cn_b, flag)])
+})

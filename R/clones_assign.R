@@ -170,7 +170,8 @@ utils::globalVariables(c("mid", "x.clone", "x.state", "x.cn", "x.ploidy", "x.lab
 #' @return symmetric numeric matrix clones x clones (bp)
 #' @export
 clone_state_distance = function(segments, min_df = 0.15, min_dcn = 2, min_len = 5e6) {
-  sg = as.data.table(segments)
+  # clone ids as character: numeric ids would select the state matrix columns by position
+  sg = copy(as.data.table(segments))[, clone := as.character(clone)]
   K = sort(unique(sg$clone))
   out = matrix(0, length(K), length(K), dimnames = list(K, K))
   if (length(K) < 2) return(out)

@@ -176,6 +176,20 @@ caller_defaults = function() {
   )
 }
 
+# A parameter list completed with caller_defaults() for the keys it lacks, so that a hand-built partial list means
+# "the defaults for the rest" in the user-facing entry points (caller_normal(), select_null_cells(),
+# pooled_thresholds(), null_selection_check()). A complete list comes back unchanged (same values, same order);
+# missing keys are appended. A list with `f_att` but without `f_att_normal` keeps the documented fallback of the
+# normal_att grid to `f_att` ([caller_states()]).
+fill_params = function(params) {
+  def = caller_defaults()
+  if (is.null(params)) return(def)
+  miss = setdiff(names(def), names(params))
+  if ("f_att_normal" %in% miss && !is.null(params[["f_att"]])) miss = setdiff(miss, "f_att_normal")
+  if (length(miss)) params[miss] = def[miss]
+  params
+}
+
 #' Depth stratum of a cell
 #'
 #' Strata on clean fragments per cell:

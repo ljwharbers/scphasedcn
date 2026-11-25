@@ -1834,3 +1834,23 @@ test_that("pooled_thresholds stops redrawing at the first draw where every class
   }
 })
 
+test_that("partial parameter lists mean defaults for the rest (caller_normal, select_null_cells, pooled_thresholds)", {
+  aw = att_win_features()
+  drop = c("calib", "win_min", "win_score", "null_win_guard", "pool_tail_q", "pool_tail_k", "n_folds", "seed")
+  pp = caller_defaults()[setdiff(names(caller_defaults()), drop)]
+  s1 = select_null_cells(aw$ff, n_sim = 2e4)
+  expect_identical(select_null_cells(aw$ff, params = pp, n_sim = 2e4), s1)
+  run = function(p) caller_normal(aw$ff, regions = aw$rg, n_draws = 500, params = p, select_args = list(n_sim = 2e4))
+  r1 = run(caller_defaults())
+  r0 = run(pp)
+  for (k in setdiff(names(r1), "params")) expect_identical(r0[[k]], r1[[k]], label = k)
+  expect_identical(r0$params[names(caller_defaults())], caller_defaults())
+  expect_identical(r1$params, caller_defaults())                       # a complete list is kept as it is
+  sc = r1$scores[is_null == TRUE]
+  ct = setNames(r1$cells$cell_type, r1$cells$cell)
+  fun = function(cc, seed) make_pools(cc, ct[cc], 20, seed)
+  pt = function(p) pooled_thresholds(sc, fun, n_draws = 300, cv = FALSE, loo = TRUE, standardize = TRUE, min_region_pools = 40,
+                                     states = caller_states("normal"), params = p)
+  expect_identical(pt(pp), pt(caller_defaults()))
+})
+

@@ -50,7 +50,7 @@ utils::globalVariables(c("row_id", "shift", "fold", "is_null", "null_cell", "nul
 caller_states = function(set = c("normal", "normal_att", "tumour"), params = caller_defaults()) {
   if (length(set) == 1 && set %in% c("e4", "e4_att")) set = sub("e4", "normal", set, fixed = TRUE)   # older names
   set = match.arg(set)
-  eps = params$eps; sh = params$shifts; fa = params$f_att
+  eps = params$eps; sh = params$shifts; fa = params[["f_att"]]          # [[ ]]: `$` would partially match f_att_normal
   if (set == "normal_att") fa = normal_att_grid(params)
   mk = function(state, a, b, shift, f) data.table(state = state, nA = as.integer(a), nB = as.integer(b),
                                                   cn = as.integer(a + b), shift = shift, f = f)
@@ -80,7 +80,7 @@ check_f_grid = function(f, what = "f_att_normal") {
 # loss / CN-LOH fractions of the normal_att set: f_att_normal (f_att without that key) plus 1 - eps, the fraction of
 # the normal set's rows and of the windowed term's column (win_f_grid() rounds alike)
 normal_att_grid = function(params = caller_defaults()) {
-  sort(unique(round(c(check_f_grid(params$f_att_normal %||% params$f_att, "f_att_normal"), 1 - params$eps), 6)))
+  sort(unique(round(c(check_f_grid(params$f_att_normal %||% params[["f_att"]], "f_att_normal"), 1 - params$eps), 6)))
 }
 
 #' State set of normal mode
@@ -124,7 +124,7 @@ normal_states_note = function(ss, params) {
 state_f = function(sc, states, window = "none", params = caller_defaults()) {
   ns = as.data.table(states)[state != "neutral"]
   out = rep(NA_real_, nrow(sc))
-  wmin = params$win_min %||% 0
+  wmin = params$win_min %||% caller_defaults()$win_min
   arow = function(x, f, i) {
     a = sc[[paste0("ar_", x)]][i]
     wc = win_col(f)
@@ -240,7 +240,7 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
   # oriented and the windowed LLR where the windowed LLR exceeds `win_min` ("max"), or the windowed LLR alone ("only");
   # rows where the column is NA keep the oriented term
   if (window != "none") {
-    wmin = params$win_min %||% 0
+    wmin = params$win_min %||% caller_defaults()$win_min
     wcache = list()
     for (f in unique(ns$f)) {
       wc = win_col(f)
@@ -894,7 +894,7 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' @param feat_long features long table (cell, region, class, stratum, z, sd_null, nA, n_hap; fold,
 #'   null_region, eligible optional; chrom optional, else parsed from the region name)
 #' @param states state set ([caller_states()])
-#' @param params [caller_defaults()]
+#' @param params [caller_defaults()]; a partial list is completed with the defaults
 #' @param n_iter iterations
 #' @param max_calls cells with more calls than this are not null cells
 #' @param exclude cells never in the null set
@@ -924,6 +924,7 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
                              max_calls = 0, exclude = NULL, classes = c("chrom", "arm"), depth_model = "t",
                              threshold = c("parametric", "empirical"), q = 0.9999, n_sim = NULL, chroms = paste0("chr", 1:22)) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
+  params = fill_params(params)                                 # a partial list means the defaults for the rest
   threshold = match.arg(threshold)
   d = as.data.table(feat_long)[class %in% classes & !cell %in% exclude]
   if (!is.null(chroms)) {
@@ -1652,7 +1653,7 @@ utils::globalVariables("borrowed_from")
 #' @param cv per-fold thresholds
 #' @param states state set used for scoring
 #' @param scores pooled scores to threshold
-#' @param params [caller_defaults()]
+#' @param params [caller_defaults()]; a partial list is completed with the defaults
 #' @param max_draws maximal redraws
 #' @param loo leave-one-out scores (adds `s_rob` to the default `scores`)
 #' @param standardize standardise the pooled best LLR per region ([pool_scale()] of the fold's null pools)
@@ -1673,12 +1674,13 @@ pooled_thresholds = function(d_null, pools_fun, n_draws = 20000, by = "class", q
                              states = caller_states("normal", params), scores = c("s_depth", "s_allelic", "s_comb", if (loo) "s_rob"),
                              params = caller_defaults(), max_draws = 200, loo = FALSE, standardize = FALSE, min_region_pools = 1000) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
+  params = fill_params(params)                                 # a partial list means the defaults for the rest
   d_null = as.data.table(d_null)
   sn = unique(as.data.table(states)[state != "neutral"]$state)
   keep = unique(c(by, scores, if (standardize) c("region", "class", paste0("cl_", sn), if (loo) paste0("lo_", sn))))
   scale0 = NULL
   folds = if (cv && "fold" %in% names(d_null)) setdiff(sort(unique(d_null$fold[!is.na(d_null$fold)])), 0L) else integer()
-  tail_q = params$pool_tail_q %||% 0
+  tail_q = params$pool_tail_q %||% caller_defaults()$pool_tail_q
   xfit = standardize && tail_q > 0 && isTRUE(params$pool_tail_xfit %||% TRUE)
   scale_fun = function(A, nc) pool_scale(A, states, tail_q = tail_q, tail_k = params$pool_tail_k %||% 30, n_eff = nc / params$n_pool)
   # running counts of the null pool-regions drawn so far, per class (sex groups fall back) and per region
@@ -1856,7 +1858,7 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' (`1 - eps`, always in the `normal_att` grid), so under `normal_att` the 0.98 loss / CN-LOH rows take the better of
 #' the oriented and the windowed LLR and the attenuated rows stay oriented; `f_state` is taken after that substitution.
 #' @param feat features long table (`vignette("scphasedcn-outputs", package = "scphasedcn")`)
-#' @param params [caller_defaults()]
+#' @param params [caller_defaults()]; a partial list is completed with the defaults (keys it lacks take their default)
 #' @param cell_meta optional table `cell` (+ `cell_type`) overriding the features' cell types; cells it gives no type
 #'   (absent, or NA there) keep the features' cell type
 #' @param multiplets cells flagged as multiplets (never null cells, never pooled)
@@ -1897,6 +1899,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                          sex = NULL, resolve_gains = TRUE, gain_min_dl = 0, gain_gate = "dl", gain_gate_q = 0.95,
                          pool_loo = TRUE, pool_standardize = TRUE, null_chroms = paste0("chr", 1:22), phasing = NULL) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
+  params = fill_params(params)                                 # a partial list means the defaults for the rest
   null_cells = match.arg(null_cells); depth_model = match.arg(depth_model)
   sex = check_sex(sex, "caller_normal")
   if (!identical(length(gain_gate), 1L) || !gain_gate %in% c("dl", "z"))
@@ -1946,7 +1949,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   d[, is_null := null_cell & !is.na(null_region) & null_region & !is.na(eligible) & eligible]
   if (!is.null(null_chroms)) d[!chrom %in% null_chroms, is_null := FALSE]      # null rows only where the null cells were checked
   # 2. null fits
-  calib = params$calib %||% "class"
+  calib = params[["calib"]] %||% "class"                      # [[ ]]: `$` would partially match calib_rho
   if (!identical(length(calib), 1L) || !calib %in% c("class", "votes"))
     stop("caller_normal: params$calib must be 'class' or 'votes', not '", paste(calib, collapse = ", "), "'",
          call. = FALSE)
@@ -1984,7 +1987,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   }
   # 3-5. scores, thresholds, per-cell calls
   scores = c("s_depth", "s_allelic", "s_comb")
-  win_score = params$win_score %||% "none"
+  win_score = params$win_score %||% caller_defaults()$win_score
   if (!identical(length(win_score), 1L) || !win_score %in% c("none", "max", "only"))
     stop("caller_normal: params$win_score must be 'none', 'max' or 'only', not '", paste(win_score, collapse = ", "), "'",
          call. = FALSE)
@@ -1999,7 +2002,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     warning("caller_normal: ", win_note, call. = FALSE)
     has_win = FALSE
   } else if (win_score != "none" && has_win) {
-    win_note = sprintf("per-cell allele term: %s (rows at f %s)", if (win_score == "max") sprintf("the better of the oriented and the windowed LLR where the windowed LLR is above win_min %g", params$win_min %||% 0) else "the windowed LLR only",
+    win_note = sprintf("per-cell allele term: %s (rows at f %s)", if (win_score == "max") sprintf("the better of the oriented and the windowed LLR where the windowed LLR is above win_min %g", params$win_min %||% caller_defaults()$win_min) else "the windowed LLR only",
                        paste(round(win_rows, 3), collapse = ", "))
   } else if (win_score != "none") win_note = "per-cell allele term: oriented only (no window columns in the features; they need chromosome-scale phasing)"
   sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE,
@@ -2104,7 +2107,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                                                        min(rho_tab$rho), max(rho_tab$rho), rho),
                         if (!is.null(vbins)) sprintf("cell thresholds per class x stratum x vote stratum (n_hap bins, up to %d per class x stratum; %d bins)",
                                                      as.integer(params$vote_bins %||% 4), nrow(vbins)),
-                        if ((params$pool_tail_q %||% 0) > 0) sprintf("pooled tail calibration q %g (pool_tail_k %g, cross-fitted %s)", params$pool_tail_q,
+                        if ((params$pool_tail_q %||% caller_defaults()$pool_tail_q) > 0) sprintf("pooled tail calibration q %g (pool_tail_k %g, cross-fitted %s)", params$pool_tail_q,
                                                                 params$pool_tail_k %||% 30, isTRUE(params$pool_tail_xfit %||% TRUE)),
                         sprintf("sex %s; gains resolved %s (%s); pools: region-standardised %s, called on %s",
                                 sex %||% "unknown", resolve_gains,

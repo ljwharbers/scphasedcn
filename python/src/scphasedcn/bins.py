@@ -126,8 +126,8 @@ def gc_per_tile(fasta_path: str | None, tiling: Tiling) -> tuple[np.ndarray, np.
         return gc, nn
     import pysam
     with pysam.FastaFile(fasta_path) as fa:
-        if tiling.chrom not in fa.references:
-            return gc, nn
+        if tiling.chrom not in fa.references:   # checked before the BAM pass (cli.check_chrom_reference)
+            raise SystemExit(f"{tiling.chrom} is not in the FASTA {fasta_path}: no GC content for its bins")
         for i, (s, e) in enumerate(zip(tiling.starts, tiling.ends)):
             seq = fa.fetch(tiling.chrom, int(s), int(e)).upper()
             g = seq.count("G") + seq.count("C"); at = seq.count("A") + seq.count("T")

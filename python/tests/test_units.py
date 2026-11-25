@@ -110,6 +110,99 @@ def test_vote_ps_cli(genome, bam, vcf, tmp_path):
     assert sorted(lf) == sorted(lm) and all((lf[k] != lm[k]).nnz == 0 for k in lf)
 
 
+def test_vote_ps_cli_across_a_phase_set_junction(genome, tmp_path):
+    """End to end: fragments across a phase-set junction get another haplotype (read 1) or phase set (read 2) with
+    --vote-ps majority than with first. SNPs C>G, alt on hapA: PS 10000 at 10001, 10101, 10201; PS 20000 at 10301,
+    10401. Read 1 (10000-10500): alt, alt, ref | ref, ref -> first: B (2 A vs 3 B) under PS 10000; majority: PS 10000
+    (3 observations) votes A. Read 2 (10150-10500): ref | ref, ref -> first: B under PS 10000; majority: B under 20000."""
+    import json
+    import pandas as pd
+    from conftest import CELL_A, name, write_bam, write_vcf
+    from scphasedcn.cli import main
+    from scphasedcn.writers import load_csr_dict
+    snps = [(10001, 10000), (10101, 10000), (10201, 10000), (10301, 20000), (10401, 20000)]
+    v = write_vcf(tmp_path / "junction.vcf", [("chr2", p, "C", "G", "PASS", [f"1|0:{ps}"]) for p, ps in snps])
+    r1 = {p - 1 - 10000: b for (p, _), b in zip(snps, "GGCCC")}
+    r2 = {p - 1 - 10150: b for (p, _), b in zip(snps[2:], "CCC")}
+    b = write_bam(tmp_path / "junction.bam", [((name(CELL_A, "j1"), "chr2", 10000, "500M", "+"), {"bases": r1}),
+                                              ((name(CELL_A, "j2"), "chr2", 10150, "350M", "+"), {"bases": r2})])
+    common = ["--bam", str(b), "--barcodes", str(genome / "whitelist.tsv"), "--chrom-sizes", str(genome / "chrom.sizes"),
+              "--no-gc", "--no-masks", "--chrom", "chr2", "--snps", str(v), "--phased"]
+    out = {}
+    for mode in ("first", "majority"):
+        assert main(["extract", "--out", str(tmp_path / mode), "--vote-ps", mode] + common) == 0
+        p = tmp_path / mode / "partials" / "chr2"
+        f = pd.read_csv(p / "fragments.tsv.gz", sep="\t", header=None)
+        out[mode] = (f[1].tolist(), f[10].tolist(), f[11].tolist(), f[12].tolist(), load_csr_dict(p / "alleles.npz"))
+        assert json.load(open(p / "DONE"))["layers"]["fragments"]["inputs"]["vote_ps"] == mode
+    assert out["first"][:4] == ([10000, 10150], [2, 2], [5, 3], [10000, 10000])
+    assert out["majority"][:4] == ([10000, 10150], [1, 2], [5, 3], [10000, 20000])
+    hf, hm = out["first"][4], out["majority"][4]
+    assert (hf["hapA"].sum(), hf["hapB"].sum()) == (0, 2) and (hm["hapA"].sum(), hm["hapB"].sum()) == (1, 1)
+    assert (hf["DP"] != hm["DP"]).nnz == 0 and (hf["AD"] != hm["AD"]).nnz == 0     # allele counts do not depend on it
+
+
+def _accumulate_dense(cell, bin_idx, n_cells, n_bins, weights=None):
+    """The dense reference implementation of depth.accumulate (before it was made sparse)."""
+    import scipy.sparse as sp
+    ok = bin_idx >= 0
+    key = cell[ok].astype(np.int64) * n_bins + bin_idx[ok]
+    w = None if weights is None else weights[ok]
+    dense = np.bincount(key, weights=w, minlength=n_cells * n_bins).reshape(n_cells, n_bins)
+    m = sp.csr_matrix(dense.astype(np.int64 if w is None else np.float64))
+    m.eliminate_zeros()
+    return m
+
+
+def _same_csr(a, b):
+    return (a.shape == b.shape and a.dtype == b.dtype and a.indices.dtype == b.indices.dtype
+            and a.indptr.dtype == b.indptr.dtype and np.array_equal(a.data, b.data)
+            and np.array_equal(a.indices, b.indices) and np.array_equal(a.indptr, b.indptr) and a.has_sorted_indices)
+
+
+def test_accumulate_matches_the_dense_reference():
+    from scphasedcn.depth import accumulate
+    rng = np.random.default_rng(3)
+    for n in (0, 1, 50, 500):
+        cell = rng.integers(0, 7, n).astype(np.int32)
+        bi = rng.integers(-1, 13, n).astype(np.int64)
+        w = rng.integers(0, 3, n).astype(np.float64)         # zeros: a bin whose weights sum to 0 is not stored
+        for weights in (None, w):
+            assert _same_csr(accumulate(cell, bi, 7, 13, weights=weights), _accumulate_dense(cell, bi, 7, 13, weights))
+
+
+def test_accumulate_is_sparse():
+    """No dense cells x bins array: 10^7 x 10^7 would need 800 TB."""
+    from scphasedcn.depth import accumulate
+    m = accumulate(np.array([0, 9_999_999, 0], np.int32), np.array([5, 9_999_998, 5]), 10_000_000, 10_000_000)
+    assert m.shape == (10_000_000, 10_000_000) and m.nnz == 2 and m[0, 5] == 2 and m.dtype == np.int64
+
+
+def test_depth_layers_match_the_dense_reference(genome, bam, vcf, monkeypatch):
+    import scphasedcn.depth as D
+    from scphasedcn.alleles import AlleleAccumulator, load_snps
+    from scphasedcn.bam import scan_chrom, flag_fragments
+    from scphasedcn.bins import Tiling, read_bed_intervals
+    from conftest import CELL_A, CELL_B
+    cells = [CELL_A, CELL_B]
+    for ch, n in (("chr1", 1_000_000), ("chr2", 500_000)):
+        acc = AlleleAccumulator(load_snps(str(vcf), ch, phased=True))
+        fr, _ = scan_chrom(str(bam), ch, cells, alleles=acc)
+        flag_fragments(fr, read_bed_intervals(str(genome / "blacklist.bed"), ch), read_bed_intervals(None, ch), None,
+                       read_bed_intervals(None, ch))
+        for binsize in (100_000, 7_000):
+            t = Tiling.regular_grid(ch, n, binsize)
+            for assign in D.ASSIGN_MODES:
+                new = D.depth_layers(fr, t, 2, assign=assign)
+                with monkeypatch.context() as mp:
+                    mp.setattr(D, "accumulate", _accumulate_dense)
+                    ref = D.depth_layers(fr, t, 2, assign=assign)
+                assert sorted(new) == sorted(ref) == sorted(D.DEPTH_LAYERS + D.HAP_LAYERS)
+                assert all(_same_csr(new[k], ref[k]) for k in ref)
+                part = D.depth_layers(fr, t, 2, assign=assign, layers=D.HAP_LAYERS)
+                assert sorted(part) == sorted(D.HAP_LAYERS) and all(_same_csr(part[k], ref[k]) for k in part)
+
+
 def test_translate_barcodes(tmp_path):
     from scphasedcn.config import translate_barcodes
     m = tmp_path / "map.tsv"

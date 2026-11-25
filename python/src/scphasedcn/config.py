@@ -92,6 +92,17 @@ def check_reference(ref: dict, require_fasta: bool = True) -> list[str]:
     return warn
 
 
+def default_tag(binsize: int) -> str:
+    """The <tag> of bins_<tag>.h5ad for a bin size: 100000 -> 100kb, 50000 -> 50kb, 1000000 -> 1Mb; a size that is
+    not a whole number of kb -> <n>bp."""
+    n = int(binsize)
+    if n % 1_000_000 == 0:
+        return f"{n // 1_000_000}Mb"
+    if n % 1000 == 0:
+        return f"{n // 1000}kb"
+    return f"{n}bp"
+
+
 def read_chrom_sizes(path: str | os.PathLike) -> dict[str, int]:
     out = {}
     with open(path) as fh:

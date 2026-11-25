@@ -14,7 +14,7 @@ import numpy as np
 
 from . import __version__
 from .config import (MAIN_CHROMS, load_yaml, sample_from_config, reference_paths, check_reference, read_chrom_sizes,
-                     read_barcodes, translate_barcodes)
+                     read_barcodes, translate_barcodes, default_tag)
 
 LAYER_CHOICES = ("depth", "alleles", "fragments")
 DEFAULT_LAYERS = "depth,alleles,fragments"
@@ -134,10 +134,43 @@ def _bam_references(bam, index):
         return dict(zip(bf.references, bf.lengths))
 
 
+def check_chrom_reference(chroms: list[str], bam_refs: dict, bam: str, sizes: dict, sizes_path: str,
+                          fasta: str | None = None) -> None:
+    """Fail (SystemExit, before the BAM pass) when a chromosome is not a reference of the BAM, is not in the FASTA
+    (when one is given), or when its length in the chromosome sizes or the FASTA differs from the BAM header (another
+    assembly or naming). A chromosome missing from the sizes takes the BAM length (not an error). All problems of
+    `chroms` are reported in one message."""
+    from .alleles import _alias
+    fa = None
+    if fasta:
+        import pysam
+        with pysam.FastaFile(str(fasta)) as f:
+            fa = dict(zip(f.references, f.lengths))
+
+    def hint(c, names):
+        return f" (the names differ by the `chr` prefix: {_alias(c)} there)" if _alias(c) in names else ""
+    errs = []
+    for c in chroms:
+        if c not in bam_refs:
+            errs.append(f"{c} is not a reference of the BAM {bam}{hint(c, bam_refs)}")
+            continue
+        n = bam_refs[c]
+        if c in sizes and sizes[c] != n:
+            errs.append(f"{c} has {sizes[c]} bp in the chromosome sizes {sizes_path} but {n} bp in the BAM header {bam}")
+        if fa is not None:
+            if c not in fa:
+                errs.append(f"{c} is not in the FASTA {fasta}{hint(c, fa)}")
+            elif fa[c] != n:
+                errs.append(f"{c} has {fa[c]} bp in the FASTA {fasta} but {n} bp in the BAM header {bam}")
+    if errs:
+        raise SystemExit("reference mismatch: " + "; ".join(errs) + ". The BAM, the chromosome sizes (--chrom-sizes; "
+                         "default the bundled hg38 sizes) and the FASTA must be of the same assembly and naming")
+
+
 def cmd_extract(a):
     from .bam import scan_chrom, flag_fragments, check_barcode_match, F_BLACKLIST, LOOP_COUNTERS
     from .bins import Tiling, annotate_tiling, read_bed_intervals, read_centromere
-    from .depth import depth_layers, fraglen_hist
+    from .depth import depth_layers, fraglen_hist, DEPTH_LAYERS, HAP_LAYERS
     from .qc import chrom_qc
     from .writers import (save_csr_dict, write_bgzf_table, fragments_frame, write_json, write_done, read_done,
                           file_fingerprint, cells_digest, LAYER_FILES, DONE_FORMAT)
@@ -155,10 +188,9 @@ def cmd_extract(a):
         _log(f"whitelist translated {space} via {d['barcode_map']}: {len(cells)} cells")
     sizes = read_chrom_sizes(d["ref"]["chrom_sizes"])
     use_snps = "alleles" in layers_on and bool(d["snps"])
-    bam_refs = _bam_references(d["bam"], a.index) if (chrom not in sizes or use_snps) else None
+    bam_refs = _bam_references(d["bam"], a.index)
+    check_chrom_reference([chrom], bam_refs, d["bam"], sizes, d["ref"]["chrom_sizes"], d["ref"].get("fasta"))
     if chrom not in sizes:
-        if chrom not in bam_refs:
-            raise SystemExit(f"{chrom} is neither in the chromosome sizes nor a reference of the BAM")
         sizes[chrom] = bam_refs[chrom]
     length = sizes[chrom]
     vcf_sample = None
@@ -200,6 +232,8 @@ def cmd_extract(a):
          f"{int(ctr.per_cell[:, LOOP_COUNTERS.index('n_qcfail')].sum())} QC-fail (0x200) skipped, "
          f"'-' records {ctr.dash['n_records']} (pass {ctr.dash['n_pass']}), unlisted {ctr.unlisted['n_records']}, "
          f"{ctr.seconds:.0f} s")
+    if ctr.n_no_seq_cigar:
+        _log(f"warning: {ctr.n_no_seq_cigar} primary records of listed cells have no SEQ or no CIGAR: skipped")
     bc_warn = check_barcode_match(ctr, cells, chrom)
     if bc_warn:
         _log("WARNING:", bc_warn)
@@ -226,9 +260,7 @@ def cmd_extract(a):
 
     if "depth" in layers_on:
         bins_df = annotate_tiling(tiling, ref, d["peaks"])
-        layers = depth_layers(fr, tiling, n_cells, assign=a.assign, use=clean)
-        for k in ("hapA", "hapB", "hap_ambig"):
-            layers.pop(k, None)
+        layers = depth_layers(fr, tiling, n_cells, assign=a.assign, use=clean, layers=DEPTH_LAYERS)
         obsm = {"fraglen_hist": fraglen_hist(fr, n_cells, use=clean), "mapq_hist": ctr.mapq_hist}
         _log(f"depth: {int(layers['counts'].sum())} counts in {len(tiling)} bins")
         save_csr_dict(pdir / "layers.npz", layers)
@@ -240,9 +272,7 @@ def cmd_extract(a):
     hap_assign = a.assign if a.assign != "overlap" else "start"
     if "alleles" in layers_on and acc is not None:
         al = acc.matrices(n_cells)
-        hl = depth_layers(fr, tiling, n_cells, assign=hap_assign, use=clean)
-        for k in ("hapA", "hapB", "hap_ambig"):
-            al[k] = hl[k]
+        al.update(depth_layers(fr, tiling, n_cells, assign=hap_assign, use=clean, layers=HAP_LAYERS))
         save_csr_dict(pdir / "alleles.npz", al)
         sdf = acc.snps.frame(); sdf["n_other"] = acc.n_other; sdf["n_lowbq"] = acc.n_lowbq
         sdf.to_csv(pdir / "snps.tsv", sep="\t")
@@ -257,6 +287,7 @@ def cmd_extract(a):
     params["seconds"] = round(time.time() - t0, 1)
     params["n_fragments"] = int(len(fr)); params["n_clean"] = int(clean.sum())
     params["dash"] = ctr.dash; params["unlisted"] = ctr.unlisted; params["n_no_cb"] = ctr.n_no_cb
+    params["n_no_seq_cigar"] = ctr.n_no_seq_cigar
     write_json(pdir / "params.json", params)
 
     # DONE carries what the partial holds and the inputs of each layer; `merge` checks they agree across partials
@@ -294,8 +325,20 @@ def cmd_merge(a):
     if a.config and a.sample:
         cfg = load_yaml(a.config); sc = sample_from_config(cfg, a.sample)
         out = out or sc.out
-        chroms = chroms or sc.chroms
-    chroms = chroms or MAIN_CHROMS
+        if chroms is None and sc.chroms_set:
+            chroms = list(sc.chroms)
+    if out is None:
+        raise SystemExit("merge: need --out (the sample output directory) or --config with --sample")
+    if chroms is None:   # not given: the main chromosomes with a finished partial (as `run`: those of the BAM)
+        P = Path(out) / "partials"
+        chroms = [c for c in MAIN_CHROMS if (P / c / "DONE").exists()]
+        none = [c for c in MAIN_CHROMS if c not in chroms]
+        other = sorted(p.name for p in P.iterdir() if p.name not in MAIN_CHROMS and not p.name.startswith("region_")
+                       and (p / "DONE").exists()) if P.is_dir() else []
+        if chroms:
+            _log(f"merge: merging {', '.join(chroms)} (the main chromosomes with a finished partial; --chroms not "
+                 f"given); no finished partial for {', '.join(none) or 'none'}"
+                 + (f"; partials of {', '.join(other)} are merged only when named in --chroms" if other else ""))
     s = merge_sample(out, chroms, tag=a.tag, allow_missing=a.allow_missing, log=_log)
     _log(json.dumps({k: v for k, v in s.items() if k != "params"}, default=str))
     return 0
@@ -331,6 +374,9 @@ def cmd_run(a):
         chroms = [c for c in MAIN_CHROMS if c in present]
     if not chroms:
         raise SystemExit("run: no chromosomes (none of chr1-22, X, Y, M in the BAM header; give --chroms)")
+    # once for all chromosomes, before any worker starts (extract checks its chromosome again)
+    check_chrom_reference(chroms, present, d["bam"], read_chrom_sizes(d["ref"]["chrom_sizes"]), d["ref"]["chrom_sizes"],
+                          d["ref"].get("fasta"))
     if "alleles" in layers_on and d["snps"]:   # once, before any BAM pass (per-chromosome warnings come from extract)
         check_vcf(d["snps"], [], sample=d["vcf_sample"], reference_names=list(present))
     jobs = max(1, min(a.jobs, len(chroms)))
@@ -343,15 +389,25 @@ def cmd_run(a):
     if jobs == 1:
         res = [_run_one(ns) for ns in nss]
     else:
-        with ProcessPoolExecutor(max_workers=jobs) as ex:
-            res = list(ex.map(_run_one, nss))
+        from concurrent.futures.process import BrokenProcessPool
+        try:
+            with ProcessPoolExecutor(max_workers=jobs) as ex:
+                res = list(ex.map(_run_one, nss))
+        except BrokenProcessPool:   # a worker was killed (e.g. by the out-of-memory killer) or crashed
+            P = Path(d["out"]) / "partials"
+            undone = [c for c in chroms if not (P / c / "DONE").exists()]
+            raise SystemExit(f"run: a worker process died (killed, e.g. by the out-of-memory killer, or crashed); "
+                             f"chromosomes without a finished partial (no DONE): {', '.join(undone) or 'none'}. "
+                             f"Finished partials are kept in {P}. Run again with a lower --jobs (now {jobs}; each "
+                             f"worker needs memory for one chromosome), or extract the missing chromosomes with "
+                             f"`scphasedcn extract --chrom <chrom>` and then `scphasedcn merge`") from None
     for c, code, msg in res:
         if code != 0:
             fails.append(c); _log(f"run: {c} failed {msg}")
     if fails:
         raise SystemExit(f"run: extraction failed on {', '.join(fails)}; partials in {d['out']}/partials")
     from .merge import merge_sample
-    s = merge_sample(d["out"], chroms, tag=a.tag)
+    s = merge_sample(d["out"], chroms, tag=a.tag)   # tag None: from the bin size of the depth partials
     _log(json.dumps({k: v for k, v in s.items() if k != "params"}, default=str))
     return 0
 
@@ -399,7 +455,8 @@ def build_parser():
     s = sub.add_parser("run", help="extract every chromosome in parallel, then merge (one command per sample)")
     s.add_argument("--chroms", help="comma list (default: the yaml sample's chroms, else chr1-22, X, Y, M in the BAM)")
     s.add_argument("--jobs", type=int, default=4, help="chromosomes extracted in parallel (memory: ~2-9 GB each)")
-    s.add_argument("--tag", default="100kb", help="merge tag (bins_<tag>.h5ad; the caller reads bins_100kb.h5ad)")
+    s.add_argument("--tag", help="bins_<tag>.h5ad (default: from --binsize, 100kb for 100000, 50kb, 1Mb, else <n>bp; "
+                                 "the R caller finds the bins file of the directory: keep one per directory)")
     add_extract_args(s)
     s.set_defaults(func=cmd_run, chrom=None, region=None)
 
@@ -431,10 +488,13 @@ def build_parser():
     s.set_defaults(func=cmd_hybrid_phase)
 
     s = sub.add_parser("merge", help="merge chromosome partials into h5ad / tsv outputs")
-    s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out"); s.add_argument("--chroms")
-    s.add_argument("--tag", default="100kb")
+    s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out", help="sample output directory")
+    s.add_argument("--chroms", help="comma list (default: the yaml sample's chroms, else the chromosomes of chr1-22, X, "
+                                    "Y, M with a finished partial)")
+    s.add_argument("--tag", help="bins_<tag>.h5ad (default: from the bin size of the partials, as in `run`)")
     s.add_argument("--allow-missing", action="store_true",
-                   help="merge although some chromosomes have no finished partial (default: fail and list them)")
+                   help="merge although some chromosomes of --chroms (or the yaml chroms) have no finished partial "
+                        "(default: fail and list them)")
     s.set_defaults(func=cmd_merge)
     return p
 

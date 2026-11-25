@@ -215,3 +215,94 @@ def test_bad_layers_and_peaks_dir(genome, bam, tmp_path):
     assert not (tmp_path / "o").exists()
 
 
+def _args(genome, bam, out, *extra):
+    return ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(out),
+            "--chrom-sizes", str(genome / "chrom.sizes"), "--no-gc", "--no-masks", *extra]
+
+
+def test_reads_without_cb_are_counted(genome, bam, tmp_path):
+    from conftest import rewrite_bam
+    from scphasedcn.cli import main
+
+    def edit(r):
+        if r.reference_name == "chr1" and r.reference_start == 10000 and r.get_tag("CB") == CELL_A:
+            r.set_tag("CB", None)                                       # read a without a CB tag
+        return r
+    b = rewrite_bam(bam, tmp_path / "nocb.bam", edit)
+    assert main(["extract", "--chrom", "chr1"] + _args(genome, b, tmp_path)) == 0
+    p = tmp_path / "partials" / "chr1"
+    assert json.load(open(p / "params.json"))["n_no_cb"] == 1
+    q = pd.read_csv(p / "qc.tsv", sep="\t", index_col=0)
+    assert q.loc[CELL_A, "n_records"] == 21 and q.loc[CELL_A, "n_pass"] == 16      # 22 / 17 with read a
+    f = pd.read_csv(p / "fragments.tsv.gz", sep="\t", header=None)
+    assert ((f[1] == 10000) & (f[3] == CELL_A)).sum() == 0 and ((f[1] == 10000) & (f[3] == CELL_B)).sum() == 1
+
+
+def test_refskip_and_hard_clips_at_snps(genome, vcf, tmp_path):
+    """N (reference skip) and H (hard clip) CIGAR operations: a SNP inside a skip is not covered by the read (not an
+    observation, not `other`); hard clips consume no query bases (VCF: 1001 A>G 0|1, 1501 C>T 1|0, 2001 G>A 0/1)."""
+    from conftest import name, qpos_of, write_bam
+    from scphasedcn.cli import main
+    c1, c2 = "7H100M500N100M3H", "4H50M1000N200M"
+    b = write_bam(tmp_path / "skip.bam", [
+        ((name(CELL_A, "s1"), "chr2", 950, c1, "+"), {"bases": {qpos_of(c1, 950, 1000): "G"}}),   # SNP1 alt; SNP2 in N
+        ((name(CELL_B, "s2"), "chr2", 900, c2, "+"), {"bases": {qpos_of(c2, 900, 2000): "A"}}),   # SNPs 1, 2 in N; SNP3 alt
+    ])
+    assert qpos_of(c1, 950, 1000) == 50 and qpos_of(c2, 900, 2000) == 100
+    assert main(["extract", "--chrom", "chr2", "--snps", str(vcf), "--phased"] + _args(genome, b, tmp_path)) == 0
+    p = tmp_path / "partials" / "chr2"
+    s = pd.read_csv(p / "snps.tsv", sep="\t", index_col=0)
+    assert s["n_other"].tolist() == [0, 0, 0] and s["n_lowbq"].tolist() == [0, 0, 0]
+    from scphasedcn.writers import load_csr_dict
+    al = load_csr_dict(p / "alleles.npz")                             # rows: CELL_A, CELL_B (sorted)
+    assert al["DP"].toarray().tolist() == [[1, 0, 0], [0, 0, 1]] and al["AD"].toarray().tolist() == [[1, 0, 0], [0, 0, 1]]
+    f = pd.read_csv(p / "fragments.tsv.gz", sep="\t", header=None)
+    f.columns = ["chrom", "start", "end", "cell", "strand", "mapq", "flags", "len", "piece", "npieces", "hap", "nsnp",
+                 "ps", "read_id"]
+    r1 = f[f.cell == CELL_A].iloc[0]; r2 = f[f.cell == CELL_B].iloc[0]
+    assert (r1["end"], r1["hap"], r1["nsnp"], r1["ps"]) == (1650, 2, 1, 1000)
+    assert (r2["end"], r2["hap"], r2["nsnp"], r2["ps"]) == (2150, 0, 1, -1)
+
+
+def test_sites_only_vcf(genome, bam, tmp_path):
+    """A VCF without sample columns (a het-site list): every site is used, unphased, even with --phased."""
+    from conftest import write_vcf
+    from scphasedcn.cli import main
+    v = write_vcf(tmp_path / "sites.vcf", [("chr2", 1001, "A", "G", "PASS", []), ("chr2", 1501, "C", "T", "PASS", []),
+                                          ("chr2", 2001, "G", "A", "PASS", []), ("chr2", 3001, "G", "A", "LowQual", [])],
+                  samples=())
+    assert main(["extract", "--chrom", "chr2", "--snps", str(v), "--phased"] + _args(genome, bam, tmp_path)) == 0
+    p = tmp_path / "partials" / "chr2"
+    s = pd.read_csv(p / "snps.tsv", sep="\t", index_col=0)
+    assert s["pos"].tolist() == [1001, 1501, 2001] and (s["hap_of_alt"] == 0).all() and (s["ps"] == -1).all()
+    from scphasedcn.writers import load_csr_dict
+    al = load_csr_dict(p / "alleles.npz")
+    assert al["DP"].toarray().tolist() == [[1, 1, 1], [1, 1, 0]] and al["hapA"].nnz + al["hapB"].nnz == 0
+    f = pd.read_csv(p / "fragments.tsv.gz", sep="\t", header=None)
+    assert (f[10] == 0).all() and (f[12] == -1).all() and f[11].max() == 3          # nsnp still counted
+    assert json.load(open(p / "DONE"))["layers"]["alleles"]["inputs"]["vcf_sample"] is None
+
+
+def test_assign_overlap_with_alleles(genome, bam, vcf, tmp_path):
+    """--assign overlap: depth layers count a fragment in every bin it overlaps; the hap layers of the alleles layer
+    use the start position (recorded in DONE)."""
+    from scphasedcn.cli import main
+    from scphasedcn.writers import load_csr_dict
+    for mode in ("overlap", "start"):
+        for ch in ("chr1", "chr2"):
+            assert main(["extract", "--chrom", ch, "--assign", mode, "--snps", str(vcf), "--phased"]
+                        + _args(genome, bam, tmp_path / mode)) == 0
+    po, ps_ = tmp_path / "overlap" / "partials", tmp_path / "start" / "partials"
+    lo, ls = load_csr_dict(po / "chr1" / "layers.npz"), load_csr_dict(ps_ / "chr1" / "layers.npz")
+    ia = 0
+    assert lo["frag_short"][ia, 1] == 1 and lo["frag_short"][ia, 2] == 1                 # m (200 bp) in bins 1 and 2
+    assert ls["frag_short"][ia, 1] == 1 and ls["frag_short"][ia, 2] == 0
+    assert lo["frag_long"][ia, 0] == 11 and lo["counts"][ia, 1] == 2 and lo["counts"][ia, 2] == 1
+    for ch in ("chr1", "chr2"):
+        ao, as_ = load_csr_dict(po / ch / "alleles.npz"), load_csr_dict(ps_ / ch / "alleles.npz")
+        assert all((ao[k] != as_[k]).nnz == 0 for k in ("hapA", "hapB", "hap_ambig", "AD", "DP"))
+        done = json.load(open(po / ch / "DONE"))
+        assert done["layers"]["alleles"]["inputs"]["assign"] == "start" and done["layers"]["depth"]["inputs"]["assign"] == "overlap"
+    assert load_csr_dict(po / "chr2" / "alleles.npz")["hapB"].sum() == 1
+
+

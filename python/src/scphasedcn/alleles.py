@@ -1,11 +1,12 @@
 """Allele layer: per-read ref/alt observations at heterozygous SNPs and per-read haplotype votes.
 
-SNPs come from a bgzipped, indexed VCF (bi-allelic SNVs; with a sample column only GT-het records are used, genotypes
+SNPs come from a bgzipped, indexed VCF (bi-allelic SNVs with REF and ALT in ACGT, `hybrid.is_snv`; with a sample column only GT-het records are used, genotypes
 with a missing allele are skipped; `phased=True` reads the `|` phase and the PS field: hapA = first allele of the GT;
 phased genotypes without a PS value form one phase set per contig, as in the VCF specification, and get PS
 `CONTIG_PS`). A VCF without sample columns (e.g. a het-site list) yields unphased sites; a VCF with several sample
 columns needs the sample named (`check_vcf`, `--vcf-sample`). Per read, the CIGAR is converted to cumulative reference/query offsets with numpy and only the
-SNPs inside the aligned span are looked up (I/D/S/H/N handled; deletions at a SNP count as `other`). Bases with
+SNPs inside the aligned span are looked up (I/D/S/H/N handled; deletions at a SNP count as `other`, a SNP inside a
+reference skip N is not covered by the read and not observed). Bases with
 quality < min_bq are ignored. The per-read haplotype is a majority vote over phased SNPs (ambiguous on ties).
 """
 from __future__ import annotations
@@ -15,6 +16,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import scipy.sparse as sp
+
+from .hybrid import is_snv
 
 REF_CONSUME = np.array([1, 0, 1, 1, 0, 0, 0, 1, 1, 0], dtype=np.int64)   # M I D N S H P = X B
 Q_CONSUME = np.array([1, 1, 0, 0, 1, 0, 0, 1, 1, 0], dtype=np.int64)
@@ -116,7 +119,7 @@ def load_snps(vcf_path: str, chrom: str, phased: bool = False, region: tuple[int
         else:
             it = iter(())
         for rec in it:
-            if rec.alts is None or len(rec.alts) != 1 or len(rec.ref) != 1 or len(rec.alts[0]) != 1:
+            if not is_snv(rec):          # also a spanning deletion `*` or N: such a site can only vote REF
                 continue
             flt = list(rec.filter.keys())
             if flt and flt != ["PASS"]:
@@ -175,12 +178,15 @@ class AlleleAccumulator:
         k = np.searchsorted(rend, p, side="right")
         k = np.minimum(k, len(ops) - 1)
         ism = MATCH_OPS[ops[k]] & (p < rend[k])
+        skip = ops[k] == 3                      # N: the read does not cover the position
         qpos = qend[k] - qlen[k] + (p - (rend[k] - rlen[k]))
         seq = r.query_sequence
         quals = r.query_qualities
         out = []
         for t in range(hi - lo):
             s = lo + t
+            if skip[t]:
+                continue
             if not ism[t]:
                 self.n_other[s] += 1
                 out.append((s, 2))

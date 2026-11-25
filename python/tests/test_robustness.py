@@ -320,3 +320,221 @@ def test_piece_numbers_beyond_int16(genome, bam, tmp_path):
     f = pd.read_csv(tmp_path / "o" / "partials" / "chr1" / "fragments.tsv.gz", sep="\t", header=None)
     row = f[(f[1] == 10000) & (f[3] == CELL_A)].iloc[0]
     assert row[8] == 40000 and row[9] == 40000
+
+
+# --------------------------------------------------------------------------------------------- reference consistency
+def _fasta(path, seqs):
+    with open(path, "w") as fh:
+        for c, n in seqs:
+            fh.write(f">{c}\n" + "".join("ACGT"[i % 4] for i in range(n)) + "\n")
+    pysam.faidx(str(path))
+    return path
+
+
+def test_chromosome_missing_from_the_bam_fails_before_the_bam_pass(genome, bam, tmp_path):
+    sizes = tmp_path / "sizes"
+    sizes.write_text((genome / "chrom.sizes").read_text() + "chr5\t181538259\n")
+    args = ["extract", "--chrom", "chr5"] + _common(genome, bam, tmp_path / "o") + ["--chrom-sizes", str(sizes)]
+    with pytest.raises(SystemExit, match="chr5 is not a reference of the BAM"):
+        main(args)
+    assert not (tmp_path / "o" / "partials").exists()
+
+
+def test_chromosome_missing_from_the_fasta_fails(genome, bam, tmp_path):
+    fa = _fasta(tmp_path / "one.fa", [("1", 1_000_000)])           # other naming, chr2 absent
+    base = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(tmp_path / "o"),
+            "--chrom-sizes", str(genome / "chrom.sizes"), "--no-masks", "--fasta", str(fa)]
+    with pytest.raises(SystemExit, match="chr2 is not in the FASTA"):
+        main(["extract", "--chrom", "chr2"] + base)
+    with pytest.raises(SystemExit, match="chr1 is not in the FASTA .*`chr` prefix"):
+        main(["extract", "--chrom", "chr1"] + base)
+    assert not (tmp_path / "o" / "partials").exists()
+
+
+def test_chromosome_lengths_must_agree(genome, bam, tmp_path):
+    sizes = tmp_path / "sizes"
+    sizes.write_text((genome / "chrom.sizes").read_text().replace("chr1\t1000000", "chr1\t2000000"))
+    base = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(tmp_path / "o"), "--no-masks"]
+    with pytest.raises(SystemExit, match=r"chr1 .*2000000 bp in the chromosome sizes .* 1000000 bp in the BAM"):
+        main(["extract", "--chrom", "chr1", "--no-gc", "--chrom-sizes", str(sizes)] + base)
+    fa = _fasta(tmp_path / "short.fa", [("chr1", 900_000), ("chr2", 500_000)])
+    with pytest.raises(SystemExit, match=r"chr1 .*900000 bp in the FASTA .* 1000000 bp in the BAM"):
+        main(["extract", "--chrom", "chr1", "--fasta", str(fa), "--chrom-sizes", str(genome / "chrom.sizes")] + base)
+    assert not (tmp_path / "o" / "partials").exists()
+    # run: one error for all chromosomes, before any worker starts
+    sizes.write_text("chr1\t2000000\nchr2\t600000\nchrM\t16569\nchrX\t300000\n")
+    with pytest.raises(SystemExit, match=r"(?s)chr1 .*2000000.*chr2 .*600000"):
+        main(["run", "--chroms", "chr1,chr2,chrX", "--jobs", "2", "--no-gc", "--chrom-sizes", str(sizes)] + base)
+    assert not (tmp_path / "o" / "partials").exists()
+
+
+# --------------------------------------------------------------------------------------------- select-hets loci naming
+_HETS_HDR = ("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n##contig=<ID=chr2,length=100000>\n"
+             "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"x\">\n"
+             "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"x\">\n"
+             "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"x\">\n"
+             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n")
+
+
+def _bgzip(p):
+    pysam.tabix_compress(str(p), str(p) + ".gz", force=True); pysam.tabix_index(str(p) + ".gz", preset="vcf", force=True)
+    return str(p) + ".gz"
+
+
+def test_select_hets_loci_with_other_contig_names(tmp_path):
+    raw = tmp_path / "calls.vcf"
+    raw.write_text(_HETS_HDR + "chr1\t1001\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n"
+                               "chr1\t2001\t.\tC\tT\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n")
+
+    def loci(name, contig):
+        p = tmp_path / f"{name}.vcf"
+        p.write_text(f"##fileformat=VCFv4.2\n##contig=<ID={contig},length=100000>\n"
+                     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                     f"{contig}\t1001\t.\tA\tG\t.\t.\t.\n{contig}\t2001\t.\tC\tT\t.\t.\t.\n")
+        return _bgzip(p)
+    base = ["select-hets", "--vcf", _bgzip(raw), "--contigs", "chr1", "--dp-quantile", "1"]
+    out = tmp_path / "het.vcf.gz"
+    assert main(base + ["--out", str(out), "--loci", loci("nochr", "1")]) == 0     # `1` in the loci file, `chr1` here
+    assert [r.pos for r in pysam.VariantFile(str(out))] == [1001, 2001]
+    out2 = tmp_path / "none.vcf.gz"                                                  # no loci contig matches at all
+    (tmp_path / "none.vcf.gz.tbi").write_text("index of an earlier run")
+    with pytest.raises(SystemExit, match="no autosomal site"):
+        main(base + ["--out", str(out2), "--loci", loci("other", "chr9")])
+    assert not out2.exists() and not (tmp_path / "none.vcf.gz.tbi").exists()
+
+
+# --------------------------------------------------------------------------------------------- biallelic SNV test
+def test_spanning_deletion_and_n_alleles_are_not_snvs(tmp_path):
+    from scphasedcn.alleles import load_snps
+    from scphasedcn.hets import is_candidate
+    sites = [(1001, "A", "G"), (1101, "A", "*"), (1201, "N", "A"), (1301, "c", "t"), (1401, "G", "N")]
+    v = write_vcf(tmp_path / "star.vcf", [("chr2", p, r, a, "PASS", ["0|1:1000"]) for p, r, a in sites])
+    s = load_snps(str(v), "chr2", phased=True)
+    assert (s.pos + 1).tolist() == [1001, 1301] and s.ref == ["A", "C"] and s.alt == ["G", "T"]
+    raw = tmp_path / "calls.vcf"
+    raw.write_text(_HETS_HDR + "".join(f"chr2\t{p}\t.\t{r}\t{a}\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n" for p, r, a in sites))
+    with pysam.VariantFile(str(raw)) as vf:
+        why = [is_candidate(r, 10, 20)[1] for r in vf]
+    assert why == ["ok", "not_biallelic_snv", "not_biallelic_snv", "ok", "not_biallelic_snv"]
+
+
+# --------------------------------------------------------------------------------------------- a worker killed
+def _die_on_chr2(ns):
+    """Stand-in for cli._run_one in a worker: chr2 dies like an OOM-killed process; other chromosomes are done."""
+    import os
+    if ns.chrom == "chr2":
+        os._exit(9)
+    return ns.chrom, 0, ""
+
+
+def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
+    import concurrent.futures
+    import multiprocessing
+    import scphasedcn.cli as cli
+    out = tmp_path / "o"
+    assert main(["extract", "--chrom", "chr1"] + _common(genome, bam, out)) == 0      # finished before
+    done = (out / "partials" / "chr1" / "DONE").read_bytes()
+    real = concurrent.futures.ProcessPoolExecutor
+
+    class ForkPool(real):
+        def __init__(self, max_workers=None):
+            super().__init__(max_workers=max_workers, mp_context=multiprocessing.get_context("fork"))
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", ForkPool)
+    monkeypatch.setattr(cli, "_run_one", _die_on_chr2)
+    with pytest.raises(SystemExit, match=r"(?s)worker process died.*chr2.*--jobs"):
+        main(["run", "--chroms", "chr1,chr2", "--jobs", "2"] + _common(genome, bam, out))
+    assert (out / "partials" / "chr1" / "DONE").read_bytes() == done                # the finished partial survives
+    assert not (out / "partials" / "chr2" / "DONE").exists()
+
+
+# --------------------------------------------------------------------------------------------- records without SEQ / CIGAR
+def test_records_without_seq_or_cigar_are_counted_and_skipped(genome, bam, vcf, tmp_path):
+    def edit(r):
+        if r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 20000:
+            r.query_sequence = None                                   # SEQ *
+        elif r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 30000:
+            r.cigartuples = None                                      # no CIGAR
+        elif r.get_tag("CB") == CELL_B and r.reference_name == "chr2" and r.reference_start == 950:
+            r.query_sequence = None                                   # R2 covers two SNPs
+        return r
+    b = rewrite_bam(bam, tmp_path / "noseq.bam", edit)
+    o = tmp_path / "o"
+    for ch in ("chr1", "chr2"):
+        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, b, o)) == 0
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0
+    p1, p2 = (json.load(open(o / "partials" / c / "params.json")) for c in ("chr1", "chr2"))
+    assert p1["n_no_seq_cigar"] == 2 and p2["n_no_seq_cigar"] == 1
+    assert json.load(open(o / "summary.json"))["n_no_seq_cigar"] == 3
+    f = _frags(o)
+    assert not f["start"].isin([20000, 30000]).any() and not ((f.cell == CELL_B) & (f.start == 950)).any()
+    q = pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0)
+    assert q.loc[CELL_A, "n_primary"] == 19 and q.loc[CELL_A, "n_pass"] == 18     # 21 / 20 without the edits
+    assert q.loc[CELL_A, ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]].sum() == 19
+
+
+# --------------------------------------------------------------------------------------------- bins tag
+def test_tag_follows_the_bin_size(genome, bam, tmp_path):
+    from scphasedcn.cli import default_tag
+    assert [default_tag(n) for n in (100_000, 50_000, 1_000_000, 500_000, 2_500, 12_345, 1_500_000)] == \
+        ["100kb", "50kb", "1Mb", "500kb", "2500bp", "12345bp", "1500kb"]
+    o = tmp_path / "run"
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--binsize", "50000"] + _common(genome, bam, o)) == 0
+    assert (o / "bins_50kb.h5ad").exists() and not (o / "bins_100kb.h5ad").exists()
+    assert ad.read_h5ad(o / "bins_50kb.h5ad").n_vars == 30
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0            # merge: the tag of the partials
+    assert (o / "bins_50kb.h5ad").exists()
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2", "--tag", "x"]) == 0
+    assert (o / "bins_x.h5ad").exists()
+    # a later run that rewrites the fragments only (default --binsize): the depth layer keeps its 50 kb bins
+    (o / "bins_50kb.h5ad").unlink()
+    assert main(["run", "--chroms", "chr1,chr2", "--jobs", "1", "--layers", "fragments"] + _common(genome, bam, o)) == 0
+    assert (o / "bins_50kb.h5ad").exists() and not (o / "bins_100kb.h5ad").exists()
+
+
+# --------------------------------------------------------------------------------------------- FRiP
+def test_frip_counts_clean_peak_fragments(genome, bam, tmp_path):
+    peaks = tmp_path / "peaks.bed"
+    peaks.write_text("chr1\t10000\t10500\tp1\nchr1\t900000\t900200\tp2\n")            # p2 covers blacklisted n
+    o = tmp_path / "o"
+    args = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(o), "--no-gc",
+            "--chrom-sizes", str(genome / "chrom.sizes"), "--blacklist", str(genome / "blacklist.bed"),
+            "--peaks", str(peaks)]
+    assert main(["extract", "--chrom", "chr1"] + args) == 0
+    assert main(["merge", "--out", str(o), "--chroms", "chr1"]) == 0
+    q = pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0)
+    a = q.loc[CELL_A]
+    assert a["n_peak"] == 2 and a["n_clean"] == 16                    # a and n overlap a peak; n is blacklisted
+    assert a["frip"] == pytest.approx(1 / 16)
+    assert "n_peak_clean" not in q.columns
+    # a partial written before (no n_peak_clean column) keeps the old ratio
+    pq = o / "partials" / "chr1" / "qc.tsv"
+    pd.read_csv(pq, sep="\t", index_col=0).drop(columns="n_peak_clean").to_csv(pq, sep="\t")
+    assert main(["merge", "--out", str(o), "--chroms", "chr1"]) == 0
+    assert pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0).loc[CELL_A, "frip"] == pytest.approx(2 / 16)
+
+
+# --------------------------------------------------------------------------------------------- merge defaults
+def test_merge_needs_an_output_directory():
+    with pytest.raises(SystemExit, match="merge: need --out"):
+        main(["merge"])
+
+
+def test_merge_without_chroms_merges_the_finished_partials(genome, bam, tmp_path, capsys):
+    o = tmp_path / "o"
+    for ch in ("chr2", "chr1"):
+        assert main(["extract", "--chrom", ch] + _common(genome, bam, o)) == 0
+    assert main(["extract", "--region", "chr1:0-50000"] + _common(genome, bam, o)) == 0   # never merged
+    (o / "partials" / "chrX").mkdir()                                                    # unfinished: no DONE
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o)]) == 0
+    s = json.load(open(o / "summary.json"))
+    assert s["chroms"] == ["chr1", "chr2"] and s["missing"] == []
+    err = capsys.readouterr().err
+    assert "merging chr1, chr2" in err and "chrX" in err and "chrY" in err
+    # an explicit list keeps the missing-partial error and --allow-missing
+    with pytest.raises(SystemExit, match="chrX"):
+        main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX"])
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX", "--allow-missing"]) == 0
+    with pytest.raises(SystemExit, match="no finished partials"):
+        main(["merge", "--out", str(tmp_path / "empty")])

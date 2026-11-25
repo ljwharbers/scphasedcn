@@ -42,4 +42,6 @@ scphasedcn = ["resources/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "tests"]
+# the tests import the installed package (pip install "./python[test]"); to test a source tree without installing,
+# set PYTHONPATH=src
+pythonpath = ["tests"]

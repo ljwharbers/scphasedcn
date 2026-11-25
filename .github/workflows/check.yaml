@@ -28,6 +28,12 @@ jobs:
       - run: pip install "./python[test]"
       - run: python -m pytest -q python/tests
       - run: scphasedcn --help && scphasedcn run --help
+      - name: build sdist + wheel and check their metadata
+        if: matrix.python == '3.12'
+        run: |
+          pip install build twine
+          python -m build --outdir "$RUNNER_TEMP/dist" python
+          twine check "$RUNNER_TEMP"/dist/*
 
   r-cmd-check:
     runs-on: ${{ matrix.os }}

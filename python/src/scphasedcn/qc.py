@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .bam import ChromFragments, LoopCounters, LOOP_COUNTERS, MAPQ_BUCKETS, FLAG_BITS, F_BLACKLIST
+from .bam import ChromFragments, LoopCounters, LOOP_COUNTERS, MAPQ_BUCKETS, FLAG_BITS, F_BLACKLIST, F_PEAK
 
 SUMMED = None  # all numeric columns are summed over chromosomes
 
@@ -24,6 +24,9 @@ def chrom_qc(fr: ChromFragments, ctr: LoopCounters, cells: list[str], hap_counts
     df["n_short_lt300"] = bc(clean & (L < 300))
     df["n_long_ge1000"] = bc(clean & (L >= 1000))
     df["span_sum"] = np.bincount(c[clean], weights=L[clean], minlength=n).astype(np.int64)
+    # FRiP numerator: peak fragments among the clean ones (n_peak counts all passing fragments); used by finalize_qc
+    # and not written to the merged QC table
+    df["n_peak_clean"] = bc(clean & ((fr.flags & F_PEAK) > 0))
     if hap_counts:
         for code, name in ((1, "n_hapA"), (2, "n_hapB"), (3, "n_hap_ambig")):
             df[name] = bc(fr.hap == code)
@@ -45,6 +48,8 @@ def finalize_qc(qc: pd.DataFrame, per_chrom_pass: dict[str, np.ndarray], peaks_g
     qc["frac_blacklist"] = np.where(qc["n_pass"] > 0, qc["n_blacklist"] / np.maximum(qc["n_pass"], 1), np.nan)
     qc["mean_span"] = np.where(qc["n_clean"] > 0, qc["span_sum"] / np.maximum(qc["n_clean"], 1), np.nan)
     qc["frac_chrM"] = np.where(qc["n_pass"] > 0, qc["n_pass_chrM"] / np.maximum(qc["n_pass"], 1), np.nan)
+    # FRiP = clean peak fragments / clean fragments (partials without n_peak_clean, written before it: n_peak)
+    n_peak_clean = qc.pop("n_peak_clean") if "n_peak_clean" in qc else qc["n_peak"]
     if peaks_given:
-        qc["frip"] = np.where(qc["n_clean"] > 0, qc["n_peak"] / np.maximum(qc["n_clean"], 1), np.nan)
+        qc["frip"] = np.where(qc["n_clean"] > 0, n_peak_clean / np.maximum(qc["n_clean"], 1), np.nan)
     return qc

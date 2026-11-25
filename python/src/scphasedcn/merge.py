@@ -206,6 +206,8 @@ def _qc(dirs: list[Path], fname: str) -> tuple[pd.DataFrame, dict]:
     tot = None
     for d in dirs:
         q = pd.read_csv(d / fname, sep="\t", index_col=0)
+        if "n_peak" in q and "n_peak_clean" not in q:   # a partial written before n_peak_clean: its old FRiP numerator
+            q["n_peak_clean"] = q["n_peak"]
         per_chrom_pass[d.name] = q["n_pass"].values if "n_pass" in q else None
         tot = q if tot is None else tot.add(q, fill_value=0)
     return tot, per_chrom_pass

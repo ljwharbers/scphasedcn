@@ -485,3 +485,25 @@ def test_tag_follows_the_bin_size(genome, bam, tmp_path):
     assert (o / "bins_50kb.h5ad").exists()
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2", "--tag", "x"]) == 0
     assert (o / "bins_x.h5ad").exists()
+
+
+# --------------------------------------------------------------------------------------------- FRiP
+def test_frip_counts_clean_peak_fragments(genome, bam, tmp_path):
+    peaks = tmp_path / "peaks.bed"
+    peaks.write_text("chr1\t10000\t10500\tp1\nchr1\t900000\t900200\tp2\n")            # p2 covers blacklisted n
+    o = tmp_path / "o"
+    args = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(o), "--no-gc",
+            "--chrom-sizes", str(genome / "chrom.sizes"), "--blacklist", str(genome / "blacklist.bed"),
+            "--peaks", str(peaks)]
+    assert main(["extract", "--chrom", "chr1"] + args) == 0
+    assert main(["merge", "--out", str(o), "--chroms", "chr1"]) == 0
+    q = pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0)
+    a = q.loc[CELL_A]
+    assert a["n_peak"] == 2 and a["n_clean"] == 16                    # a and n overlap a peak; n is blacklisted
+    assert a["frip"] == pytest.approx(1 / 16)
+    assert "n_peak_clean" not in q.columns
+    # a partial written before (no n_peak_clean column) keeps the old ratio
+    pq = o / "partials" / "chr1" / "qc.tsv"
+    pd.read_csv(pq, sep="\t", index_col=0).drop(columns="n_peak_clean").to_csv(pq, sep="\t")
+    assert main(["merge", "--out", str(o), "--chroms", "chr1"]) == 0
+    assert pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0).loc[CELL_A, "frip"] == pytest.approx(2 / 16)

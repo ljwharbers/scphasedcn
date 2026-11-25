@@ -232,6 +232,8 @@ def cmd_extract(a):
          f"{int(ctr.per_cell[:, LOOP_COUNTERS.index('n_qcfail')].sum())} QC-fail (0x200) skipped, "
          f"'-' records {ctr.dash['n_records']} (pass {ctr.dash['n_pass']}), unlisted {ctr.unlisted['n_records']}, "
          f"{ctr.seconds:.0f} s")
+    if ctr.n_no_seq_cigar:
+        _log(f"warning: {ctr.n_no_seq_cigar} primary records of listed cells have no SEQ or no CIGAR: skipped")
     bc_warn = check_barcode_match(ctr, cells, chrom)
     if bc_warn:
         _log("WARNING:", bc_warn)
@@ -289,6 +291,7 @@ def cmd_extract(a):
     params["seconds"] = round(time.time() - t0, 1)
     params["n_fragments"] = int(len(fr)); params["n_clean"] = int(clean.sum())
     params["dash"] = ctr.dash; params["unlisted"] = ctr.unlisted; params["n_no_cb"] = ctr.n_no_cb
+    params["n_no_seq_cigar"] = ctr.n_no_seq_cigar
     write_json(pdir / "params.json", params)
 
     # DONE carries what the partial holds and the inputs of each layer; `merge` checks they agree across partials

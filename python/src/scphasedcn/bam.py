@@ -1,7 +1,8 @@
 """One pass over a chromosome of a SPLONGGET DNA BAM: record filter, fragment arrays, per-cell record counters.
 
 Filter (see vignette("scphasedcn-inputs", package = "scphasedcn")): primary, not duplicate, not QC-fail (0x200; counted in
-`n_qcfail`), MAPQ >= min_mapq, CB in the whitelist (a CB that is not listed but whose form without a trailing "-1" is
+`n_qcfail`), with SEQ and CIGAR (else skipped and counted in `n_no_seq_cigar`, a key of params.json and summary.json;
+not in n_primary), MAPQ >= min_mapq, CB in the whitelist (a CB that is not listed but whose form without a trailing "-1" is
 listed counts for that cell); "-" (unassigned) is counted and dropped; secondaries are counted and skipped;
 supplementaries are counted and skipped but the primary's SA tag sets `has_SA`. Blacklist / TRF / centromere / peak
 membership is flagged after the loop (bins.py). Fragments
@@ -79,6 +80,7 @@ class LoopCounters:
     dash: dict = field(default_factory=lambda: {k: 0 for k in LOOP_COUNTERS})
     unlisted: dict = field(default_factory=lambda: {k: 0 for k in LOOP_COUNTERS})
     n_no_cb: int = 0
+    n_no_seq_cigar: int = 0   # primary, non-dup, non-QC-fail records of listed cells without SEQ or CIGAR: skipped
     n_unmapped: int = 0
     seconds: float = 0.0
     unlisted_examples: list = field(default_factory=list)   # a few unlisted CB values (for the mismatch message)
@@ -166,6 +168,9 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
                 continue
             if flag & 0x200:
                 row[I_QCF] += 1
+                continue
+            if r.query_length == 0 or r.reference_end is None:   # SEQ `*` or no CIGAR: no span / bases to use
+                ctr.n_no_seq_cigar += 1
                 continue
             row[I_PRI] += 1
             mqh[ci, mapq_bucket(mq)] += 1

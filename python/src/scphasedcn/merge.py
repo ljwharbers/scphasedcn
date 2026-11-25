@@ -261,6 +261,9 @@ def merge_sample(out: str, chroms: list[str], tag: str = "100kb", keep_partials:
     cells = _read_cells(first)
     params = json.load(open(first / "params.json"))
     summary = {"chroms": [d.name for d in dirs], "missing": missing, "n_cells": len(cells), "params": params}
+    # primary records without SEQ or CIGAR, skipped (key absent in partials of older versions)
+    summary["n_no_seq_cigar"] = sum(int(json.load(open(d / "params.json")).get("n_no_seq_cigar", 0))
+                                    for d in dirs if (d / "params.json").exists())
     # --- bins (depth layers) ---
     if (dirs[0] / "layers.npz").exists():
         ldirs = [d for d in dirs if (d / "layers.npz").exists()]

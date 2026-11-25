@@ -444,3 +444,28 @@ def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
         main(["run", "--chroms", "chr1,chr2", "--jobs", "2"] + _common(genome, bam, out))
     assert (out / "partials" / "chr1" / "DONE").read_bytes() == done                # the finished partial survives
     assert not (out / "partials" / "chr2" / "DONE").exists()
+
+
+# --------------------------------------------------------------------------------------------- records without SEQ / CIGAR
+def test_records_without_seq_or_cigar_are_counted_and_skipped(genome, bam, vcf, tmp_path):
+    def edit(r):
+        if r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 20000:
+            r.query_sequence = None                                   # SEQ *
+        elif r.get_tag("CB") == CELL_A and r.reference_name == "chr1" and r.reference_start == 30000:
+            r.cigartuples = None                                      # no CIGAR
+        elif r.get_tag("CB") == CELL_B and r.reference_name == "chr2" and r.reference_start == 950:
+            r.query_sequence = None                                   # R2 covers two SNPs
+        return r
+    b = rewrite_bam(bam, tmp_path / "noseq.bam", edit)
+    o = tmp_path / "o"
+    for ch in ("chr1", "chr2"):
+        assert main(["extract", "--chrom", ch, "--snps", str(vcf), "--phased"] + _common(genome, b, o)) == 0
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0
+    p1, p2 = (json.load(open(o / "partials" / c / "params.json")) for c in ("chr1", "chr2"))
+    assert p1["n_no_seq_cigar"] == 2 and p2["n_no_seq_cigar"] == 1
+    assert json.load(open(o / "summary.json"))["n_no_seq_cigar"] == 3
+    f = _frags(o)
+    assert not f["start"].isin([20000, 30000]).any() and not ((f.cell == CELL_B) & (f.start == 950)).any()
+    q = pd.read_csv(o / "cells_qc.tsv", sep="\t", index_col=0)
+    assert q.loc[CELL_A, "n_primary"] == 19 and q.loc[CELL_A, "n_pass"] == 18     # 21 / 20 without the edits
+    assert q.loc[CELL_A, ["mapq0", "mapq1_29", "mapq30_59", "mapq60"]].sum() == 19

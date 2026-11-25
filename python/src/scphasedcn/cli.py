@@ -319,25 +319,24 @@ def cmd_extract(a):
 
 # ----------------------------------------------------------------------------------------------- merge
 def cmd_merge(a):
-    from .merge import merge_sample
+    from .merge import merge_sample, default_chroms
     chroms = a.chroms.split(",") if a.chroms else None
     out = a.out
+    bam = None
     if a.config and a.sample:
         cfg = load_yaml(a.config); sc = sample_from_config(cfg, a.sample)
-        out = out or sc.out
+        out = out or sc.out; bam = sc.bam
         if chroms is None and sc.chroms_set:
             chroms = list(sc.chroms)
     if out is None:
         raise SystemExit("merge: need --out (the sample output directory) or --config with --sample")
-    if chroms is None:   # not given: the main chromosomes with a finished partial (as `run`: those of the BAM)
+    if chroms is None:   # not given: the chromosomes `run` extracts (those of the BAM); one without a partial is missing
+        chroms, how = default_chroms(out, bam=bam)
         P = Path(out) / "partials"
-        chroms = [c for c in MAIN_CHROMS if (P / c / "DONE").exists()]
-        none = [c for c in MAIN_CHROMS if c not in chroms]
         other = sorted(p.name for p in P.iterdir() if p.name not in MAIN_CHROMS and not p.name.startswith("region_")
                        and (p / "DONE").exists()) if P.is_dir() else []
         if chroms:
-            _log(f"merge: merging {', '.join(chroms)} (the main chromosomes with a finished partial; --chroms not "
-                 f"given); no finished partial for {', '.join(none) or 'none'}"
+            _log(f"merge: --chroms not given: {how}: {', '.join(chroms)}"
                  + (f"; partials of {', '.join(other)} are merged only when named in --chroms" if other else ""))
     s = merge_sample(out, chroms, tag=a.tag, allow_missing=a.allow_missing, log=_log)
     _log(json.dumps({k: v for k, v in s.items() if k != "params"}, default=str))
@@ -489,12 +488,14 @@ def build_parser():
 
     s = sub.add_parser("merge", help="merge chromosome partials into h5ad / tsv outputs")
     s.add_argument("--config"); s.add_argument("--sample"); s.add_argument("--out", help="sample output directory")
-    s.add_argument("--chroms", help="comma list (default: the yaml sample's chroms, else the chromosomes of chr1-22, X, "
-                                    "Y, M with a finished partial)")
+    s.add_argument("--chroms", help="comma list (default: the yaml sample's chroms, else, as `run`, the chromosomes of "
+                                    "chr1-22, X, Y, M in the BAM header (the BAM recorded in the partials; when it "
+                                    "cannot be read, those with a partial directory))")
     s.add_argument("--tag", help="bins_<tag>.h5ad (default: from the bin size of the partials, as in `run`)")
     s.add_argument("--allow-missing", action="store_true",
-                   help="merge although some chromosomes of --chroms (or the yaml chroms) have no finished partial "
-                        "(default: fail and list them)")
+                   help="merge although some chromosomes to merge (--chroms, the yaml chroms, or the default set) "
+                        "have no finished partial; they are listed as `missing` in summary.json (default: fail and "
+                        "list them)")
     s.set_defaults(func=cmd_merge)
     return p
 

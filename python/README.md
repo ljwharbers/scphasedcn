@@ -51,9 +51,11 @@ Options worth knowing:
   else the single `bins_<tag>.h5ad`), so keep one bins file per extraction directory.
 - Cell barcodes: a trailing `-1` is optional on both sides (whitelist and BAM `CB`). A chromosome where no record
   is in a whitelisted cell while many are in other barcodes stops the extraction (wrong whitelist).
-- `merge` without `--chroms` (and without `chroms` in the yaml sample) merges the main chromosomes (chr1-22, X, Y, M)
-  that have a finished partial and lists those without one; with a list, it fails when a listed chromosome has no
-  finished partial (`--allow-missing` merges without it). It also fails when the partials were extracted from different inputs (cells, bin size, BAM, SNP file, `--vote-ps`, masks: recorded in each
+- `merge` without `--chroms` (and without `chroms` in the yaml sample) merges the chromosomes `run` extracts: the main
+  chromosomes (chr1-22, X, Y, M) in the header of the BAM recorded in the partials (when that BAM cannot be read, the
+  main chromosomes with a partial directory, finished or not). It fails when a chromosome to merge has no finished
+  partial (an extract job that died or never ran), naming it; `--allow-missing` merges without it and lists it as
+  `missing` in `summary.json`. A partial directory without `DONE` is always reported. It also fails when the partials were extracted from different inputs (cells, bin size, BAM, SNP file, `--vote-ps`, masks: recorded in each
   partial's `DONE`). `--region` writes `partials/region_<chrom>_<start>-<end>`, which `merge` does not merge.
 
 Fragments whose start lies in the blacklist are flagged (`flags` bit 8) and left out of the depth layers (the

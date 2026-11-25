@@ -520,21 +520,60 @@ def test_merge_needs_an_output_directory():
         main(["merge"])
 
 
-def test_merge_without_chroms_merges_the_finished_partials(genome, bam, tmp_path, capsys):
+def test_merge_without_chroms_merges_the_chromosomes_of_the_bam(genome, bam, tmp_path, capsys):
+    """Without --chroms, merge takes the set `run` extracts: the main chromosomes of the BAM header (the fixture BAM
+    has chr1, chr2, chrM, chrX and no chrY). One without a finished partial (an extract job that died or never ran)
+    is missing: an error naming it, or listed in summary.json with --allow-missing."""
     o = tmp_path / "o"
     for ch in ("chr2", "chr1"):
         assert main(["extract", "--chrom", ch] + _common(genome, bam, o)) == 0
     assert main(["extract", "--region", "chr1:0-50000"] + _common(genome, bam, o)) == 0   # never merged
-    (o / "partials" / "chrX").mkdir()                                                    # unfinished: no DONE
+    (o / "partials" / "chrX").mkdir()                                                    # died: no DONE
+    with pytest.raises(SystemExit, match=r"no finished partial .* for chrX, chrM; .*--allow-missing"):
+        main(["merge", "--out", str(o)])
+    assert not (o / "summary.json").exists()
     capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--allow-missing"]) == 0
+    s = json.load(open(o / "summary.json"))
+    assert s["chroms"] == ["chr1", "chr2"] and s["missing"] == ["chrX", "chrM"]
+    err = capsys.readouterr().err
+    assert "main chromosomes of the BAM" in err and "chr1, chr2, chrX, chrM" in err and "chrY" not in err
+    # every chromosome of the BAM extracted: merges without --chroms although the BAM has no chrY
+    for ch in ("chrM", "chrX"):
+        assert main(["extract", "--chrom", ch] + _common(genome, bam, o)) == 0
     assert main(["merge", "--out", str(o)]) == 0
     s = json.load(open(o / "summary.json"))
-    assert s["chroms"] == ["chr1", "chr2"] and s["missing"] == []
-    err = capsys.readouterr().err
-    assert "merging chr1, chr2" in err and "chrX" in err and "chrY" in err
-    # an explicit list keeps the missing-partial error and --allow-missing
+    assert s["chroms"] == ["chr1", "chr2", "chrX", "chrM"] and s["missing"] == []
+    # an explicit list keeps the missing-partial error and --allow-missing; an unfinished partial outside it is reported
+    (o / "partials" / "chrX" / "DONE").unlink()
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2"]) == 0
+    assert "unfinished partials (no DONE; not merged): chrX" in capsys.readouterr().err
     with pytest.raises(SystemExit, match="chrX"):
         main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX"])
     assert main(["merge", "--out", str(o), "--chroms", "chr1,chr2,chrX", "--allow-missing"]) == 0
     with pytest.raises(SystemExit, match="no finished partials"):
         main(["merge", "--out", str(tmp_path / "empty")])
+
+
+def test_merge_without_chroms_and_without_the_bam(genome, bam, tmp_path, capsys):
+    """When the recorded BAM cannot be read (moved, or another file at its path), the default set is the main
+    chromosomes with a partial directory, finished or not."""
+    b = tmp_path / "moved.bam"
+    shutil.copy(bam, b); shutil.copy(str(bam) + ".bai", str(b) + ".bai")
+    o = tmp_path / "o"
+    for ch in ("chr1", "chr2"):
+        assert main(["extract", "--chrom", ch] + _common(genome, b, o)) == 0
+    (o / "partials" / "chrX").mkdir()                                                    # died: no DONE
+    b.unlink()
+    with pytest.raises(SystemExit, match=r"no finished partial .* for chrX;"):
+        main(["merge", "--out", str(o)])
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--allow-missing"]) == 0
+    assert json.load(open(o / "summary.json"))["missing"] == ["chrX"]
+    assert "with a partial directory, finished or not" in capsys.readouterr().err
+    b.write_bytes(b"not the BAM the partials were made from")                         # another file at its path
+    capsys.readouterr()
+    assert main(["merge", "--out", str(o), "--allow-missing"]) == 0
+    assert json.load(open(o / "summary.json"))["missing"] == ["chrX"]
+    assert "not the file the partials were extracted from" in capsys.readouterr().err

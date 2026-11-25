@@ -59,6 +59,48 @@ def _partial_binsize(d: Path) -> int | None:
     return int(bs) if bs else None
 
 
+def _recorded_bam(P: Path) -> tuple[str | None, dict | None]:
+    """The BAM the partials under `P` were extracted from (params.json; finished partials first) and its fingerprint
+    in their DONE (None when not recorded)."""
+    dirs = sorted((d for d in P.iterdir() if d.is_dir() and not d.name.startswith("region_")),
+                  key=lambda d: (not (d / "DONE").exists(), d.name)) if P.is_dir() else []
+    for d in dirs:
+        try:
+            bam = json.load(open(d / "params.json")).get("bam")
+        except (OSError, ValueError):
+            continue
+        if bam:
+            fp = next((lm["inputs"]["bam"] for lm in ((read_done(d) or {}).get("layers") or {}).values()
+                       if (lm or {}).get("inputs") and lm["inputs"].get("bam")), None)
+            return str(bam), fp
+    return None, None
+
+
+def default_chroms(out, bam: str | None = None) -> tuple[list[str], str]:
+    """Chromosomes `merge` merges when none are named (the set `run` extracts): the main chromosomes (chr1-22, X, Y, M)
+    in the header of the BAM the partials were extracted from (recorded in their params.json; `bam` when none is
+    recorded). When that BAM cannot be read (moved, or another file at that path), the main chromosomes that have a
+    partial directory, finished or not. Returns (chromosomes, how they were chosen)."""
+    from .config import MAIN_CHROMS
+    from .writers import file_fingerprint
+    P = Path(out) / "partials"
+    rec, fp = _recorded_bam(P)
+    path = rec or bam
+    why = "no BAM recorded in the partials"
+    if path:
+        try:
+            if fp is not None and file_fingerprint(path) != fp:
+                raise ValueError("not the file the partials were extracted from")
+            with pysam.AlignmentFile(path, "rb", check_sq=False) as bf:
+                refs = set(bf.references)
+            chroms = [c for c in MAIN_CHROMS if c in refs]
+            return chroms, f"the main chromosomes of the BAM {path}"
+        except (OSError, ValueError) as e:
+            why = f"the BAM {path} cannot be read ({e})"
+    chroms = [c for c in MAIN_CHROMS if (P / c).is_dir()]
+    return chroms, f"the main chromosomes with a partial directory, finished or not ({why})"
+
+
 def _fmt(v) -> str:
     s = json.dumps(v, sort_keys=True, default=str)
     return s if len(s) <= 120 else s[:117] + "..."
@@ -270,9 +312,13 @@ def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_parti
         raise SystemExit(f"no finished partials under {P}")
     if missing and not allow_missing:
         raise SystemExit(f"merge: no finished partial (partials/<chrom>/DONE) for {', '.join(missing)}; extract them, "
-                         f"or merge without them with --allow-missing (or leave them out of --chroms)")
+                         f"merge without them with --allow-missing, or name the chromosomes to merge with --chroms")
     if missing:
         log(f"warning: merging without {', '.join(missing)} (--allow-missing)")
+    unfinished = sorted(d.name for d in P.iterdir() if d.is_dir() and d.name not in chroms
+                        and not (d / "DONE").exists())
+    if unfinished:
+        log(f"warning: unfinished partials (no DONE; not merged): {', '.join(unfinished)}")
     check_partials(dirs, log)
     if tag is None:
         bs = _partial_binsize(dirs[0])

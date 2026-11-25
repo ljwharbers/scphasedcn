@@ -11,8 +11,8 @@
 #        Lists (--cells, --null-cells, --multiplets given inline, --events) use ';' as separator (so that values
 #        survive tools that split at commas, e.g. sbatch --export). RLIB (env) puts a package library first on the library path.
 #        The script's path: system.file("scripts", "call_scn.R", package = "scphasedcn").
-# Inputs: the extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv), optional cell metadata,
-#         an optional sample yaml and caller yaml.
+# Inputs: the extraction directory (the bins file bins_<tag>.h5ad, by default bins_100kb.h5ad; fragments.tsv.gz + .tbi,
+#         cells_qc.tsv), optional cell metadata, an optional sample yaml and caller yaml.
 # Outputs: <out>/ cells.tsv, calls.tsv, pooled_calls.tsv, events.tsv, thresholds.tsv, null_fit.tsv, regions.tsv,
 #          (normal: false_calls.tsv, false_events.tsv, expected_false.tsv, null_selection_check.tsv with --null-check),
 #          (tumour: clones.tsv, assignments.tsv, clone_segments.tsv, clone_profiles.tsv.gz, reference_pool.txt),
@@ -27,8 +27,8 @@ usage = paste(
   "Single-cell copy-number caller (scphasedcn::call_scn) on one sample.",
   "",
   "Inputs: either --dir + --out (+ --sex), or --config + --sample.",
-  "  --dir <path>            extraction directory written by `scphasedcn run` (bins_100kb.h5ad, fragments.tsv.gz + .tbi,",
-  "                          cells_qc.tsv)",
+  "  --dir <path>            extraction directory written by `scphasedcn run` (bins_<tag>.h5ad, by default bins_100kb.h5ad;",
+  "                          fragments.tsv.gz + .tbi, cells_qc.tsv)",
   "  --out <dir>             output directory (with --config / --sample: default <outputs.root>/<sample>/caller/<tag>)",
   "  --sex female|male       sample sex (required unless the sample yaml gives it; also F / M, any case)",
   "  --config <yaml>         sample yaml (layout: system.file('extdata', 'sample_template.yaml', package = 'scphasedcn');",
@@ -92,7 +92,7 @@ if (nzchar(cfg_file)) {
 s = if (nzchar(a$sample)) cli_sample(cfg, a$sample) else list(name = "sample")
 dir = if (nzchar(a$dir)) a$dir else s$dir
 if (!length(dir) || !nzchar(dir[1])) fail("give --dir <extraction dir> (or --config + --sample)")
-if (!nzchar(a$features) && !file.exists(file.path(dir, "bins_100kb.h5ad"))) fail("no bins_100kb.h5ad in ", dir)
+if (!nzchar(a$features)) tryCatch(bins_file(dir), error = function(e) fail(conditionMessage(e)))
 mode = if (nzchar(a$mode)) a$mode else if (isTRUE(tolower(s$type) %in% c("tumour", "tumor"))) "tumour" else "normal"
 if (identical(tolower(mode), "tumor")) mode = "tumour"
 if (!mode %in% c("normal", "tumour")) fail("--mode must be normal or tumour")

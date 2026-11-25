@@ -29,7 +29,7 @@ cell_features(
 )
 }
 \arguments{
-\item{dir}{extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)}
+\item{dir}{extraction directory (bins file \verb{bins_<tag>.h5ad}, by default \code{bins_100kb.h5ad}: \code{\link[=bins_file]{bins_file()}}; fragments.tsv.gz + .tbi, cells_qc.tsv)}
 
 \item{cells}{NULL (QC-pass cells) or the cells to use (no QC)}
 

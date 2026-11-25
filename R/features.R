@@ -1,7 +1,7 @@
 # features.R
 # What: the feature step of the copy-number caller: per-cell per-region depth and
-#       allele features from an extraction directory (bins_100kb.h5ad + fragments.tsv.gz). Cell QC,
-#       Battenberg arms, the regions table (arms, chromosomes, 5-50 Mb
+#       allele features from an extraction directory (the bins file bins_<tag>.h5ad, by default bins_100kb.h5ad,
+#       + fragments.tsv.gz). Cell QC, Battenberg arms, the regions table (arms, chromosomes, 5-50 Mb
 #       tiles, named events; containment rule for depth, start-inside rule for alleles, the sd_class
 #       rule), depth x / e / log2ratio / per-cell null SD / z by sparse region x bin products, molecule
 #       votes (fragments of one cell within `mol_gap` collapsed, majority haplotype) counted per atom
@@ -9,8 +9,8 @@
 #       pseudobulk / clone orientation, or mirrored), and the long features table.
 # Why: one function, cell_features(), builds every feature table that the scorer and the
 #      tumour mode consume (schemas in vignette("scphasedcn-outputs", package = "scphasedcn")).
-# Inputs: an extraction directory (bins_100kb.h5ad, fragments.tsv.gz, cells_qc.tsv; read_sample_depth()), a centromere table,
-#         cell metadata.
+# Inputs: an extraction directory (the bins file bins_<tag>.h5ad, by default bins_100kb.h5ad (bins_file()),
+#         fragments.tsv.gz, cells_qc.tsv; read_sample_depth()), a centromere table, cell metadata.
 # Outputs: an `scn_features` list: long (features), regions, cells, votes, atoms, win, params, notes.
 
 utils::globalVariables(c("qc_pass", "stratum", "cen_left", "cen_right", "cstart", "cend", "csz", "sd_class",
@@ -825,10 +825,10 @@ allelic_features = function(votes, atoms, regions, orientation = c("auto", "chro
 
 # ---- top level ---------------------------------------------------------------------------------------------
 
-# the sample reader of the caller: bins_100kb.h5ad (requested layers only, no obsm), the fragments path and the
-# cells_qc.tsv columns merged into `cells`; no alleles file (the caller reads its allele votes from the fragment table)
+# the sample reader of the caller: the bins file (bins_file(): bins_100kb.h5ad, else the one bins_<tag>.h5ad;
+# requested layers only, no obsm), the fragments path and the cells_qc.tsv columns merged into `cells`; no alleles file (the caller reads its allele votes from the fragment table)
 read_sample_depth = function(dir, layers = character()) {
-  scn = read_bins_h5ad(file.path(dir, "bins_100kb.h5ad"), layers = layers)
+  scn = read_bins_h5ad(bins_file(dir), layers = layers)
   scn$obsm = list()
   ff = file.path(dir, "fragments.tsv.gz")
   if (file.exists(ff)) scn$fragments = ff
@@ -894,7 +894,7 @@ apply_cell_meta = function(meta, cell_meta) {
 #' regions ([region_set()]), the depth features ([depth_features()]), the molecule votes
 #' ([read_votes()]) and the oriented allele features ([allelic_features()]), and joins them into the
 #' long features table (`vignette("scphasedcn-outputs", package = "scphasedcn")`).
-#' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
+#' @param dir extraction directory (bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad`: [bins_file()]; fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param cells NULL (QC-pass cells) or the cells to use (no QC)
 #' @param cell_meta NULL or a data.table with `cell` and optional `qc_pass, cell_type, flat, fold, group, stratum,
 #'   n_frag` (used as-is; NA cell_type = no type-matched reference; NA or missing `stratum` / `n_frag` keep the QC

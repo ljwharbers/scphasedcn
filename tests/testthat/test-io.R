@@ -201,3 +201,41 @@ test_that("subset_scn: integer and character selectors keep the requested order;
   expect_error(subset_scn(s, cells = c("a", "a")), "duplicate")
   expect_error(subset_scn(s, cells = c("a", "z")), "not in")
 })
+
+test_that("bins_file: bins_100kb.h5ad when present, else the one bins_<tag>.h5ad; none or several stop", {
+  d = file.path(tempdir(), "binsfile_test")
+  unlink(d, recursive = TRUE)
+  dir.create(d)
+  expect_error(bins_file(d), "no bins file")
+  file.create(file.path(d, c("bins_50kb.h5ad", "bins_100kb.h5ad", "alleles_dna.h5ad")))
+  expect_identical(bins_file(d), file.path(d, "bins_100kb.h5ad"))         # preferred when present
+  file.remove(file.path(d, "bins_100kb.h5ad"))
+  expect_identical(bins_file(d), file.path(d, "bins_50kb.h5ad"))
+  file.create(file.path(d, "bins_1Mb.h5ad"))
+  expect_error(bins_file(d), "2 bins files .*bins_1Mb.h5ad, bins_50kb.h5ad")
+})
+
+test_that("the sample reader reads an extraction directory whose bins file is bins_50kb.h5ad", {
+  d = file.path(tempdir(), "binsfile_50kb")
+  unlink(d, recursive = TRUE)
+  p = write_sim_dataset(simulate_scn(n_cells = 12, seed = 3), d)
+  ref = read_sample_depth(d)
+  file.rename(p$bins, file.path(d, "bins_50kb.h5ad"))
+  s = read_sample_depth(d)
+  expect_identical(s$cells, ref$cells)
+  expect_identical(s$bins, ref$bins)
+  expect_identical(s$counts, ref$counts)
+  file.copy(file.path(d, "bins_50kb.h5ad"), file.path(d, "bins_20kb.h5ad"))
+  expect_error(read_sample_depth(d), "2 bins files")
+})
+
+test_that("call_scn.R --dir without a bins file names what it looked for", {
+  skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
+  script = system.file("scripts", "call_scn.R", package = "scphasedcn")
+  d = file.path(tempdir(), "binsfile_cli_empty")
+  dir.create(d, showWarnings = FALSE)
+  log = suppressWarnings(system2(file.path(R.home("bin"), "Rscript"), c(script, "--dir", d, "--out", file.path(d, "out"),
+                                                                         "--sex", "female"), stdout = TRUE, stderr = TRUE))
+  expect_false(is.null(attr(log, "status")))
+  expect_true(any(grepl("no bins file (bins_<tag>.h5ad, by default bins_100kb.h5ad)", log, fixed = TRUE)))
+})

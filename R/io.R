@@ -1,7 +1,8 @@
 # io.R
 # What: the `scn` container (bins x cells count matrix + layers + obs/var +
 #       obsm + alleles) and readers / writers for the extraction-layer data
-#       contract: bins_100kb.h5ad (anndata HDF5, gzip only), alleles_dna.h5ad (writer only: simulated data sets),
+#       contract: the bins file `bins_<tag>.h5ad` (by default bins_100kb.h5ad; [bins_file()]; anndata HDF5, gzip
+#       only), alleles_dna.h5ad (writer only: simulated data sets),
 #       fragments.tsv.gz (+ tabix), cells_qc.tsv, and the sample YAML.
 # Why: one object feeds every module; readers tolerate missing layers so the
 #      R side runs on partial extractions and on simulated data written by
@@ -235,7 +236,25 @@ h5_read_obsm = function(file, name, n_obs) {
 
 # ---- bins h5ad ---------------------------------------------------------------------
 
-#' Write an scn object as `bins_100kb.h5ad` (anndata layout, gzip only)
+#' The bins file of an extraction directory
+#'
+#' The extractor names the bins file after its bin size (`bins_<tag>.h5ad`: `bins_100kb.h5ad` at the default 100 kb,
+#' e.g. `bins_50kb.h5ad` or `bins_1Mb.h5ad` otherwise, or its `--tag`). Returns `bins_100kb.h5ad` when the directory
+#' has it, otherwise the one `bins_*.h5ad` file in it; stops when there is none or more than one (naming them).
+#' @param dir extraction directory
+#' @return path of the bins file
+#' @export
+bins_file = function(dir) {
+  f = file.path(dir, "bins_100kb.h5ad")
+  if (file.exists(f)) return(f)
+  cand = sort(list.files(dir, pattern = "^bins_.+\\.h5ad$"), method = "radix")
+  if (length(cand) == 1L) return(file.path(dir, cand))
+  if (!length(cand)) stop(sprintf("no bins file (bins_<tag>.h5ad, by default bins_100kb.h5ad) in %s", dir), call. = FALSE)
+  stop(sprintf("%d bins files in %s (%s) and no bins_100kb.h5ad: keep one, or read one with read_bins_h5ad()",
+               length(cand), dir, paste(cand, collapse = ", ")), call. = FALSE)
+}
+
+#' Write an scn object as a bins file (`bins_<tag>.h5ad`, anndata layout, gzip only)
 #' @param scn scn object
 #' @param file output path
 #' @param layers which layers to write (default all)
@@ -273,7 +292,8 @@ write_bins_h5ad = function(scn, file, layers = names(scn$layers)) {
   invisible(file)
 }
 
-#' Read `bins_100kb.h5ad` into an scn object (missing layers tolerated)
+#' Read a bins file (`bins_<tag>.h5ad`, by default `bins_100kb.h5ad`; [bins_file()]) into an scn object (missing
+#' layers tolerated)
 #' @param file path
 #' @param layers layers to read (default: all present)
 #' @param cells optional character vector of cells to keep

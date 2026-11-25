@@ -2,7 +2,8 @@
 % Please edit documentation in R/io.R
 \name{read_bins_h5ad}
 \alias{read_bins_h5ad}
-\title{Read \code{bins_100kb.h5ad} into an scn object (missing layers tolerated)}
+\title{Read a bins file (\verb{bins_<tag>.h5ad}, by default \code{bins_100kb.h5ad}; \code{\link[=bins_file]{bins_file()}}) into an scn object (missing
+layers tolerated)}
 \usage{
 read_bins_h5ad(file, layers = NULL, cells = NULL)
 }
@@ -17,5 +18,6 @@ read_bins_h5ad(file, layers = NULL, cells = NULL)
 scn object
 }
 \description{
-Read \code{bins_100kb.h5ad} into an scn object (missing layers tolerated)
+Read a bins file (\verb{bins_<tag>.h5ad}, by default \code{bins_100kb.h5ad}; \code{\link[=bins_file]{bins_file()}}) into an scn object (missing
+layers tolerated)
 }

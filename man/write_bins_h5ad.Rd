@@ -2,7 +2,7 @@
 % Please edit documentation in R/io.R
 \name{write_bins_h5ad}
 \alias{write_bins_h5ad}
-\title{Write an scn object as \code{bins_100kb.h5ad} (anndata layout, gzip only)}
+\title{Write an scn object as a bins file (\verb{bins_<tag>.h5ad}, anndata layout, gzip only)}
 \usage{
 write_bins_h5ad(scn, file, layers = names(scn$layers))
 }
@@ -17,5 +17,5 @@ write_bins_h5ad(scn, file, layers = names(scn$layers))
 file path (invisibly)
 }
 \description{
-Write an scn object as \code{bins_100kb.h5ad} (anndata layout, gzip only)
+Write an scn object as a bins file (\verb{bins_<tag>.h5ad}, anndata layout, gzip only)
 }

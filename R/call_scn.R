@@ -305,8 +305,9 @@ utils::globalVariables(c("st", "k", "region"))
 #' channel -> optional chromatin embedding ([scn_embedding()]) for kNN pools -> [caller_normal()] (null cells,
 #' Student-t / beta-binomial nulls, fold-cross-validated budget thresholds, per-cell calls, pooled calls,
 #' events). Tumour (`mode = "tumour"`): [cell_features()] with `model` depth, automatic phasing and the pseudobulk
-#' groups `groups`, event chromosomes excluded from the null -> [caller_tumour()] (clones, clone
-#' segments, cell assignment, per-cell inherited / confirmed calls).
+#' groups `groups`, event chromosomes excluded from the null -> input depth t null and allelic rho on the null rows of
+#' the flagged null cells, else of the cells without a call on the null rows ([tumour_null_fit()]) -> [caller_tumour()]
+#' (clones, clone segments, cell assignment, per-cell inherited / confirmed calls).
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
 #' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
@@ -324,7 +325,12 @@ utils::globalVariables(c("st", "k", "region"))
 #'   "select" ([select_null_cells()]), or the null cells themselves (vector or file). Tumour mode: given null cells
 #'   (like `flat` cells of `cell_meta`) are the cells whose null rows fit the input depth t null and allelic rho when the
 #'   features carry no `null_fit`; they are not the reference pool (the caller finds and cleans the normal clone
-#'   itself); "select" is ignored with a warning
+#'   itself). Without flagged null cells, or with "select", the input null is fitted on the cells without a call on
+#'   the null rows that [tumour_null_fit()] selects (on all cells when no stable set of such cells exists, e.g. a
+#'   sample without normal cells). The run warns when no cell is flagged, and also when the selected cells are more
+#'   than two thirds of the cells: a stable selection does not show that they are copy-number neutral (a tumour whose
+#'   cells share clonal events on the null rows passes it too); the run notes say which null was used. Flagged
+#'   copy-number-normal cells give the better null
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
 #'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`, which sets aside the cells
 #'   above its `multiplet_prob` option (default 0.9). The `multiplet` column of the cells table flags the cells each
@@ -403,9 +409,6 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
   }
   if (!is.null(groups) && !is.null(names(groups))) names(groups) = strip_barcode(names(groups))
   if (mode == "tumour" && !is.null(nc_cells) && !is.null(cm)) cm[, flat := cell %in% nc_cells]
-  if (mode == "tumour" && nc_mode == "select")
-    warning("call_scn: null_cells = \"select\" is the null-cell selection of normal mode; tumour mode fits its input null on ",
-            "the features' null cells (`flat` / given null cells) and finds its reference pool itself; ignored", call. = FALSE)
   # pseudobulk groups as a vector named by cell (cell_features only knows its own meta columns)
   grp = groups
   if (!is.null(grp) && is.character(grp) && length(grp) == 1 && is.null(names(grp))) {
@@ -577,24 +580,39 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       say("rebuilding 1 Mb window depth (model) for the clone pseudobulks")
       features$win = feature_windows(dir, features, "model")
     }
-    if (is.null(features$null_fit)) {
-      # depth t null and allelic rho on the null rows (null cells if any, else all cells) for the tumour mode
-      nr = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible
-      if (any(long$null_cell %in% TRUE)) nr = nr & long$null_cell %in% TRUE
-      if (any(nr)) {
-        tpar = complete_tpar(long, fit_depth_null(long[nr]))
-        arm = nr & long$class == "arm" & long$n_hap > 0
-        rho = if (any(arm, na.rm = TRUE)) fit_allelic_null(long$nA[arm %in% TRUE], long$n_hap[arm %in% TRUE]) else NA_real_
-        features$null_fit = list(tpar = tpar, rho = rho)
+    null_note = NULL
+    own_nf = !is.null(features$null_fit)   # recorded before the fit below fills features$null_fit
+    if (!own_nf) {
+      # depth t null and allelic rho on the null rows of the flagged null cells; without any (or with
+      # null_cells = "select"), of the cells without a call on the null rows (all cells when no stable set exists)
+      nf = tumour_null_fit(long, params = params, exclude = if (is.null(mult)) NULL else mult[prob > 0.5, cell],
+                           select = nc_mode == "select")
+      if (!is.null(nf)) {
+        features$null_fit = list(tpar = nf$tpar, rho = nf$rho)
+        null_note = nf$note
+        say(null_note)
+        flagged = any(long$null_cell %in% TRUE)
+        if (!flagged || nf$source == "all" || !is.null(nf$caution))
+          warning(sprintf("call_scn: tumour mode %s: the input null (depth t, allelic rho) is fitted on %s%s; %s",
+                          if (flagged) "with null_cells = \"select\"" else "without flagged null cells",
+                          if (nf$source == "selected") sprintf("the %d cells without a call on the null rows", length(nf$null_cells)) else
+                            "all cells, tumour cells included (no stable set of cells without a call on the null rows)",
+                          if (is.null(nf$caution)) "" else paste0("; ", nf$caution),
+                          if (flagged) "the flagged null cells (without null_cells = \"select\") give a better null" else
+                            "copy-number-normal cells flagged as `flat` in `cell_meta` (or given as `null_cells`) give a better null"),
+                  call. = FALSE)
       }
+    } else {
+      null_note = "tumour input null (depth t, allelic rho): the features' own null fit (features$null_fit)"
+      if (!is.null(nc_cells) || nc_mode == "select")
+        warning("call_scn: the features carry their own null fit (features$null_fit); the given null_cells are not used in tumour mode",
+                call. = FALSE)
     }
-    if (!is.null(nc_cells) && !is.null(features$null_fit))
-      warning("call_scn: the features carry their own null fit (features$null_fit); the given null_cells are not used in tumour mode",
-              call. = FALSE)
     args = list(feat = features, params = params, multiplets = mult, control_regions = control_regions)
     if (is.null(caller_args$verbose)) args$verbose = verbose
     say("caller_tumour")
     res = do.call(caller_tumour, c(args, caller_args))
+    res$notes = c(null_note, res$notes)
     res$embedding = NULL
   }
   res$notes = c(res$notes, mixed_note, phase_note)

@@ -35,6 +35,31 @@ jobs:
           python -m build --outdir "$RUNNER_TEMP/dist" python
           twine check "$RUNNER_TEMP"/dist/*
 
+  extraction-io:
+    # the R readers on real extractor output: the Python test suite's synthetic sample, read by the installed R package
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "./python[test]"
+      - name: tiny extraction directory (python/tests/conftest.py, fixture extracted)
+        run: python tools/tiny_extraction.py "$RUNNER_TEMP/extract"
+      - name: tabix (read_votes reads the fragment table through it; the check compares it with the R fallback)
+        run: sudo apt-get update && sudo apt-get install -y tabix
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          dependencies: '"hard"'
+          extra-packages: local::.
+      - name: read it with the R package
+        run: Rscript tools/check_extraction_io.R "$RUNNER_TEMP/extract"
+
   r-cmd-check:
     runs-on: ${{ matrix.os }}
     strategy:

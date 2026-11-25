@@ -461,8 +461,8 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
 #' Adds `thr_<score>` and `call_<score>` (`score > max(thr, 0)`, strict: a call also needs a positive
 #' log-likelihood ratio; `thr_<score>` is the threshold itself, which can be negative). A row
 #' whose `fold` has a threshold in the table gets that fold's (cross-validated)
-#' threshold; other rows (no `fold` column, fold 0, or a fold the table does
-#' not have) get fold 0. A thresholds table whose `stratum` is all "all"
+#' threshold; other rows (no `fold` column, fold 0, a fold the table does not have, or a fold whose threshold is NA
+#' because its training rows were empty) get fold 0. A thresholds table whose `stratum` is all "all"
 #' (class-level, e.g. pooled) is matched on class only. A table with a non-NA `hstratum` column (vote
 #' calibration) is also matched on the rows' `hstratum`. Threshold rows with a `borrowed_from` sd_class (a class
 #' without null rows, [budget_thresholds()]) apply to the rows of that class whose `sd_class` is `borrowed_from`.
@@ -494,7 +494,7 @@ apply_thresholds = function(d, thr, scores = unique(thr$score)) {
     }
     k1 = match(paste(kd, fold, sep = "\t"), paste(kt, tt$fold, sep = "\t"))
     k0 = match(paste(kd, 0L, sep = "\t"), paste(kt, tt$fold, sep = "\t"))
-    k = fifelse(fold != 0L & !is.na(k1), k1, k0)
+    k = fifelse(fold != 0L & !is.na(k1) & !is.na(tt$thr[k1]), k1, k0)      # an NA fold threshold (empty training set): fold 0
     th = tt$thr[k]
     set(d, j = paste0("thr_", s), value = th)
     set(d, j = paste0("call_", s), value = above_thr(d[[s]], th))

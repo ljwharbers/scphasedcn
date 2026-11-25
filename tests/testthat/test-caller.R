@@ -1881,3 +1881,22 @@ test_that("select_null_cells: rows of a class without any null row (named events
   expect_identical(s1$null_cells, s0$null_cells)
   expect_identical(s1$calls, s0$calls)
 })
+
+test_that("apply_thresholds: a fold whose threshold is NA (empty training set) takes fold 0; finite folds unchanged", {
+  thr = data.table(score = "s_comb", class = "arm", stratum = "all", fold = c(0L, 1L, 2L), q = 0.999,
+                   thr = c(5, NA, 7), n_null = c(10L, 0L, 5L), pooled_fallback = FALSE)
+  d = data.table(class = "arm", fold = c(1L, 2L, 0L, 3L), s_comb = c(6, 6, 6, 6))
+  a = apply_thresholds(d, thr, "s_comb")
+  expect_identical(a$thr_s_comb, c(5, 7, 5, 5))
+  expect_identical(a$call_s_comb, c(TRUE, FALSE, TRUE, TRUE))
+})
+
+test_that("select_null_cells (empirical): null cells all in one fold are thresholded with fold 0, not dropped", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))[class %in% c("chrom", "arm")]
+  ff = fake_features(200, rg, seed = 6)
+  s0 = select_null_cells(copy(ff)[, fold := 0L], threshold = "empirical", q = 0.999)
+  s1 = select_null_cells(copy(ff)[, fold := 1L], threshold = "empirical", q = 0.999)   # no training rows for fold 1
+  expect_gt(length(s0$null_cells), 150)
+  expect_identical(s1$null_cells, s0$null_cells)
+  expect_identical(s1$calls, s0$calls)
+})

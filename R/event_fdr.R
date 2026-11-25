@@ -282,6 +282,8 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
     for (fo in unique(x$fold[tg])) {
       t_ = tg[x$fold[tg] %in% fo]
       cal = if (!is.na(fo) && fo %in% folds) which(!is.na(cf) & cf != fo) else seq_along(nul)
+      # no finite null score in the other folds: the fold threshold is NA and apply_thresholds() used fold 0
+      if (!any(is.finite(cp[cal]))) cal = seq_along(nul)
       set(x, i = t_, j = "p", value = conformal_p(x$s_[t_], cs[cal], cp[cal], tn))
     }
   }

@@ -1,74 +1,12 @@
 # test-clones.R: tumour mode (R/clones_*.R) on hand-made tables, fake_votes and the cached
 # simulations sim_tum2 (two clones + normal, unoriented short phase blocks) and sim_norm_f (normal tissue).
-# The caller input is built here from a simulation (model depth, molecule votes, all-cell leave-one-out
-# orientation) until the feature step's cell_features() is available; results are cached in caller_test_cache.
+# The caller input is built from a simulation by clone_sim_input() (helper-caller.R: model depth, molecule votes,
+# all-cell leave-one-out orientation); results are cached in caller_test_cache.
 
 clone_cached = function(name, build) {
   if (is.null(caller_test_cache[[name]])) caller_test_cache[[name]] = build()
   caller_test_cache[[name]]
 }
-
-# scn_features-like list from a simulation: features (arms, chromosomes, 5 / 10 / 20 Mb tiles), regions, votes,
-# atoms (one per bin), cells, 1 Mb window depth (win) and null fits. Depth: model expected counts, each cell centred
-# on the median log2 ratio of its autosomal 5 Mb windows. Null cells = non-multiplet cells of `null_types`.
-clone_sim_input = function(sim, null_types = "normal", tiles = c("5Mb" = 5e6, "10Mb" = 1e7, "20Mb" = 2e7), mol_gap = 2000) {
-  scn = sim$scn
-  nm = suppressWarnings(normalise_depth(scn, "model"))
-  bins = scn$bins
-  sex = scn$cells$sex[1]
-  regions = fake_regions(bins, tiles = tiles, sex = sex)
-  if (sex == "male") regions[chrom %in% c("chrX", "chrY"), null_region := FALSE]
-  cells = scn$cells$cell
-  use = nm$use
-  X = as.matrix(scn$counts); X[!use, ] = 0
-  E = nm$expected; E[!use, ] = 0
-  w5 = window_ids(bins, 5e6); w5[!use | bins$chrom %in% c("chrX", "chrY")] = NA
-  i5 = group_indicator(w5)
-  med = apply(log2(as.matrix(i5 %*% X) / as.matrix(i5 %*% E)), 2, median)
-  E = sweep(E, 2, 2^med, "*")
-  wid = window_ids(bins, 1e6)
-  ind = group_indicator(wid)
-  wt = window_table(bins, wid)[match(rownames(ind), window)]
-  win = list(windows = wt[, .(window, chrom, start, end)], x = as.matrix(ind %*% X), e = as.matrix(ind %*% E))
-  colnames(win$x) = colnames(win$e) = cells
-  rb = lapply(seq_len(nrow(regions)), function(r) which(bins$chrom == regions$chrom[r] & bins$start >= regions$start[r] & bins$end <= regions$end[r]))
-  RI = Matrix::sparseMatrix(i = rep(seq_along(rb), lengths(rb)), j = unlist(rb), x = 1, dims = c(nrow(regions), nrow(bins)))
-  xr = as.matrix(RI %*% X); er = as.matrix(RI %*% E)
-  d = data.table(cell = rep(cells, each = nrow(regions)), ci = rep(seq_along(cells), each = nrow(regions)),
-                 region = rep(regions$region, length(cells)), x = as.vector(xr), e = as.vector(er))
-  d = merge(d, regions[, .(region, class, sd_class, chrom, null_region, eligible, allelic_ok)], by = "region", sort = FALSE)
-  d[, log2ratio := log2((x + 0.5) / (e + 0.5))]
-  d[, null_cell := (scn$cells$cell_type %in% null_types & !sim$truth$cells$multiplet)[ci]]
-  d[, sd_null := mad(log2ratio[null_region]), by = .(cell, sd_class)]
-  d[, z := log2ratio / pmax(sd_null, 0.05)]
-  fr = sim$fragments[hap %in% c(1L, 2L) & ps > 0, .(cell, chrom, start, end, hap = ifelse(hap == 1L, "A", "B"), ps)]
-  setorder(fr, cell, chrom, start)
-  fr[, new := c(TRUE, start[-1] > cummax(end)[-.N] + mol_gap), by = .(cell, chrom)]
-  fr[, mol := cumsum(new)]
-  m = fr[, .(start = min(start), ps = ps[1], nA = sum(hap == "A"), nB = sum(hap == "B")), by = .(cell, chrom, mol)][nA != nB]
-  if (sex == "male") m = m[!chrom %in% c("chrX", "chrY")]
-  atoms = fake_atoms(bins)
-  m[, atom := locate_bins(bins, chrom, start)]
-  votes = m[, .(nA = sum(nA > nB), nB = sum(nB > nA)), by = .(cell, atom, ps)]
-  votes[, `:=`(cell = as.integer(cell), atom = as.integer(atom), ps = as.numeric(ps), nA = as.integer(nA), nB = as.integer(nB))]
-  setorder(votes, cell, atom, ps)
-  ob = cl_orient(votes, regions, atoms, groups = NULL, loo = TRUE)
-  ob[, cell := cells[cell]]
-  d = merge(d, ob, by = c("cell", "region"), all.x = TRUE, sort = FALSE)
-  d[is.na(nA) | allelic_ok == FALSE, `:=`(nA = 0, nB = 0, n_blocks = 0)]
-  d[, n_hap := nA + nB][, f := fifelse(n_hap > 0, nA / n_hap, NA_real_)]
-  nf = scn$cells$n_frag
-  d[, `:=`(orient = "pseudobulk", n_frag = as.numeric(nf[ci]), stratum = as.character(depth_stratum(nf[ci])),
-           cell_type = scn$cells$cell_type[ci], fold = as.integer((ci - 1L) %% 4L + 1L))]
-  d[, c("ci", "allelic_ok") := NULL]
-  nr = d[null_cell & null_region & eligible]
-  list(features = d[], regions = regions, votes = votes, atoms = atoms,
-       cells = data.table(cell = cells, n_frag = as.numeric(nf), stratum = as.character(depth_stratum(nf)), cell_type = scn$cells$cell_type),
-       win = win, null_fit = list(tpar = fit_depth_null(nr, by = c("class", "stratum")), rho = fit_allelic_null(nr$nA, nr$n_hap)))
-}
-
-sim_truth = function(sim) data.table(cell = sim$scn$cells$cell, type = sim$scn$cells$cell_type,
-                                     mult = sim$truth$cells$multiplet, types = sim$truth$cells$types)
 
 # fake clone profile: windows of 1 Mb on chr1-chr3 (40 windows each) with given states; depth c * log2(cn / 2) +
 # N(0, sd); votes Binomial(n_hap, 0.5 + a (f - 0.5)) on the major haplotype (clone_profiles' split-half orientation is

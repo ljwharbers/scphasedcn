@@ -6,7 +6,9 @@ is no allele-frequency window (it would delete LOH and amplified sites in tumour
 
 Optionally (recommended) the sites are intersected with a population sites VCF (`loci`, e.g. 1000 Genomes SNVs:
 position + REF + ALT), which removes most systematic long-read genotyping errors. Contigs in `no_loci_contigs` (default
-chrX: population panels are often autosomes only) are kept without the intersect.
+chrX: population panels are often autosomes only) are kept without the intersect. Loci contig names may differ from the
+VCF's by the `chr` prefix (`1` vs `chr1`). Selecting no autosomal site (no site at all when no autosome is processed)
+is an error and leaves no output.
 """
 from __future__ import annotations
 
@@ -14,6 +16,8 @@ import sys
 from collections import Counter
 
 import numpy as np
+
+from .hybrid import _bare, _names
 
 AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
 
@@ -48,6 +52,7 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
     vcf = pysam.VariantFile(vcf_path)
     lf = pysam.VariantFile(loci) if loci else None
     loci_contigs = set(lf.header.contigs) if lf is not None else set()
+    loci_name = lambda c: next((x for x in _names(c) if x in loci_contigs), None)   # `chr1` here may be `1` there
     missing = [c for c in contigs if c not in set(vcf.header.contigs)]
     if missing:
         log(f"[warn] contigs absent from the VCF header, skipped: {missing}")
@@ -76,10 +81,13 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
     rows, tot = [], Counter()
     for c in contigs:
         n = Counter()
-        use_loci = lf is not None and c in loci_contigs and c not in no_loci
-        if lf is not None and c not in loci_contigs and c not in no_loci:
+        lc = loci_name(c) if lf is not None else None
+        use_loci = lc is not None and c not in no_loci
+        if lf is not None and lc is None and c not in no_loci:
             log(f"[warn] {c}: not in the loci file and not in no_loci_contigs -> all sites dropped")
-        lit = lf.fetch(c) if use_loci else None
+        elif use_loci and lc != c:
+            log(f"[{c}] loci contig {lc}")
+        lit = lf.fetch(lc) if use_loci else None
         lrec = next(lit, None) if lit is not None else None
         lbuf_pos, lbuf = None, []          # loci at the current position (kept for a second record at that position)
         for rec in vcf.fetch(c):
@@ -114,8 +122,19 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
         rows.append((c, n))
         log(f"[{c}] " + " ".join(f"{k}={v}" for k, v in sorted(n.items())))
     ofh.close()
-    pysam.tabix_index(out, preset="vcf", force=True)
     log("[total] " + " ".join(f"{k}={v}" for k, v in sorted(tot.items())))
+    auto = [c for c in contigs if _bare(c) in {str(i) for i in range(1, 23)}]
+    if (auto and sum(n["selected"] for c, n in rows if c in auto) == 0) or tot["selected"] == 0:
+        import os
+        os.unlink(out)   # no empty VCF that looks like a selection
+        hint = ""
+        if lf is not None:
+            lcs = sorted(loci_contigs)
+            hint = (f"; the loci file has contigs {', '.join(lcs[:4]) or 'none'}{', ...' if len(lcs) > 4 else ''}: do "
+                    f"they match the VCF's ({', '.join(contigs[:4])}{', ...' if len(contigs) > 4 else ''})?")
+        raise SystemExit(f"select-hets: {'no autosomal site' if auto else 'no site'} selected ("
+                         + " ".join(f"{k}={v}" for k, v in sorted(tot.items())) + f"){hint}")
+    pysam.tabix_index(out, preset="vcf", force=True)
     if stats:
         keys = ["candidate", "dp_above_q", "not_in_loci", "pos_in_loci_allele_mismatch", "selected", "selected_phased"]
         with open(stats, "w") as fh:

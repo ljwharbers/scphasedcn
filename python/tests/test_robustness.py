@@ -366,3 +366,37 @@ def test_chromosome_lengths_must_agree(genome, bam, tmp_path):
     with pytest.raises(SystemExit, match=r"(?s)chr1 .*2000000.*chr2 .*600000"):
         main(["run", "--chroms", "chr1,chr2,chrX", "--jobs", "2", "--no-gc", "--chrom-sizes", str(sizes)] + base)
     assert not (tmp_path / "o" / "partials").exists()
+
+
+# --------------------------------------------------------------------------------------------- select-hets loci naming
+_HETS_HDR = ("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n##contig=<ID=chr2,length=100000>\n"
+             "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"x\">\n"
+             "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"x\">\n"
+             "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"x\">\n"
+             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n")
+
+
+def _bgzip(p):
+    pysam.tabix_compress(str(p), str(p) + ".gz", force=True); pysam.tabix_index(str(p) + ".gz", preset="vcf", force=True)
+    return str(p) + ".gz"
+
+
+def test_select_hets_loci_with_other_contig_names(tmp_path):
+    raw = tmp_path / "calls.vcf"
+    raw.write_text(_HETS_HDR + "chr1\t1001\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n"
+                               "chr1\t2001\t.\tC\tT\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n")
+
+    def loci(name, contig):
+        p = tmp_path / f"{name}.vcf"
+        p.write_text(f"##fileformat=VCFv4.2\n##contig=<ID={contig},length=100000>\n"
+                     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                     f"{contig}\t1001\t.\tA\tG\t.\t.\t.\n{contig}\t2001\t.\tC\tT\t.\t.\t.\n")
+        return _bgzip(p)
+    base = ["select-hets", "--vcf", _bgzip(raw), "--contigs", "chr1", "--dp-quantile", "1"]
+    out = tmp_path / "het.vcf.gz"
+    assert main(base + ["--out", str(out), "--loci", loci("nochr", "1")]) == 0     # `1` in the loci file, `chr1` here
+    assert [r.pos for r in pysam.VariantFile(str(out))] == [1001, 2001]
+    out2 = tmp_path / "none.vcf.gz"                                                  # no loci contig matches at all
+    with pytest.raises(SystemExit, match="no autosomal site"):
+        main(base + ["--out", str(out2), "--loci", loci("other", "chr9")])
+    assert not out2.exists() and not (tmp_path / "none.vcf.gz.tbi").exists()

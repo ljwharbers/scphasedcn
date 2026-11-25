@@ -11,7 +11,8 @@ tumour_null_fit(
   select = FALSE,
   n_iter = 5,
   min_cells = 5,
-  min_jaccard = 0.7
+  min_jaccard = 0.7,
+  max_share = 2/3
 )
 }
 \arguments{
@@ -22,18 +23,22 @@ sd_null, nA, n_hap, null_region, eligible, null_cell)}
 
 \item{exclude}{cells never selected (e.g. multiplets)}
 
-\item{select}{TRUE: select null cells even when some are flagged}
+\item{select}{TRUE: select the cells even when some are flagged}
 
 \item{n_iter}{iterations of the selection (>= 2)}
 
 \item{min_cells}{minimal number of selected cells}
 
 \item{min_jaccard}{minimal Jaccard index of the selection's last iteration}
+
+\item{max_share}{share of the candidate cells above which a selected set gets a \code{caution} (2 / 3); the fit is
+not changed}
 }
 \value{
 NULL without null rows (of the flagged cells); else list(tpar, rho, source = "flagged" / "selected" /
-"all", null_cells (the cells fitted), selection (the \code{\link[=select_null_cells]{select_null_cells()}} log; NULL for flagged cells), note
-(one line for the run notes))
+"all", null_cells (the cells fitted), selection (the \code{\link[=select_null_cells]{select_null_cells()}} log; NULL for flagged cells), share
+(selected cells / candidate cells; NA for flagged cells), caution (NULL, or one line when a selected set holds more
+than \code{max_share} of the candidates), note (one line for the run notes))
 }
 \description{
 The depth Student-t null (\code{\link[=fit_depth_null]{fit_depth_null()}}, completed by class) and the beta-binomial rho
@@ -42,20 +47,25 @@ per-cell confirmation, fitted on the null rows (\code{null_region} and \code{eli
 \itemize{
 \item \code{"flagged"}: the cells with \code{null_cell} TRUE (the \code{flat} column of the cell metadata, or given null cells),
 whenever there is one and \code{select} is FALSE;
-\item \code{"selected"}: otherwise, the copy-number-neutral cells that \code{\link[=select_null_cells]{select_null_cells()}} finds on the null rows
-(chromosome and arm rows, the tumour state set, \code{n_iter} iterations from all cells minus \code{exclude}): the cells
-kept by both of its last two iterations. They are used when there are at least \code{min_cells} of them and the last
-iteration is stable (Jaccard index of the sets it started from and ended with >= \code{min_jaccard}). In a tumour
-sample the cells without a call on the null rows are the normal cells (and tumour cells whose events all lie
-outside the null rows); without such cells the selection does not settle;
-\item \code{"all"}: otherwise all cells (no neutral cells found). The fit then absorbs the tumour's events on the null
+\item \code{"selected"}: otherwise, the cells without a call on the null rows, as \code{\link[=select_null_cells]{select_null_cells()}} finds them
+(chromosome and arm rows, the tumour state set, \code{n_iter} iterations from all cells minus \code{exclude} and minus the
+cells of its windowed allele guard, \code{params$null_win_guard}): the cells kept by both of its last two
+iterations. They are used when there are at least \code{min_cells} of them and the last iteration is stable
+(Jaccard index of the sets it started from and ended with >= \code{min_jaccard}). In a tumour sample with normal
+cells that the null rows separate from the tumour, these are mostly the normal cells; tumour cells whose events
+all lie outside the null rows or are too weak to call per cell pass as well; without such cells the selection
+usually does not settle;
+\item \code{"all"}: otherwise all cells (no stable selection). The fit then absorbs the tumour's events on the null
 rows (inflated rho, heavy depth tails), as every tumour-mode run without flagged cells did before.
 }
 }
 \details{
 A fit on all cells is wrong whenever tumour cells carry events on the null rows: rho and the t tails take up the
 events, which weakens assignment and per-cell confirmation. Flagged copy-number-normal cells (e.g. from a matched
-assay) remain the better null: the selection can only find cells that look neutral at the data's resolution. The
-note gives the rho of all cells next to the fitted one: a selected null whose rho is close to the all-cell rho is
-a set of tumour cells that carry the same events (in a sample without normal cells).
+assay) remain the better null: a stable selection does not show that the selected cells are copy-number neutral.
+In a tumour in which almost every cell carries the same clonal events on the null rows, the selection fits its null
+to those events and then keeps most of the cells. When it keeps more than \code{max_share} of the candidate cells
+(all cells minus \code{exclude}, guarded cells included), the result carries a \code{caution} and the note says so;
+\code{\link[=call_scn]{call_scn()}} then warns. The note also gives the rho of all cells next to the fitted one: a selected null whose rho
+is close to the all-cell rho is a set of tumour cells that carry the same events.
 }

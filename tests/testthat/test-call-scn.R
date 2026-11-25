@@ -574,7 +574,7 @@ old_tumour_null = function(long) {
   list(tpar = tpar, rho = fit_allelic_null(long$nA[arm %in% TRUE], long$n_hap[arm %in% TRUE]))
 }
 
-test_that("tumour_null_fit: without flagged cells the null comes from the selected neutral cells, not from all cells", {
+test_that("tumour_null_fit: without flagged cells the null comes from the cells without a call on the null rows, not from all cells", {
   long = tum2_features()$long
   expect_false(any(long$null_cell %in% TRUE))
   nn = tum2_normal_cells()
@@ -588,7 +588,8 @@ test_that("tumour_null_fit: without flagged cells the null comes from the select
   # more than 100 times larger
   expect_lt(abs(log(nf$rho / ref$rho)), log(3))
   expect_gt(all$rho / nf$rho, 100)
-  expect_match(nf$note, "no flagged null cells; fitted on [0-9]+ copy-number-neutral cells selected")
+  expect_match(nf$note, "no flagged null cells; fitted on the [0-9]+ cells without a call on the null rows")
+  expect_false(grepl("neutral|normal cells", nf$note))                   # the selection does not show neutrality
   # tumour cells only: no stable neutral set, so all cells (the old fit), and the note says so
   lt = long[!cell %in% sim_tum2$scn$cells$cell[sim_tum2$scn$cells$cell_type == "normal"]]
   nt = tumour_null_fit(lt)
@@ -613,7 +614,8 @@ test_that("call_scn tumour: flagged null cells give the old result; without them
   feat = tum2_features()
   d = sim_dir("sim_tum2")
   nn = tum2_normal_cells()
-  # flagged (given) null cells: bit-identical to caller_tumour on the old input null; no warning
+  # flagged (given) null cells: bit-identical to caller_tumour on the old input null; no warning (in particular not
+  # "the features carry their own null fit": these features carry none, call_scn fits it from the given cells)
   expect_no_warning(rf <- call_scn(d, "tumour", features = feat, null_cells = nn, verbose = FALSE))
   f_old = feat
   f_old$null_fit = old_tumour_null(copy(feat$long)[, null_cell := cell %in% nn])
@@ -622,12 +624,40 @@ test_that("call_scn tumour: flagged null cells give the old result; without them
   expect_true(any(grepl("fitted on the [0-9]+ flagged null cells", rf$notes)))
   # no flagged cells: one warning, and the notes name the selected null
   expect_warning(r0 <- call_scn(d, "tumour", features = feat, verbose = FALSE), "without flagged null cells")
-  expect_true(any(grepl("no flagged null cells; fitted on [0-9]+ copy-number-neutral cells selected", r0$notes)))
+  expect_true(any(grepl("no flagged null cells; fitted on the [0-9]+ cells without a call on the null rows", r0$notes)))
   expect_identical(r0$null_fit$rho, tumour_null_fit(feat$long)$rho)
   # features with their own null fit: kept, and a selection asked for warns that it is not used
   expect_warning(r1 <- call_scn(d, "tumour", features = f_old, null_cells = "select", verbose = FALSE), "carry their own null fit")
   expect_identical(r1$null_fit$rho, f_old$null_fit$rho)
   expect_true(any(grepl("the features' own null fit", r1$notes)))
+})
+
+test_that("tumour_null_fit / call_scn: a selection that keeps most of the cells carries a caution and warns", {
+  feat = tum2_features()
+  nn = tum2_normal_cells()
+  nf = tumour_null_fit(feat$long)                                         # the normal cells, about a third: no caution
+  expect_identical(nf$source, "selected")
+  expect_lt(nf$share, 2 / 3)
+  expect_null(nf$caution)
+  expect_false(grepl("caution", nf$note, fixed = TRUE))
+  # the normal cells and 15 tumour cells: the selection keeps most of the cells
+  tc = head(setdiff(sim_tum2$scn$cells$cell[sim_tum2$scn$cells$cell_type == "cloneA" & !sim_tum2$truth$cells$multiplet], nn), 15)
+  ls = feat$long[cell %in% c(nn, tc)]
+  ns = tumour_null_fit(ls)
+  expect_identical(ns$source, "selected")
+  expect_gt(ns$share, 2 / 3)
+  expect_match(ns$caution, "a stable selection does not show that they are copy-number neutral")
+  expect_match(ns$note, "; caution: the selection keeps [0-9]+ % of the cells")
+  # the caution does not change the fit
+  n1 = tumour_null_fit(ls, max_share = 1)
+  expect_null(n1$caution)
+  expect_identical(n1[c("tpar", "rho", "null_cells", "share")], ns[c("tpar", "rho", "null_cells", "share")])
+  # call_scn: one warning, which carries the caution; the note too
+  x = call_w(sim_dir("sim_tum2"), "tumour", features = subset_features(feat, c(nn, tc)), verbose = FALSE)
+  wn = grep("without flagged null cells", x$w, fixed = TRUE, value = TRUE)
+  expect_length(wn, 1L)
+  expect_match(wn, "does not show that they are copy-number neutral", fixed = TRUE)
+  expect_true(any(grepl("; caution: the selection keeps", x$r$notes, fixed = TRUE)))
 })
 
 test_that("tumour mode on chromosome-scale phasing warns once and notes it", {

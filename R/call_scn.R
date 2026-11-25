@@ -306,7 +306,7 @@ utils::globalVariables(c("st", "k", "region"))
 #' Student-t / beta-binomial nulls, fold-cross-validated budget thresholds, per-cell calls, pooled calls,
 #' events). Tumour (`mode = "tumour"`): [cell_features()] with `model` depth, automatic phasing and the pseudobulk
 #' groups `groups`, event chromosomes excluded from the null -> input depth t null and allelic rho on the null rows of
-#' the flagged null cells, else of the cells selected as copy-number neutral ([tumour_null_fit()]) -> [caller_tumour()]
+#' the flagged null cells, else of the cells without a call on the null rows ([tumour_null_fit()]) -> [caller_tumour()]
 #' (clones, clone segments, cell assignment, per-cell inherited / confirmed calls).
 #' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
@@ -325,10 +325,12 @@ utils::globalVariables(c("st", "k", "region"))
 #'   "select" ([select_null_cells()]), or the null cells themselves (vector or file). Tumour mode: given null cells
 #'   (like `flat` cells of `cell_meta`) are the cells whose null rows fit the input depth t null and allelic rho when the
 #'   features carry no `null_fit`; they are not the reference pool (the caller finds and cleans the normal clone
-#'   itself). Without flagged null cells, or with "select", the input null is fitted on the cells that
-#'   [tumour_null_fit()] selects as copy-number neutral on the null rows (on all cells, with a note, when no stable
-#'   set of such cells exists, e.g. a sample without normal cells); the run warns when no cell is flagged, and the
-#'   run notes say which null was used. Flagged copy-number-normal cells give the better null
+#'   itself). Without flagged null cells, or with "select", the input null is fitted on the cells without a call on
+#'   the null rows that [tumour_null_fit()] selects (on all cells when no stable set of such cells exists, e.g. a
+#'   sample without normal cells). The run warns when no cell is flagged, and also when the selected cells are more
+#'   than two thirds of the cells: a stable selection does not show that they are copy-number neutral (a tumour whose
+#'   cells share clonal events on the null rows passes it too); the run notes say which null was used. Flagged
+#'   copy-number-normal cells give the better null
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
 #'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`, which sets aside the cells
 #'   above its `multiplet_prob` option (default 0.9). The `multiplet` column of the cells table flags the cells each
@@ -579,21 +581,26 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       features$win = feature_windows(dir, features, "model")
     }
     null_note = NULL
-    if (is.null(features$null_fit)) {
+    own_nf = !is.null(features$null_fit)   # recorded before the fit below fills features$null_fit
+    if (!own_nf) {
       # depth t null and allelic rho on the null rows of the flagged null cells; without any (or with
-      # null_cells = "select"), of the copy-number-neutral cells selected on the null rows (all cells when none settle)
+      # null_cells = "select"), of the cells without a call on the null rows (all cells when no stable set exists)
       nf = tumour_null_fit(long, params = params, exclude = if (is.null(mult)) NULL else mult[prob > 0.5, cell],
                            select = nc_mode == "select")
       if (!is.null(nf)) {
         features$null_fit = list(tpar = nf$tpar, rho = nf$rho)
         null_note = nf$note
         say(null_note)
-        if (!any(long$null_cell %in% TRUE))
-          warning(sprintf(paste("call_scn: tumour mode without flagged null cells: the input null (depth t, allelic rho) is fitted on",
-                                "%s; copy-number-normal cells flagged as `flat` in `cell_meta` (or given as `null_cells`) give a",
-                                "better null"),
-                          if (nf$source == "selected") sprintf("%d cells selected as copy-number neutral", length(nf$null_cells)) else
-                            "all cells, tumour cells included (no copy-number-neutral cells found)"), call. = FALSE)
+        flagged = any(long$null_cell %in% TRUE)
+        if (!flagged || nf$source == "all" || !is.null(nf$caution))
+          warning(sprintf("call_scn: tumour mode %s: the input null (depth t, allelic rho) is fitted on %s%s; %s",
+                          if (flagged) "with null_cells = \"select\"" else "without flagged null cells",
+                          if (nf$source == "selected") sprintf("the %d cells without a call on the null rows", length(nf$null_cells)) else
+                            "all cells, tumour cells included (no stable set of cells without a call on the null rows)",
+                          if (is.null(nf$caution)) "" else paste0("; ", nf$caution),
+                          if (flagged) "the flagged null cells (without null_cells = \"select\") give a better null" else
+                            "copy-number-normal cells flagged as `flat` in `cell_meta` (or given as `null_cells`) give a better null"),
+                  call. = FALSE)
       }
     } else {
       null_note = "tumour input null (depth t, allelic rho): the features' own null fit (features$null_fit)"

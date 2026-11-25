@@ -87,8 +87,8 @@ clone_input = function(feat) {
   rho = feat$rho %||% nf$rho %||% nf$allelic
   if (is.data.frame(rho)) rho = stats::median(rho$rho, na.rm = TRUE)
   if (is.null(rho) || !is.finite(rho)) {
-    # no input rho: the call_scn() recipe (tumour_null_fit(): flagged null cells, else cells selected as copy-number
-    # neutral, else all cells), which also gives a missing depth null; rho stays NA without votes on the null rows
+    # no input rho: the call_scn() recipe (tumour_null_fit(): flagged null cells, else the cells without a call on the
+    # null rows, else all cells), which also gives a missing depth null; rho stays NA without votes on the null rows
     # (caller_tumour() then stops)
     need = c("cell", "class", "stratum", "z", "sd_null", "nA", "n_hap", "null_region", "eligible")
     nf = if (all(need %in% names(features))) tumour_null_fit(features) else NULL

@@ -49,10 +49,12 @@ named vector of region strings (\verb{20q_gain = "chr20:28000000-"}; unnamed one
 "select" (\code{\link[=select_null_cells]{select_null_cells()}}), or the null cells themselves (vector or file). Tumour mode: given null cells
 (like \code{flat} cells of \code{cell_meta}) are the cells whose null rows fit the input depth t null and allelic rho when the
 features carry no \code{null_fit}; they are not the reference pool (the caller finds and cleans the normal clone
-itself). Without flagged null cells, or with "select", the input null is fitted on the cells that
-\code{\link[=tumour_null_fit]{tumour_null_fit()}} selects as copy-number neutral on the null rows (on all cells, with a note, when no stable
-set of such cells exists, e.g. a sample without normal cells); the run warns when no cell is flagged, and the
-run notes say which null was used. Flagged copy-number-normal cells give the better null}
+itself). Without flagged null cells, or with "select", the input null is fitted on the cells without a call on
+the null rows that \code{\link[=tumour_null_fit]{tumour_null_fit()}} selects (on all cells when no stable set of such cells exists, e.g. a
+sample without normal cells). The run warns when no cell is flagged, and also when the selected cells are more
+than two thirds of the cells: a stable selection does not show that they are copy-number neutral (a tumour whose
+cells share clonal events on the null rows passes it too); the run notes say which null was used. Flagged
+copy-number-normal cells give the better null}
 
 \item{multiplets}{NULL or multiplet flags (\code{\link[=multiplet_table]{multiplet_table()}} forms); normal mode: cells with prob > 0.5
 are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}, which sets aside the cells
@@ -112,6 +114,6 @@ channel -> optional chromatin embedding (\code{\link[=scn_embedding]{scn_embeddi
 Student-t / beta-binomial nulls, fold-cross-validated budget thresholds, per-cell calls, pooled calls,
 events). Tumour (\code{mode = "tumour"}): \code{\link[=cell_features]{cell_features()}} with \code{model} depth, automatic phasing and the pseudobulk
 groups \code{groups}, event chromosomes excluded from the null -> input depth t null and allelic rho on the null rows of
-the flagged null cells, else of the cells selected as copy-number neutral (\code{\link[=tumour_null_fit]{tumour_null_fit()}}) -> \code{\link[=caller_tumour]{caller_tumour()}}
+the flagged null cells, else of the cells without a call on the null rows (\code{\link[=tumour_null_fit]{tumour_null_fit()}}) -> \code{\link[=caller_tumour]{caller_tumour()}}
 (clones, clone segments, cell assignment, per-cell inherited / confirmed calls).
 }

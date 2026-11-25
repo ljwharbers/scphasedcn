@@ -154,6 +154,32 @@ test_that("select_null_cells: the windowed guard keeps cells with a private LOH 
   expect_true("c007" %in% select_null_cells(d, params = p, n_sim = 2e4)$null_cells)
 })
 
+test_that("select_null_cells / tumour_null_fit: every cell guarded gives an empty selection, not an error", {
+  set.seed(5)
+  cells = sprintf("c%03d", 1:60)
+  regs = c(paste0("chr", 1:6, "p"), paste0("chr", 1:6, "q"), paste0("chr", 1:6))
+  d = CJ(cell = cells, region = regs)
+  d[, class := ifelse(grepl("[pq]$", region), "arm", "chrom")]
+  d[, chrom := sub("[pq]$", "", region)]
+  d[, `:=`(stratum = "all", sd_null = 0.2, z = rnorm(.N), n_hap = 200)]
+  d[, nA := as.numeric(rbinom(.N, n_hap, 0.5))]
+  d[, wal_f980 := -abs(rnorm(.N, 60, 10))]
+  d[chrom == "chr3", wal_f980 := 80]                                    # a clonal LOH of chr3 in every cell
+  sel = select_null_cells(d, n_sim = 2e4)
+  expect_length(sel$null_cells, 0)
+  expect_length(sel$previous, 0)
+  expect_equal(nrow(sel$log), 0)
+  expect_true(all(sel$calls$win_guard))
+  expect_false(any(sel$calls$null))
+  # tumour mode: no stable set, so the input null is fitted on all cells, and the note says why
+  d[, `:=`(null_region = TRUE, eligible = TRUE)]
+  nf = tumour_null_fit(d)
+  expect_identical(nf$source, "all")
+  expect_setequal(nf$null_cells, cells)
+  expect_true(is.finite(nf$rho))
+  expect_match(nf$note, "0 of 60 cells without a call on the null rows .*60 cells kept out by the windowed allele term")
+})
+
 test_that("call_scn on sim_norm_aneu: cells with private whole-chromosome LOH are called and are not null cells", {
   skip_on_cran()
   cen = wa_centromeres(sim_norm_aneu$scn$bins)

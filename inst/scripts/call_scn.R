@@ -13,10 +13,11 @@
 #        The script's path: system.file("scripts", "call_scn.R", package = "scphasedcn").
 # Inputs: the extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv), optional cell metadata,
 #         an optional sample yaml and caller yaml.
-# Outputs: <out>/ cells.tsv, calls.tsv, pooled_calls.tsv, events.tsv, thresholds.tsv, null_fit.tsv, false_calls.tsv,
-#          expected_false.tsv (normal), null_selection_check.tsv (normal, --null-check),
+# Outputs: <out>/ cells.tsv, calls.tsv, pooled_calls.tsv, events.tsv, thresholds.tsv, null_fit.tsv, regions.tsv,
+#          (normal: false_calls.tsv, false_events.tsv, expected_false.tsv, null_selection_check.tsv with --null-check),
 #          (tumour: clones.tsv, assignments.tsv, clone_segments.tsv, clone_profiles.tsv.gz, reference_pool.txt),
-#          result.rds, params.yaml, summary.tsv, NOTES.md.
+#          scores.tsv.gz (--write-scores), features.tsv.gz (--write-features), result.rds, params.yaml, summary.tsv,
+#          NOTES.md.
 
 defaults = list(sample = "", mode = "", dir = "", sex = "", events = "", config = "", caller_config = "", cell_meta = "",
                 cells = "", null_cells = "auto", multiplets = "", groups = "", control_regions = "", features = "",

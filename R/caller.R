@@ -107,6 +107,12 @@ allelic_classes = function(ns) {
 #'   orientation); `"one"` = `f` on haplotype A only (votes already oriented to the state's major haplotype, e.g. by a
 #'   clone pseudobulk in the tumour-mode confirmation), so imbalance of the opposite homologue scores negative. Applies to
 #'   every allelic row, including the per-row columns of `keep_rows`
+#' @param window windowed allele term ([window_allelic_features()], columns `wal_f<fff>` of `d`): `"none"` (default)
+#'   = the oriented term only; `"max"` = per allelic row the better of the oriented LLR and the windowed LLR `W(f)` at
+#'   the row's f, where `W(f)` exceeds `params$win_min` (below it the row keeps the oriented term, so that null-level
+#'   window values do not enter the scores and thresholds); `"only"` = `W(f)` alone. Rows whose window column is NA, and rows of fractions without a column,
+#'   keep the oriented term. The per-row columns of `keep_rows` (`ar_<row_id>`, used by the pooled scores) stay
+#'   oriented. Ignored with `sided = "one"`
 #' @return copy of `d` with `dl_<state>`, `al_<state>`, `cl_<state>` per
 #'   non-neutral state, `s_comb` (best combined LLR), `state_comb` (argmax,
 #'   ties to the first state in table order), `s_depth` (|z|), `state_depth`
@@ -114,9 +120,12 @@ allelic_classes = function(ns) {
 #'   class, e.g. `loss_or_cnloh`)
 #' @export
 score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, eps = params$eps,
-                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE, sided = c("two", "one")) {
+                       depth_model = c("t", "gauss"), params = caller_defaults(), keep_rows = FALSE, sided = c("two", "one"),
+                       window = c("none", "max", "only")) {
   depth_model = match.arg(depth_model)
   two = match.arg(sided) == "two"
+  window = match.arg(window)
+  if (!two) window = "none"                                  # one-sided (clone-oriented) votes: no windowed term
   d = copy(as.data.table(d))
   n = nrow(d)
   if (!"z" %in% names(d)) d[, z := NA_real_]
@@ -148,6 +157,23 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
   }
   ar = lapply(seq_len(nrow(ns)), function(i) acache[[fk(ns$f[i])]])
   names(ar) = ns$row_id
+  ar_out = ar                                                # per-row columns (pools): always the oriented term
+  # windowed allele term (window_allelic_features()): per allelic row with a `wal_<f>` column, the better of the
+  # oriented and the windowed LLR where the windowed LLR exceeds `win_min` ("max"), or the windowed LLR alone ("only");
+  # rows where the column is NA keep the oriented term
+  if (window != "none") {
+    wmin = params$win_min %||% 0
+    wcache = list()
+    for (f in unique(ns$f)) {
+      wc = win_col(f)
+      if (!wc %in% names(d)) next
+      w = as.numeric(d[[wc]]); a = acache[[fk(f)]]
+      ok = if (window == "max") !is.na(w) & w > wmin else !is.na(w)
+      a[ok] = if (window == "max") pmax(a[ok], w[ok]) else w[ok]
+      wcache[[fk(f)]] = a
+    }
+    if (length(wcache)) for (i in seq_len(nrow(ns))) if (!is.null(wcache[[fk(ns$f[i])]])) ar[[i]] = wcache[[fk(ns$f[i])]]
+  }
   cl = list()
   for (s in sn) {
     r = which(ns$state == s)
@@ -189,7 +215,7 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
   }))
   set(d, j = "state_allelic", value = unname(ac$label)[max.col(A, ties.method = "first")])
   if (keep_rows) {
-    for (i in seq_len(nrow(ns))) set(d, j = paste0("ar_", ns$row_id[i]), value = ar[[i]])
+    for (i in seq_len(nrow(ns))) set(d, j = paste0("ar_", ns$row_id[i]), value = ar_out[[i]])
     for (s in sn) {
       r = which(ns$state == s)
       if (length(unique(ns$shift[r])) > 1) for (i in r) set(d, j = paste0("dr_", ns$row_id[i]), value = dcache[[fk(ns$shift[i])]])
@@ -734,7 +760,7 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' Self-calibrated null cell set (normal tissue)
 #'
 #' Starts from all cells of `feat_long` minus `exclude` (e.g. multiplet-flagged
-#' barcodes). Each iteration fits the depth t null per class x stratum and the
+#' barcodes) and minus the cells of the windowed guard (see Details). Each iteration fits the depth t null per class x stratum and the
 #' allelic rho on the null rows of the current set, scores every candidate
 #' cell on the `classes` regions (chromosomes and arms) with `s_comb`,
 #' thresholds at the selection quantile `q` and keeps the cells with at most
@@ -770,7 +796,17 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' @param q selection quantile per row
 #' @param n_sim simulated rows per class x stratum (parametric; default max(2e4, 20 / (1 - q)))
 #' @param chroms chromosomes whose rows are scored (default autosomes chr1-chr22); NULL = all
-#' @return list(null_cells, log (per iteration), calls (per candidate cell: n_calls, null), tpar, rho, thresholds)
+#' @details Guard (cells never in the set, whatever their calls): with window columns in `feat_long`
+#' ([window_allelic_features()]) and `params$null_win_guard` (default TRUE), cells with a scored row (`classes`, i.e.
+#' chromosome and arm rows on `chroms`) whose largest windowed allele LLR over the fraction grid exceeds
+#' `log(1 / (1 - q)) + log(#fractions)` (about 9.2 at the default `q`; under the null model `P(W > t) <= exp(-t)`,
+#' Bonferroni over the fractions): an allelic imbalance private to the cell, which the oriented scores can miss.
+#' The bound is per row, without a correction over the about 60 scored rows of a cell: the guard errs towards leaving a
+#' cell out of the null set, which costs little (6 of 4,105 cells of a normal thyroid sample). It sees only chromosome
+#' and arm rows, so a null cell can still carry a windowed call on a smaller tile. The selection's scores themselves
+#' stay oriented, so that they match what the parametric thresholds simulate.
+#' @return list(null_cells, log (per iteration), calls (per candidate cell: n_calls, win_guard, null), tpar, rho,
+#'   thresholds)
 #' @export
 select_null_cells = function(feat_long, states = caller_states("normal", params), params = caller_defaults(), n_iter = 2,
                              max_calls = 0, exclude = NULL, classes = c("chrom", "arm"), depth_model = "t",
@@ -786,8 +822,22 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
   if (!"eligible" %in% names(d)) d[, eligible := TRUE]
   if (!"fold" %in% names(d) || anyNA(d$fold)) d[, fold := assign_folds(cell, params$n_folds, params$seed, if ("origin" %in% names(d)) origin else NULL)]
   cand = unique(d$cell)
-  cur = cand
   ok_row = !is.na(d$null_region) & d$null_region & !is.na(d$eligible) & d$eligible
+  # guard that does not depend on the iteration (windowed allele term, window_allelic_features()): a row whose largest
+  # windowed LLR over the fraction grid exceeds log(1 / (1 - q)) + log(#fractions), the exp(-t) bound of the null model
+  # with a Bonferroni factor over the fractions
+  guard_win = character()
+  if (isTRUE(params$null_win_guard %||% TRUE)) {
+    gs = win_guard_stat(d, params)
+    if (!is.null(gs)) {
+      t_w = log(1 / (1 - q)) + log(gs$n_f)
+      guard_win = unique(d$cell[gs$stat > t_w & d$eligible %in% TRUE])
+    } else if (any(grepl("^wal_f[0-9]+$", names(d))))
+      warning("select_null_cells: the window columns (", paste(grep("^wal_f[0-9]+$", names(d), value = TRUE), collapse = ", "),
+              ") match no fraction of win_f_grid() (", paste(win_f_grid(params), collapse = ", "), "): no windowed null-cell guard",
+              call. = FALSE)
+  }
+  cur = setdiff(cand, guard_win)                       # guarded cells are out from the first fit on (also with n_iter = 1)
   log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL
   for (it in seq_len(n_iter)) {
     isn = ok_row & d$cell %in% cur
@@ -801,12 +851,14 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
     } else budget_thresholds(sc, "s_comb", q = q, cv = TRUE, min_null = params$min_null_rows, params = params, null = isn)
     sc = apply_thresholds(sc, thr, "s_comb")
     nc = sc[, .(n_calls = sum(call_s_comb & eligible, na.rm = TRUE)), by = cell]
-    new = nc[n_calls <= max_calls, cell]
+    new = nc[n_calls <= max_calls & !cell %in% guard_win, cell]
     fr = 1000 * mean(sc$call_s_comb[isn], na.rm = TRUE)
     log[[it]] = data.table(iter = it, n_in = length(cur), n_out = length(new), n_dropped = length(setdiff(cur, new)),
-                           n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr)
+                           n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr,
+                           n_win_guard = length(guard_win))
     cur = new
   }
+  nc[, win_guard := cell %in% guard_win]
   nc[, null := cell %in% cur]
   list(null_cells = cur, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)
 }
@@ -1773,7 +1825,26 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   # 3-5. scores, thresholds, per-cell calls
   states = caller_states("normal", params)
   scores = c("s_depth", "s_allelic", "s_comb")
-  sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE)
+  win_score = params$win_score %||% "none"
+  if (!identical(length(win_score), 1L) || !win_score %in% c("none", "max", "only"))
+    stop("caller_normal: params$win_score must be 'none', 'max' or 'only', not '", paste(win_score, collapse = ", "), "'",
+         call. = FALSE)
+  has_win = any(grepl("^wal_f[0-9]+$", names(d)))
+  # the window columns must match the fractions of the allelic rows (e.g. features computed with another eps)
+  win_rows = unique(states$f[states$state != "neutral" & win_col(states$f) %in% names(d)])
+  win_note = NULL
+  if (win_score != "none" && has_win && !length(win_rows)) {
+    win_note = sprintf("per-cell allele term: oriented only (window columns %s match no allelic row fraction (%s): features computed with another eps or win_f?)",
+                       paste(grep("^wal_f[0-9]+$", names(d), value = TRUE), collapse = ", "),
+                       paste(round(unique(states$f[states$state != "neutral"]), 3), collapse = ", "))
+    warning("caller_normal: ", win_note, call. = FALSE)
+    has_win = FALSE
+  } else if (win_score != "none" && has_win) {
+    win_note = sprintf("per-cell allele term: %s (rows at f %s)", if (win_score == "max") sprintf("the better of the oriented and the windowed LLR where the windowed LLR is above win_min %g", params$win_min %||% 0) else "the windowed LLR only",
+                       paste(round(win_rows, 3), collapse = ", "))
+  } else if (win_score != "none") win_note = "per-cell allele term: oriented only (no window columns in the features; they need chromosome-scale phasing)"
+  sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE,
+                   window = if (has_win) win_score else "none")
   thr = budget_thresholds(sc, scores, q = params$null_q, cv = TRUE, min_null = params$min_null_rows, params = params)
   sc = apply_thresholds(sc, thr, scores)
   if (is.null(sex)) sex = infer_sex(d)
@@ -1861,7 +1932,10 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                               pool_scale = if (length(pscale)) rbindlist(lapply(names(pscale), function(k) copy(pscale[[k]])[, kind := k])) else NULL, sex = sex,
                               vote_bins = vbins, rho_chrom = rho_tab),
               params = params,
-              notes = c(sprintf("null cells: %s (%d)", if (use_sel) "select_null_cells" else "features", sum(cells$null_cell)),
+              notes = c(sprintf("null cells: %s (%d)%s", if (use_sel) "select_null_cells" else "features", sum(cells$null_cell),
+                                if (!is.null(sel) && "win_guard" %in% names(sel$calls))
+                                  sprintf("; %d cells kept out by the windowed allele term (null_win_guard)", sum(sel$calls$win_guard)) else ""),
+                        win_note,
                         sprintf("rho %.5g", rho), novotes_note,
                         if (!is.null(rho_tab)) sprintf("allelic rho per chromosome (rho_chrom_k %g): %.3g-%.3g (global %.3g)", params$rho_chrom_k %||% 100,
                                                        min(rho_tab$rho), max(rho_tab$rho), rho),
@@ -1886,4 +1960,4 @@ infer_sex = function(d) {
   if ("allelic_ok" %in% names(x) && !all(is.na(x$allelic_ok))) return(if (any(x$allelic_ok %in% TRUE)) "female" else "male")
   if (mean(x$n_hap > 0, na.rm = TRUE) > 0.5) "female" else "male"
 }
-utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_"))
+utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_", "win_guard"))

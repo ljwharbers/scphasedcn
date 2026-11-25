@@ -386,10 +386,28 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
   cells = inp$cells$cell
   d[, s_allele := 0]
   rr = regs[region %in% d$region]
-  tv = trip_votes(inp$votes, inp$atoms, rr, length(cells), inp$allelic_chroms)
-  if (nrow(tv$trip)) for (k in unique(d$oclone)) {
-    oc = oriented_counts(tv, match(k_members[clone == k, cell], cells))
-    oc[, `:=`(cell = cells[ci], region = rr$region[ri])]
+  # votes per (cell, region, phase set): a vote lies in every region that covers it, and the orientation blocks are
+  # region x phase set, so the oriented counts of clone k need only k's regions and the votes of k's rows and members.
+  # When the clones score different regions (the cells' clone-specific event segments, which overlap where several
+  # clones have an event: with most of each clone's genome non-neutral the shared table would hold every vote once per
+  # clone) a table is built per clone; when every clone scores the same regions (the null rows) one table is shared.
+  ks = unique(d$oclone)
+  reg_k = lapply(ks, function(k) unique(d$region[d$oclone == k]))
+  shared = all(lengths(reg_k) == nrow(rr))
+  tv = if (shared) trip_votes(inp$votes, inp$atoms, rr, length(cells), inp$allelic_chroms) else NULL
+  if (shared && !nrow(tv$trip)) ks = character()
+  for (ik in seq_along(ks)) {
+    k = ks[ik]
+    mk = match(k_members[clone == k, cell], cells)
+    rk = rr
+    if (!shared) {
+      rk = rr[region %in% reg_k[[ik]]]
+      ci_k = unique(c(match(unique(d$cell[d$oclone == k]), cells), mk))
+      tv = trip_votes(inp$votes[inp$votes$cell %in% ci_k, ], inp$atoms, rk, length(cells), inp$allelic_chroms)
+      if (!nrow(tv$trip)) next
+    }
+    oc = oriented_counts(tv, mk)
+    oc[, `:=`(cell = cells[ci], region = rk$region[ri])]
     d[oc, `:=`(oA = i.oA, oN = i.oN), on = .(cell, region)]
     sel = d$oclone == k & !is.na(d$oN)
     if (any(sel)) d[sel, `:=`(s_allele = fifelse(abs(f_state - 0.5) > 1e-9,

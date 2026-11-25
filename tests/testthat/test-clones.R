@@ -1824,3 +1824,25 @@ test_that("matched_null_confirm (one hypothesis at a time) equals the whole-tabl
   expect_null(scphasedcn:::matched_null_confirm(copy(sc0), copy(nsc)[0], inp$tpar, inp$rho, params))
 })
 
+test_that("cell_state_scores: clones scored on their own regions (a vote table per clone) as each clone alone", {
+  inp = clone_input(tum2_input()); r0 = tum2_result()
+  sg = copy(r0$segments); asg = copy(r0$assignments); par = as.data.table(r0$null_fit$clones$par)
+  members = asg[confident == TRUE, .(cell, clone)]
+  ev = sg[label != "neutral" & clone != "N0"]
+  expect_gte(uniqueN(ev$clone), 2)
+  ev_reg = scphasedcn:::seg_regions(ev[, .(clone, chrom, start, end)], inp$regions)
+  ev[, region := ev_reg$region]
+  rows = asg[, .(cell, clone)][ev[, .(clone, region, cn, ploidy, f_state = fifelse(cn > 0, scphasedcn:::nA_of(state) / cn, 0.5), label)],
+                               on = "clone", allow.cartesian = TRUE, nomatch = NULL]
+  rows[par, `:=`(c = i.c, a = i.a), on = "clone"]
+  rows[, `:=`(base_b = scphasedcn:::clone_baseline(par, clone), oclone = clone)]
+  ref = asg[ref_pool == TRUE, cell]
+  both = scphasedcn:::cell_state_scores(inp, ev_reg, rows, members, inp$tpar, inp$rho, caller_defaults(), ref)
+  one = rbindlist(lapply(unique(rows$clone), function(k)
+    scphasedcn:::cell_state_scores(inp, ev_reg[region %in% ev[clone == k, region]], rows[clone == k], members, inp$tpar, inp$rho,
+                                   caller_defaults(), ref)))
+  setkey(both, cell, region); setkey(one, cell, region)
+  expect_true(any(both$n_o > 0))
+  expect_identical(both[, .(cell, region, nA_o, n_o, s_allele, s_depth, score)], one[, .(cell, region, nA_o, n_o, s_allele, s_depth, score)])
+})
+

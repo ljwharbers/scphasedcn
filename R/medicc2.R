@@ -22,9 +22,9 @@
 #' Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
 #' done by [medicc2_table()].
 #' Segments labelled `imbalance` (allelic imbalance without depth support, `segment_clone(gain_support = )`) enter as
-#' the balanced state at the clone's integer baseline (`clones$baseline` rounded; 1:1 at baseline 2 or without it, 2:2
-#' at baseline 4): MEDICC2 sees no extra copy where the clone's depth does not show one. A clone with an odd integer
-#' baseline (e.g. 3) has no balanced state at its baseline; its `imbalance` segments keep their fitted state.
+#' the least imbalanced copy-neutral state at the clone's integer baseline nb (`clones$baseline` rounded; 2 without it):
+#' `ceiling(nb / 2):floor(nb / 2)` with the major haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2
+#' at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not show one.
 #' @param segments segments table (`clone, chrom, start, end, state, cn, label, ploidy`; `nA, nB, f` optional)
 #' @param clones clones table (`clone`, `doublet`, `n_assigned`, `baseline` optional); NULL keeps every clone of
 #'   `segments`
@@ -66,8 +66,8 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = 0, m
   if (!"label" %in% names(sg)) sg[, label := state_label(major, minor, ploidy)]
   if (!"cn" %in% names(sg)) sg[, cn := major + minor]
   # imbalanced runs without depth support (segment_clone(gain_support = )): copy-neutral for the tree (no extra copy):
-  # the balanced state at the clone's integer baseline nb (1:1 at baseline 2, 2:2 at baseline 4; clones$baseline, 2
-  # without it); a clone whose nb is odd has no balanced copy-neutral state and keeps its fitted state
+  # the least imbalanced state with the clone's integer baseline nb copies, ceiling(nb / 2):floor(nb / 2), major first
+  # as in the fitted state (1:1 at baseline 2, 2:1 at 3, 2:2 at 4; clones$baseline, 2 without it)
   if (any(sg$label == "imbalance")) {
     nb_ = rep(2, nrow(sg))
     if (!is.null(clones) && "baseline" %in% names(cl)) {
@@ -75,9 +75,9 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = 0, m
       nb_ = fifelse(is.finite(b_), floor(b_ + 0.5), 2)
     }
     sg[, nb_ := nb_]
-    sg[label == "imbalance" & nb_ %% 2 == 0, `:=`(state = paste0(nb_ / 2, ":", nb_ / 2), major = as.integer(nb_ / 2),
-                                                 minor = as.integer(nb_ / 2), cn = nb_ + 0 * cn,
-                                                 label = state_label(nb_ / 2, nb_ / 2, 2L))]
+    sg[label == "imbalance", `:=`(state = paste0(ceiling(nb_ / 2), ":", floor(nb_ / 2)), major = as.integer(ceiling(nb_ / 2)),
+                                  minor = as.integer(floor(nb_ / 2)), cn = nb_ + 0 * cn,
+                                  label = state_label(ceiling(nb_ / 2), floor(nb_ / 2), 2L))]
     sg[, nb_ := NULL]
   }
   pcs = segment_pieces(sg)[, .(region, chrom, start, end)]

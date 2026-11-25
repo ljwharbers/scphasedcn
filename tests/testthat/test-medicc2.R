@@ -240,18 +240,22 @@ test_that("orient_clone_states: the block table carries the piece's chaining fli
 test_that("medicc2_pieces: an imbalance segment enters at the balanced state of its clone's integer baseline", {
   x = m2_toy()
   x$segments[clone == "B" & chrom == "chr2" & start == 20e6, label := "imbalance"]
-  at = function(B) {
+  # the flagged run is an imbalanced gain above the clone's integer baseline (what gain_support can flag): 2:1 at 2,
+  # 3:1 at 3, 4:1 at 4, 4:2 at 5
+  at = function(B, state) {
     cl = copy(x$clones)[, baseline := 2][clone == "B", baseline := B]
-    medicc2_pieces(x$segments, cl, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"]
+    sg = copy(x$segments)[clone == "B" & chrom == "chr2" & start == 20e6, `:=`(state = state, cn = nA_of(state) + nB_of(state))]
+    medicc2_pieces(sg, cl, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"]
   }
-  b2 = at(2)
+  b2 = at(2, "2:1")
   expect_equal(b2$state, "1:1"); expect_equal(b2$cn, 2); expect_equal(b2$label, "neutral")
   expect_identical(b2, medicc2_pieces(x$segments, x$clones, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"])
-  b4 = at(4)
+  b4 = at(4, "4:1")
   expect_equal(b4$state, "2:2"); expect_equal(b4$cn, 4); expect_false(b4$imbalanced)
-  expect_equal(at(3.75)$state, "2:2")                                  # nb = 4
-  b3 = at(3)                                                           # odd nb: no balanced state at the baseline, kept
+  expect_equal(at(3.75, "4:1")$state, "2:2")                           # nb = 4
+  b3 = at(3, "3:1")                                                    # odd nb: the least imbalanced 3-copy state
   expect_equal(b3$state, "2:1"); expect_equal(b3$cn, 3); expect_true(b3$imbalanced)
+  expect_equal(at(5, "4:2")$state, "3:2")
 })
 
 test_that("medicc2_table counts and warns about copy numbers above the cap", {

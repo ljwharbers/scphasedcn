@@ -1758,10 +1758,12 @@ test_that("functions that seed the RNG leave the caller's RNG state as it was", 
   ct = setNames(ff[, cell_type[1], by = cell]$V1, cells)
   fun = function(cc, seed) make_pools(cc, ct[cc], 20, seed)
   chk(pooled_thresholds(sc, fun, n_draws = 100, cv = FALSE, loo = TRUE, standardize = TRUE, min_region_pools = 20), "pooled_thresholds")
-  # no RNG state before the call: none after it
-  if (exists(".Random.seed", envir = globalenv())) rm(".Random.seed", envir = globalenv())
+  # no RNG state before the call: none after it (then the state is put back for the tests that follow)
+  s1 = .Random.seed
+  rm(".Random.seed", envir = globalenv())
   invisible(assign_folds(cells, 4, seed = 3))
   expect_false(exists(".Random.seed", envir = globalenv()))
+  assign(".Random.seed", s1, envir = globalenv())
 })
 
 test_that("make_pools and chrom_rank: the same seed gives the same pools and order whatever the collation of the names", {
@@ -1856,4 +1858,10 @@ test_that("partial parameter lists mean defaults for the rest (caller_normal, se
 
 test_that("pool_scale: the default tail shrinkage is caller_defaults()$pool_tail_k (30)", {
   expect_identical(eval(formals(pool_scale)$tail_k), caller_defaults()$pool_tail_k)
+})
+
+test_that("caller_states: a list without f_att takes its default (not f_att_normal by partial matching)", {
+  p = caller_defaults(); p$f_att = NULL
+  expect_identical(caller_states("tumour", p), caller_states("tumour"))
+  expect_identical(caller_states("normal_att", p), caller_states("normal_att"))
 })

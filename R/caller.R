@@ -50,7 +50,8 @@ utils::globalVariables(c("row_id", "shift", "fold", "is_null", "null_cell", "nul
 caller_states = function(set = c("normal", "normal_att", "tumour"), params = caller_defaults()) {
   if (length(set) == 1 && set %in% c("e4", "e4_att")) set = sub("e4", "normal", set, fixed = TRUE)   # older names
   set = match.arg(set)
-  eps = params$eps; sh = params$shifts; fa = params[["f_att"]]          # [[ ]]: `$` would partially match f_att_normal
+  eps = params$eps; sh = params$shifts
+  fa = params[["f_att"]] %||% caller_defaults()$f_att                  # [[ ]]: `$` would partially match f_att_normal
   if (set == "normal_att") fa = normal_att_grid(params)
   mk = function(state, a, b, shift, f) data.table(state = state, nA = as.integer(a), nB = as.integer(b),
                                                   cn = as.integer(a + b), shift = shift, f = f)

@@ -60,6 +60,7 @@ row_sd = function(M) {
 #' @export
 clone_profiles = function(win, votes, atoms, assign, ref_cells = NULL, size = 1e6, seed = 1, cells = colnames(win$x),
                           rho = 0.01, allelic_chroms = NULL, haploid = character(), min_ref = 30) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   assign = as.data.table(assign)[!is.na(clone), .(cell, clone = as.character(clone))]
   cl = sort(unique(assign$clone))
   if (length(size) == 1) size = stats::setNames(rep(size, length(cl)), cl)

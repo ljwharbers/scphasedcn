@@ -302,6 +302,7 @@ confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
 #' @export
 tumour_null_fit = function(long, params = caller_defaults(), exclude = NULL, select = FALSE, n_iter = 5, min_cells = 5,
                            min_jaccard = 0.7, max_share = 2 / 3) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   long = as.data.table(long)
   nr = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible
   flagged = "null_cell" %in% names(long) && any(long$null_cell %in% TRUE)

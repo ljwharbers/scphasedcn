@@ -207,6 +207,7 @@ multiplet_table = function(x) {
 #' @return cells x components matrix
 #' @export
 scn_embedding = function(dir, cells = NULL, use = NULL, n_pc = 20, hp_window = 21, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   scn = read_sample_depth(dir)
   if (!is.null(cells)) {
     miss = setdiff(cells, scn$cells$cell)

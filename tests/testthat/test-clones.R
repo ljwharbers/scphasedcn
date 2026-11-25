@@ -1523,3 +1523,33 @@ test_that("baseline candidates are narrowed only after a fit with an informative
   expect_equal(nxt(full, fd), c(1.75, 2, 2.25))
 })
 
+
+# ---- RNG state, input validation, doublet bookkeeping ------------------------------------------------------------
+
+test_that("the seeded clone functions leave the caller's RNG state as they found it", {
+  inp = tum2_input()
+  cells = inp$cells$cell
+  same_rng = function(expr, what) {
+    set.seed(42)
+    s0 = .Random.seed
+    force(expr)
+    expect_identical(.Random.seed, s0, info = what)
+  }
+  same_rng(split_votes(inp$votes, 0.5, seed = 3), "split_votes")
+  same_rng(split_win(inp$win, 0.5, seed = 3), "split_win")
+  set.seed(1)
+  X = matrix(stats::rnorm(120 * 6), 120, dimnames = list(paste0("c", 1:120), NULL))
+  X[1:60, 1] = X[1:60, 1] + 4
+  same_rng(dc <- discover_clones(X, n_pc = 3, k = 5, max_leaves = 4, min_size = 10, seed = 3), "discover_clones")
+  fv = fake_block_votes(rep(c(0.5, 0.8), each = 60), n = 20)
+  cd = fake_cdata(fv$nA, fv$nB, rep(1L, 6), "r1")
+  same_rng(merge_clones(NULL, NULL, NULL, NULL, dc$leaves, dc$smooth, n_perm = 5, cdata = cd, cells = cd$cells), "merge_clones")
+  m = data.table(cell = cells[1:40], clone = rep(c("K1", "K2"), each = 20))
+  same_rng(clone_profiles(inp$win, inp$votes, inp$atoms, m, seed = 3, cells = cells), "clone_profiles")
+  lf = inp$features[cell %in% cells[1:80]]
+  same_rng(tumour_null_fit(lf, select = TRUE, n_iter = 2), "tumour_null_fit")
+  cdt = contrast_data(inp$features, inp$votes, inp$atoms, inp$regions, cells)
+  nfr = stats::setNames(inp$cells$n_frag, cells)
+  same_rng(discover_within(clone_input(inp), cells[1:100], inp$votes, inp$features, cdt, nfr,
+                           opts = modifyList(clone_defaults(), list(min_size = 10, n_perm = 5)), seed = 3), "discover_within")
+})

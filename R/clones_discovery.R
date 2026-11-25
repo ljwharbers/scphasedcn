@@ -179,6 +179,7 @@ cl_orient = function(votes, regions, atoms, groups = NULL, loo = TRUE) {
 #' @return list(disc, test): votes tables (rows with no votes dropped)
 #' @export
 split_votes = function(votes, frac = 0.5, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   v = as.data.table(votes)
   a1 = stats::rbinom(nrow(v), v$nA, frac); b1 = stats::rbinom(nrow(v), v$nB, frac)
@@ -198,6 +199,7 @@ split_votes = function(votes, frac = 0.5, seed = 1) {
 #' @return list(disc, test): window depth lists
 #' @export
 split_win = function(win, frac = 0.5, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   x = round(win$x)
   x1 = matrix(stats::rbinom(length(x), as.vector(x), frac), nrow(x), dimnames = dimnames(x))
@@ -293,6 +295,7 @@ allele_fraction_feature = function(nA, n, rho, min_n = 5, cap = Inf) {
 
 # PCA (irlba) of the centred matrix + kNN smoothing (mean over each cell and its k neighbours)
 smooth_embedding = function(X, n_pc = 20, k = 20, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   Xc = sweep(X, 2, colMeans(X), "-")
   keep = apply(Xc, 2, stats::var) > 0
@@ -345,6 +348,7 @@ absorb_small = function(lab, S, min_size) {
 #' @return list(tree = hclust, leaves = named integer labels (names = cells), pc, smooth)
 #' @export
 discover_clones = function(X, n_pc = 20, k = 20, max_leaves = 40, min_size = 20, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   em = smooth_embedding(X, n_pc, k, seed)
   tree = stats::hclust(stats::dist(em$smooth), method = "ward.D2")
   lab = as.character(stats::cutree(tree, k = min(max_leaves, nrow(X))))
@@ -561,6 +565,7 @@ subset_contrast_data = function(cd, idx) {
 split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, seed = 1, early = TRUE, depth_delta = 0.2,
                       with_p = FALSE, perm_decision = c("quantile", "pvalue"), allele = "z", drift_test = "none",
                       drift_regions = 3, pop = NULL) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   perm_decision = match.arg(perm_decision)
   set.seed(seed)
   if (length(a) > max_cells) a = sample(a, max_cells)
@@ -795,6 +800,7 @@ utils::globalVariables(c("in_", "gA", "gB"))
 merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.999, n_perm = 200, seed = 1,
                         rho = 0.01, classes = c("arm", "20Mb"), cells = NULL, max_cells = 250, cdata = NULL, depth_delta = 0.2,
                         n_nb = 3, perm_decision = c("quantile", "pvalue"), allele = c("z", "fraction", "centred"), drift_test = "none") {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   perm_decision = match.arg(perm_decision)
   allele = match.arg(allele)
   S = if (is.matrix(tree)) tree else tree$smooth
@@ -878,6 +884,7 @@ utils::globalVariables(c("differ", "l1", "l2", "depth_used", "p"))
 #' @return list(clones = named integer labels of the discovery cells, tests, regions = selected regions, n_leaves)
 #' @export
 discover_within = function(inp, tcells, votes_disc, feat_disc, cdata, n_frag, opts = clone_defaults(), seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   cells = inp$cells$cell
   ti = match(tcells, cells)
   rg = inp$regions[class %in% opts$classes & eligible == TRUE & allelic_ok == TRUE & chrom %in% inp$allelic_chroms]
@@ -1033,6 +1040,7 @@ subset_contrast_regions = function(cd, regs) {
 split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cdata, win_test = NULL, votes_test = NULL,
                           ref_cells = character(), fit_states = NULL, opts = clone_defaults(), params = caller_defaults(),
                           seed = 1, frac = 0.5) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   inp = clone_input(inp)
   opts = utils::modifyList(clone_defaults(), as.list(opts))
   cells = inp$cells$cell

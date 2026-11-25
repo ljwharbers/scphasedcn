@@ -122,7 +122,11 @@ Limits:
   losses and copy-neutral LOH against more false loss / copy-neutral LOH labels on cells without events and some
   recall of gains (its lower fractions overlap the 2:1 and 3:1 gain fractions, so weak gains can be labelled
   copy-neutral LOH); the total number of calls stays at the null budget. It is not the default: the right grid
-  depends on the switch-error rate of the population phase and has not been benchmarked on real data. The `--chrom-tsv` report gives, per chromosome, how often the population phase disagrees with the
+  depends on the switch-error rate of the population phase and has not been benchmarked on real data. The two
+  combine with the windowed allele term that normal mode uses by default on chromosome-scale phasing (caller
+  parameter `win_score`): it trusts the phase only inside 1 Mb windows, so it is not attenuated, but it is scored
+  only at near-complete LOH (0.98); under `normal_att` the 0.98 loss / copy-neutral LOH rows take the better of the
+  oriented and the windowed evidence and the attenuated rows stay oriented. The `--chrom-tsv` report gives, per chromosome, how often the population phase disagrees with the
   reads inside blocks (`switch_rate`, `minority_frac`).
 - With blocks alone, only events shared by several percent of the cells are visible in the allele channel. The depth
   channel does not depend on phasing.

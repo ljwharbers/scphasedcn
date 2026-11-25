@@ -20,7 +20,7 @@ null_selection_check(
 \arguments{
 \item{feat}{features long table (as for \code{\link[=caller_normal]{caller_normal()}})}
 
-\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}; a partial list is completed with the defaults}
 
 \item{multiplets}{cells never selected as null cells}
 

@@ -25,7 +25,7 @@ null_region, eligible optional; chrom optional, else parsed from the region name
 
 \item{states}{state set (\code{\link[=caller_states]{caller_states()}})}
 
-\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}; a partial list is completed with the defaults}
 
 \item{n_iter}{iterations}
 
@@ -47,7 +47,7 @@ null_region, eligible optional; chrom optional, else parsed from the region name
 }
 \value{
 list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
-candidate cell: n_calls, win_guard, null), tpar, rho, thresholds)
+candidate cell: n_calls (NA: a row without a threshold), win_guard, null), tpar, rho, thresholds)
 }
 \description{
 Starts from all cells of \code{feat_long} minus \code{exclude} (e.g. multiplet-flagged
@@ -86,4 +86,8 @@ The bound is per row, without a correction over the about 60 scored rows of a ce
 cell out of the null set, which costs little (6 of 4,105 cells of a normal thyroid sample). It sees only chromosome
 and arm rows, so a null cell can still carry a windowed call on a smaller tile. The selection's scores themselves
 stay oriented, so that they match what the parametric thresholds simulate.
+A class x stratum left without null rows in an iteration (every cell of a stratum dropped) is thresholded with
+its class over strata (parametric: the class's simulated rows; empirical: the class fallback of
+\code{\link[=budget_thresholds]{budget_thresholds()}}); a cell with an eligible row that still has no threshold is not assessed (\code{n_calls} NA)
+and is never a null cell.
 }

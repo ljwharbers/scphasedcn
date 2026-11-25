@@ -21,5 +21,6 @@ data.table pool, cell, group
 \description{
 Shuffles the cells of each group (cell type) and splits them into
 \code{round(n / n_pool)} pools of (nearly) equal size; groups with fewer than
-\code{ceiling(n_pool / 2)} cells give no pool.
+\code{ceiling(n_pool / 2)} cells give no pool. Groups are drawn (and listed) in C-locale order of their names, so a
+seed gives the same pools under any collation.
 }

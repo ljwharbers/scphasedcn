@@ -39,7 +39,7 @@ pooled_thresholds(
 
 \item{scores}{pooled scores to threshold}
 
-\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}; a partial list is completed with the defaults}
 
 \item{max_draws}{maximal redraws}
 

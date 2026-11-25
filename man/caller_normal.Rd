@@ -30,9 +30,10 @@ caller_normal(
 \arguments{
 \item{feat}{features long table (\code{vignette("scphasedcn-outputs", package = "scphasedcn")})}
 
-\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
+\item{params}{\code{\link[=caller_defaults]{caller_defaults()}}; a partial list is completed with the defaults (keys it lacks take their default)}
 
-\item{cell_meta}{optional table \code{cell} (+ \code{cell_type}) overriding the features' cell types}
+\item{cell_meta}{optional table \code{cell} (+ \code{cell_type}) overriding the features' cell types; cells it gives no type
+(absent, or NA there) keep the features' cell type}
 
 \item{multiplets}{cells flagged as multiplets (never null cells, never pooled)}
 

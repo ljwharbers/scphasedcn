@@ -1721,6 +1721,32 @@ test_that("clean_reference: without votes on any clone's regions the whole candi
   expect_setequal(cr$pool, cr$table$cell)
 })
 
+test_that("assign_cells: a piece without a state of a clone on a haploid chromosome is scored as the neutral 1:0", {
+  # sim_tum2 (male): a tumour clone without its chrX segment scores every hypothesis (single clones and mixtures) as
+  # with an explicit neutral 1:0 there, without and with a reference pool, at baseline 2 and 3; no votes (depth only)
+  r = tum2_result()
+  inp = clone_input(tum2_input())
+  sg = as.data.table(r$segments)
+  k = setdiff(sort(unique(sg$clone)), "N0")[1]
+  x1 = copy(sg)[clone == k & chrom == "chrX", `:=`(state = "1:0", cn = 1L, nA = 1L, nB = 0L, label = "neutral", ploidy = 1L)]
+  x0 = sg[!(clone == k & chrom == "chrX")]
+  expect_true(all(sg[chrom == "chrX", ploidy] == 1L))
+  pieces = segment_pieces(sg, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes[0, ], atoms = inp$atoms,
+            cells = inp$cells$cell)
+  members = r$assignments[confident == TRUE, .(cell, clone)]
+  pool = r$assignments[ref_pool == TRUE, cell]
+  expect_gte(length(pool), 30)
+  par2 = as.data.table(r$null_fit$clones$par)
+  par3 = copy(par2)[clone == k, base := 3]
+  ll = function(seg, ref, par) attr(assign_cells(fp, members, seg, inp$tpar, inp$rho, par = par, ref_cells = ref), "ll")
+  for (ref in list(NULL, pool)) for (par in list(par2, par3)) {
+    l1 = ll(x1, ref, par)
+    expect_gt(ncol(l1), length(unique(members$clone)))                # mixture hypotheses included
+    expect_equal(ll(x0, ref, par), l1, info = sprintf("pool %s, baseline %s", length(ref) > 0, par[clone == k, base]))
+  }
+})
+
 test_that("split_disagree (direct call): checks its options, fits a missing input null with its params, re-fits the parts at the parent's baseline", {
   inp = tum2_input()
   tr = sim_truth(sim_tum2)[mult == FALSE]

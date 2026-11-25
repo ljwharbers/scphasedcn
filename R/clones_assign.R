@@ -263,7 +263,8 @@ clone_allelic_distance = function(oc, members, arms, floor = 0.03, min_mol = 200
 #' The hypotheses are the clones with members plus the fixed normal clone `N0` whenever `segments` has it
 #' ([caller_tumour()] `normal_hypothesis`), even when no cell is labelled `N0` yet: its state is all-neutral, so it
 #' needs no orientation, and without it normal cells would be forced into a tumour clone. Its `c` is the median `c`
-#' of `par` (attenuation 1) when `par` has no `N0` row.
+#' of `par` (attenuation 1) when `par` has no `N0` row. A piece without a state of a clone is scored at the clone's
+#' baseline on a diploid chromosome and as the neutral haploid state 1:0 on a haploid one (ploidy 1 in `segments`).
 #' @param feat_pieces list(features = per-cell depth features on the pieces ([region_features()]),
 #'   pieces = regions table, votes, atoms, cells = names in vote index order)
 #' @param clones data.table cell, clone: the clone members used for orientation (confident singlets)
@@ -339,11 +340,17 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
     rowsum(l, ci_d)[as.character(seq_along(sc)), 1]
   }
   st_mat = function(k, col) { x = ps_[clone == k]; x[[col]][match(d$region, x$region)] }
+  # a piece without a state of the clone: on a diploid chromosome the clone's baseline (its median depth; 2 copies
+  # when diploid); on a haploid chromosome (ploidy 1 in the segments) the neutral haploid state 1:0, one copy at ploidy
+  # 1 as a segmented neutral piece (c log2(1 / B) without a reference pool, c log2(2 / B) relative to one)
+  sg_ = as.data.table(segments)
+  hap_p = pieces$chrom %in% (if ("ploidy" %in% names(sg_)) unique(sg_[ploidy == 1L, chrom]) else character())
+  hap_d = hap_p[match(d$region, pieces$region)]
+  fill_cn = function(cnv, B_, hap) { na = is.na(cnv); cnv[na] = fifelse(hap[na], 1, B_); cnv }
+  fill_pl = function(plv) { na = is.na(plv); plv[na] = fifelse(hap_d[na], 1, 2); plv }
   LL = matrix(0, length(sc), length(K), dimnames = list(sc, K))
   for (k in K) {
-    # a piece without a state of the clone is taken at the clone's baseline (its median depth; 2 copies when diploid)
-    cnv = st_mat(k, "cn"); plv = st_mat(k, "ploidy")
-    cnv[is.na(cnv)] = par[clone == k, base]; plv[is.na(plv)] = 2
+    cnv = fill_cn(st_mat(k, "cn"), par[clone == k, base], hap_d); plv = fill_pl(st_mat(k, "ploidy"))
     LL[, k] = depth_ll(cnv, plv, par[clone == k, c], par[clone == k, base])
   }
   # alleles
@@ -389,15 +396,15 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
     for (j in seq_len(ncol(pr))) {
       k = pr[1, j]; l = pr[2, j]
       ck = par[clone == k, c]; cl_ = par[clone == l, c]; bk = par[clone == k, base]; bl = par[clone == l, base]
-      cnk = st_mat(k, "cn"); cnl = st_mat(l, "cn"); cnk[is.na(cnk)] = bk; cnl[is.na(cnl)] = bl
-      plv = st_mat(k, "ploidy"); plv[is.na(plv)] = 2
+      cnk = fill_cn(st_mat(k, "cn"), bk, hap_d); cnl = fill_cn(st_mat(l, "cn"), bl, hap_d)
+      plv = fill_pl(st_mat(k, "ploidy"))
       if (nrow(tv$trip)) {
         # each piece is scored under the orientation of the pair's clone that is imbalanced there (the larger one
         # if both are), i.e. the same orientations the single-clone hypotheses use: a pooled pair orientation
         # would be better determined than a single clone's and favour the mixtures systematically
         xk = ps_[clone == k]; xl = ps_[clone == l]
         ck_ = xk$cn[match(pieces$region, xk$region)]; cl2 = xl$cn[match(pieces$region, xl$region)]
-        ck_[is.na(ck_)] = bk; cl2[is.na(cl2)] = bl
+        ck_ = fill_cn(ck_, bk, hap_p); cl2 = fill_cn(cl2, bl, hap_p)
         fk0 = fexp(k); fl0 = fexp(l)
         imb_k = abs(fk0 - 0.5) > 1e-9; imb_l = abs(fl0 - 0.5) > 1e-9
         ori_k = imb_k & (!imb_l | length(member[[k]]) >= length(member[[l]]))

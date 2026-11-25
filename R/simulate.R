@@ -112,7 +112,9 @@ sim_events_tumour = function() {
 #'   change the genome: `genome` is evaluated before seeding, and [sim_genome()] uses its own `seed`. After
 #'   `set.seed(seed)` the simulator first makes (and discards) the random draws of [sim_genome()] for
 #'   `nrow(genome)` bins, then draws the data; the result depends only on the genome table, `seed` and the other
-#'   parameters, not on how `genome` was given. The caller's random stream is saved and restored.
+#'   parameters, not on how `genome` was given. The caller's random stream is saved and restored, around the
+#'   evaluation of `genome` as well: a `genome` expression that draws random numbers draws them from the caller's
+#'   stream as it is at the call and leaves it as it was.
 #' @return list with `scn` (an `scn` object, see [new_scn()]), `truth` (cells,
 #'   nuclei, cn/cnA per nucleus, events), `fragments` (data.table in the Python
 #'   `fragments.tsv.gz` layout, `ps` = phase set of the first covered SNP or -1, plus nucleus,
@@ -127,10 +129,13 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
                         noise_phi = 0.25, frag_len = c(meanlog = log(700), sdlog = 0.6),
                         snp_density = 1 / 2000, phase_block_mean = 1.5e6, switch_rate = 1e-4,
                         block_flip_prob = 0, allele_error = 0.04, seed = 1) {
-  # the genome first, before seeding: a default or inline sim_genome() then uses its own seed and restores the
-  # caller's stream (evaluated after set.seed(seed), it reseeded the simulation: every seed gave the same data)
-  bins = copy(genome)
+  # the caller's stream is saved first, so that a genome expression that draws random numbers leaves it as it was.
+  # The genome is then evaluated before seeding (evaluated after set.seed(seed), a default or inline sim_genome()
+  # reseeded the simulation: every seed gave the same data). Inside this guard sim_genome()'s own save / restore is a
+  # no-op and its set.seed() persists, as do the draws of any genome expression, but nothing draws between here and
+  # set.seed(seed), which resets the stream: the data depend on the genome table and `seed` only
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
+  bins = copy(genome)
   sex = match.arg(sex)
   nb = nrow(bins)
   set.seed(seed)

@@ -1,11 +1,15 @@
 # test-multi-seed.R: the main normal-mode and tumour-mode fixtures (sim_norm_f, sim_tum2) re-simulated at other seeds
-# (2, 3, 4; same parameters, only the seed differs), with the key assertions of their seed-1 tests that held at every
-# seed when this file was written. The other assertions of those tests were measured at seeds 1-4 too; the ones that
-# fail at some seed are not repeated here (multiplet carriers diluting a private event, a sub-arm CN-LOH with neutral
-# depth, near-zero rho ratios, a quarter-integer baseline): they are tracked separately. ~50 s per seed; skipped on CRAN
-# like the other slow end-to-end tests.
+# (2, 3, 4; same parameters, only the seed differs), with the key assertions of their seed-1 tests. Every assertion here
+# held at seeds 1-4 when this file was written; assertions of these and the other end-to-end fixtures that fail at some
+# seed are not repeated here and are tracked separately, and some that held were left out to keep the run time down.
+# ~75 s per seed; skipped on CRAN like the other slow end-to-end tests.
 
 ms_seeds = c(2L, 3L, 4L)
+ms_cache = new.env()
+ms_cached = function(name, build) {
+  if (is.null(ms_cache[[name]])) ms_cache[[name]] = build()
+  ms_cache[[name]]
+}
 
 # the fixtures' parameters (helper-caller.R), seed free
 ms_sim_norm_f = function(seed) simulate_scn(
@@ -30,7 +34,7 @@ test_that("multi-seed: the re-simulation functions use the fixtures' parameters"
 test_that("multi-seed sim_norm_f: null-cell selection drops the private-event carriers; nested events resolved", {
   skip_on_cran()
   for (s in ms_seeds) {
-    sim = ms_sim_norm_f(s)
+    sim = ms_cached(paste0("norm_f_", s), function() ms_sim_norm_f(s))
     sf = sim_features(sim)
     tr = sim$truth
     cells = sim$scn$cells$cell
@@ -92,5 +96,29 @@ test_that("multi-seed sim_tum2: caller_tumour finds the clones, their states and
     expect_gte(mean(pool$type == "normal" & !pool$mult), 0.98, label = lab("reference pool purity"))
     cc = res$calls[level == "cell"]
     expect_gt(cc[grepl("chr22", region), mean(source == "confirmed")], 0.8, label = lab("chr22 confirmed"))
+  }
+})
+
+test_that("multi-seed sim_norm_f: call_scn end to end: chromosome phasing, calls only on carriers, 1p loss and chr8 gain found", {
+  skip_on_cran()
+  for (s in ms_seeds) {
+    sim = ms_cached(paste0("norm_f_", s), function() ms_sim_norm_f(s))
+    d = file.path(tempdir(), paste0("multiseed_norm_f_", s))
+    unlink(d, recursive = TRUE)
+    invisible(capture.output(suppressMessages(write_sim_dataset(sim, d))))
+    cs = sim$scn$bins[, .(len = max(end)), by = chrom]
+    cen = cs[, .(chrom, cstart = 1, cen_left = 0.4 * len, cen_right = 0.4 * len, cend = len)]
+    res = suppressWarnings(call_scn(d, "normal", sex = "female", centromeres = cen, verbose = FALSE))
+    lab = function(x) paste("seed", s, x)
+    expect_identical(unique(res$feature_info$phasing_chrom$regime), "chromosome", label = lab("phasing regime"))
+    cells = sim$scn$cells$cell
+    car = lapply(sim$truth$carriers, function(n) unique(cells[sim$truth$nuclei$cell[n]]))
+    cl = res$calls[level == "cell" & called & reportable]
+    for (k in list(list("chr1p", "loss", 1), list("chr8", "gain", 2), list("chr21", "gain", 4))) {
+      got = unique(cl[region == k[[1]] & state == k[[2]], cell])
+      expect_true(all(got %in% car[[k[[3]]]]), label = lab(paste(k[[1]], k[[2]], "calls on carriers only")))
+      # recall (>= 0.7 as in the seed-1 test) for 1p and chr8; chr21 is left out (carriers in multiplets at seed 3)
+      if (k[[1]] != "chr21") expect_gte(length(intersect(got, car[[k[[3]]]])) / length(car[[k[[3]]]]), 0.7, label = lab(paste(k[[1]], "recall")))
+    }
   }
 })

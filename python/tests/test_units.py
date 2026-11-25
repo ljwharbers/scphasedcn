@@ -110,6 +110,67 @@ def test_vote_ps_cli(genome, bam, vcf, tmp_path):
     assert sorted(lf) == sorted(lm) and all((lf[k] != lm[k]).nnz == 0 for k in lf)
 
 
+def _accumulate_dense(cell, bin_idx, n_cells, n_bins, weights=None):
+    """The dense reference implementation of depth.accumulate (before it was made sparse)."""
+    import scipy.sparse as sp
+    ok = bin_idx >= 0
+    key = cell[ok].astype(np.int64) * n_bins + bin_idx[ok]
+    w = None if weights is None else weights[ok]
+    dense = np.bincount(key, weights=w, minlength=n_cells * n_bins).reshape(n_cells, n_bins)
+    m = sp.csr_matrix(dense.astype(np.int64 if w is None else np.float64))
+    m.eliminate_zeros()
+    return m
+
+
+def _same_csr(a, b):
+    return (a.shape == b.shape and a.dtype == b.dtype and a.indices.dtype == b.indices.dtype
+            and a.indptr.dtype == b.indptr.dtype and np.array_equal(a.data, b.data)
+            and np.array_equal(a.indices, b.indices) and np.array_equal(a.indptr, b.indptr) and a.has_sorted_indices)
+
+
+def test_accumulate_matches_the_dense_reference():
+    from scphasedcn.depth import accumulate
+    rng = np.random.default_rng(3)
+    for n in (0, 1, 50, 500):
+        cell = rng.integers(0, 7, n).astype(np.int32)
+        bi = rng.integers(-1, 13, n).astype(np.int64)
+        w = rng.integers(0, 3, n).astype(np.float64)         # zeros: a bin whose weights sum to 0 is not stored
+        for weights in (None, w):
+            assert _same_csr(accumulate(cell, bi, 7, 13, weights=weights), _accumulate_dense(cell, bi, 7, 13, weights))
+
+
+def test_accumulate_is_sparse():
+    """No dense cells x bins array: 10^7 x 10^7 would need 800 TB."""
+    from scphasedcn.depth import accumulate
+    m = accumulate(np.array([0, 9_999_999, 0], np.int32), np.array([5, 9_999_998, 5]), 10_000_000, 10_000_000)
+    assert m.shape == (10_000_000, 10_000_000) and m.nnz == 2 and m[0, 5] == 2 and m.dtype == np.int64
+
+
+def test_depth_layers_match_the_dense_reference(genome, bam, vcf, monkeypatch):
+    import scphasedcn.depth as D
+    from scphasedcn.alleles import AlleleAccumulator, load_snps
+    from scphasedcn.bam import scan_chrom, flag_fragments
+    from scphasedcn.bins import Tiling, read_bed_intervals
+    from conftest import CELL_A, CELL_B
+    cells = [CELL_A, CELL_B]
+    for ch, n in (("chr1", 1_000_000), ("chr2", 500_000)):
+        acc = AlleleAccumulator(load_snps(str(vcf), ch, phased=True))
+        fr, _ = scan_chrom(str(bam), ch, cells, alleles=acc)
+        flag_fragments(fr, read_bed_intervals(str(genome / "blacklist.bed"), ch), read_bed_intervals(None, ch), None,
+                       read_bed_intervals(None, ch))
+        for binsize in (100_000, 7_000):
+            t = Tiling.regular_grid(ch, n, binsize)
+            for assign in D.ASSIGN_MODES:
+                new = D.depth_layers(fr, t, 2, assign=assign)
+                with monkeypatch.context() as mp:
+                    mp.setattr(D, "accumulate", _accumulate_dense)
+                    ref = D.depth_layers(fr, t, 2, assign=assign)
+                assert sorted(new) == sorted(ref) == sorted(D.DEPTH_LAYERS + D.HAP_LAYERS)
+                assert all(_same_csr(new[k], ref[k]) for k in ref)
+                part = D.depth_layers(fr, t, 2, assign=assign, layers=D.HAP_LAYERS)
+                assert sorted(part) == sorted(D.HAP_LAYERS) and all(_same_csr(part[k], ref[k]) for k in part)
+
+
 def test_translate_barcodes(tmp_path):
     from scphasedcn.config import translate_barcodes
     m = tmp_path / "map.tsv"

@@ -170,7 +170,7 @@ def check_chrom_reference(chroms: list[str], bam_refs: dict, bam: str, sizes: di
 def cmd_extract(a):
     from .bam import scan_chrom, flag_fragments, check_barcode_match, F_BLACKLIST, LOOP_COUNTERS
     from .bins import Tiling, annotate_tiling, read_bed_intervals, read_centromere
-    from .depth import depth_layers, fraglen_hist
+    from .depth import depth_layers, fraglen_hist, DEPTH_LAYERS, HAP_LAYERS
     from .qc import chrom_qc
     from .writers import (save_csr_dict, write_bgzf_table, fragments_frame, write_json, write_done, read_done,
                           file_fingerprint, cells_digest, LAYER_FILES, DONE_FORMAT)
@@ -260,9 +260,7 @@ def cmd_extract(a):
 
     if "depth" in layers_on:
         bins_df = annotate_tiling(tiling, ref, d["peaks"])
-        layers = depth_layers(fr, tiling, n_cells, assign=a.assign, use=clean)
-        for k in ("hapA", "hapB", "hap_ambig"):
-            layers.pop(k, None)
+        layers = depth_layers(fr, tiling, n_cells, assign=a.assign, use=clean, layers=DEPTH_LAYERS)
         obsm = {"fraglen_hist": fraglen_hist(fr, n_cells, use=clean), "mapq_hist": ctr.mapq_hist}
         _log(f"depth: {int(layers['counts'].sum())} counts in {len(tiling)} bins")
         save_csr_dict(pdir / "layers.npz", layers)
@@ -274,9 +272,7 @@ def cmd_extract(a):
     hap_assign = a.assign if a.assign != "overlap" else "start"
     if "alleles" in layers_on and acc is not None:
         al = acc.matrices(n_cells)
-        hl = depth_layers(fr, tiling, n_cells, assign=hap_assign, use=clean)
-        for k in ("hapA", "hapB", "hap_ambig"):
-            al[k] = hl[k]
+        al.update(depth_layers(fr, tiling, n_cells, assign=hap_assign, use=clean, layers=HAP_LAYERS))
         save_csr_dict(pdir / "alleles.npz", al)
         sdf = acc.snps.frame(); sdf["n_other"] = acc.n_other; sdf["n_lowbq"] = acc.n_lowbq
         sdf.to_csv(pdir / "snps.tsv", sep="\t")

@@ -13,7 +13,8 @@ null_selection_check(
   select_args = list(),
   null_chroms = paste0("chr", 1:22),
   false_calls = NULL,
-  conf = 0.95
+  conf = 0.95,
+  phasing = NULL
 )
 }
 \arguments{
@@ -27,7 +28,8 @@ null_selection_check(
 
 \item{depth_model}{"t" or "gauss"}
 
-\item{select_args}{extra arguments for \code{\link[=select_null_cells]{select_null_cells()}} (its \code{chroms} is set per half)}
+\item{select_args}{extra arguments for \code{\link[=select_null_cells]{select_null_cells()}} (its \code{chroms} is set per half; without \code{states} the
+run's state set)}
 
 \item{null_chroms}{the chromosomes whose rows can be null rows in the run; their numbered autosomes are split}
 
@@ -35,6 +37,9 @@ null_selection_check(
 cross-validated rate on all null rows)}
 
 \item{conf}{confidence level of the intervals}
+
+\item{phasing}{the features' phasing record (\code{features$phasing}; \code{\link[=call_scn]{call_scn()}} passes it) or NULL; used by
+\code{params$states_normal = "auto"} only}
 }
 \value{
 data.table class, stratum (\code{all} = over the strata), n_rows (measured rows), n_exceed, per_1000 (null and
@@ -67,4 +72,6 @@ shows up.
 Confidence intervals are exact binomial (Clopper-Pearson) over rows; rows of one cell overlap (a chromosome and its
 arms), so they are somewhat too narrow. Costs about one more \code{\link[=caller_normal]{caller_normal()}} scoring pass (two half passes
 without pools). With \code{calib_rho = "chrom"} the measured half has no null rows and takes the global rho.
+The selection and the scoring of both halves use the run's normal-mode state set (\code{params$states_normal},
+\code{\link[=normal_state_set]{normal_state_set()}} with \code{phasing}), as \code{\link[=caller_normal]{caller_normal()}} does.
 }

@@ -556,7 +556,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       say("null selection check (null cells selected on odd / even autosomes, exceedances on the other half)")
       res$null_check = null_selection_check(long, params = params, multiplets = mcells, regions = features$regions,
                                             depth_model = na_run$depth_model[1], select_args = na_run$select_args %||% list(),
-                                            null_chroms = na_run$null_chroms, false_calls = res$false_calls)
+                                            null_chroms = na_run$null_chroms, false_calls = res$false_calls,
+                                            phasing = features$phasing)
       nca = res$null_check[stratum == "all"]
       res$notes = c(res$notes, sprintf(paste("null selection check: %s per 1,000 on rows not used for selection (in-sample %s);",
                                              "upper bound of the null rate: real events on those rows count too; %.1f min"),

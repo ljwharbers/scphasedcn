@@ -1577,3 +1577,35 @@ test_that("normal_att with the windowed allele term: the 0.98 loss / CN-LOH rows
   expect_false("f_state" %in% names(r1$scores))
   expect_false(any(r1$cells[cell %in% aw$priv, null_cell]))
 })
+
+test_that("null_selection_check selects and scores under the run's state set (states_normal, phasing)", {
+  aw = att_win_features()
+  ff = aw$ff[, -c("wal_f980", "n_win")]
+  seen = list()
+  rec = function(nm, f) function(...) {
+    a = as.list(match.call(f, sys.call()))[-1]
+    seen[[nm]] <<- c(seen[[nm]], list(eval(a$states, parent.frame())))
+    f(...)
+  }
+  ns = asNamespace("scphasedcn")
+  fns = c("select_null_cells", "score_cells")
+  orig = mget(fns, envir = ns)
+  do.call(local_mocked_bindings, c(lapply(setNames(fns, fns), function(nm) rec(nm, orig[[nm]])), list(.package = "scphasedcn", .env = environment())))
+  chk = function(p, phasing = NULL) {
+    seen <<- list()
+    invisible(null_selection_check(ff, params = p, regions = aw$rg, select_args = list(n_sim = 2e4), phasing = phasing))
+    seen
+  }
+  pa = modifyList(caller_defaults(), list(states_normal = "normal_att"))
+  s = chk(pa)
+  for (nm in fns) {
+    expect_gte(length(s[[nm]]), 2)
+    for (st in s[[nm]]) expect_identical(st, caller_states("normal_att", pa), label = nm)
+  }
+  pu = modifyList(caller_defaults(), list(states_normal = "auto"))
+  s = chk(pu, phasing = c(detected = "chromosome", orientation = "chromosome"))
+  expect_gte(length(s$score_cells), 2)
+  for (nm in fns) for (st in s[[nm]]) expect_identical(st, caller_states("normal_att", pu), label = nm)
+  s = chk(caller_defaults())
+  for (nm in fns) for (st in s[[nm]]) expect_identical(st, caller_states("normal"), label = nm)
+})

@@ -315,7 +315,7 @@ test_that("plot_cells.R fails with usage on bad input and plots a written run", 
   ff = file.path(tempdir(), "plotcells_cli_features.rds")
   saveRDS(feat, ff)
   od = file.path(tempdir(), "plotcells_cli_out")
-  cb = paste(res$assignments[clone == "CB", cell][1:2], collapse = ";")
+  cb = shQuote(paste(res$assignments[clone == "CB", cell][1:2], collapse = ";"))   # system2 runs a shell: quote the ";"
   log = run("--run", rd, "--features", ff, "--out", od, "--cells", cb, "--cores", "1")
   expect_null(attr(log, "status"))
   expect_true(file.exists(file.path(od, "CB.pdf")))

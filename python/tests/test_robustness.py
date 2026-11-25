@@ -400,3 +400,18 @@ def test_select_hets_loci_with_other_contig_names(tmp_path):
     with pytest.raises(SystemExit, match="no autosomal site"):
         main(base + ["--out", str(out2), "--loci", loci("other", "chr9")])
     assert not out2.exists() and not (tmp_path / "none.vcf.gz.tbi").exists()
+
+
+# --------------------------------------------------------------------------------------------- biallelic SNV test
+def test_spanning_deletion_and_n_alleles_are_not_snvs(tmp_path):
+    from scphasedcn.alleles import load_snps
+    from scphasedcn.hets import is_candidate
+    sites = [(1001, "A", "G"), (1101, "A", "*"), (1201, "N", "A"), (1301, "c", "t"), (1401, "G", "N")]
+    v = write_vcf(tmp_path / "star.vcf", [("chr2", p, r, a, "PASS", ["0|1:1000"]) for p, r, a in sites])
+    s = load_snps(str(v), "chr2", phased=True)
+    assert (s.pos + 1).tolist() == [1001, 1301] and s.ref == ["A", "C"] and s.alt == ["G", "T"]
+    raw = tmp_path / "calls.vcf"
+    raw.write_text(_HETS_HDR + "".join(f"chr2\t{p}\t.\t{r}\t{a}\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n" for p, r, a in sites))
+    with pysam.VariantFile(str(raw)) as vf:
+        why = [is_candidate(r, 10, 20)[1] for r in vf]
+    assert why == ["ok", "not_biallelic_snv", "not_biallelic_snv", "ok", "not_biallelic_snv"]

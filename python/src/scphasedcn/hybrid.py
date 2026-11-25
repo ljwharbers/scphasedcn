@@ -64,7 +64,9 @@ def _names(c: str) -> list[str]:
     return [c, alt]
 
 
-def _snv(rec) -> bool:
+def is_snv(rec) -> bool:
+    """Biallelic SNV: REF and a single ALT, each one of A, C, G, T (case-insensitive); a spanning deletion (`*`), N or
+    an IUPAC code is not. The one predicate of hybrid-phase, select-hets and the allele layer of extract."""
     return (rec.alts is not None and len(rec.alts) == 1 and len(rec.ref) == 1 and len(rec.alts[0]) == 1
             and rec.ref.upper() in "ACGT" and rec.alts[0].upper() in "ACGT")
 
@@ -140,7 +142,7 @@ class Population:
 
     def _parse(self, rec, si, st: Counter, out: dict):
         st["markers"] += 1
-        if not _snv(rec):
+        if not is_snv(rec):
             return
         if self.flag is not None and self.flag in rec.info:
             st["imputed"] += 1
@@ -262,7 +264,7 @@ def _decide(contig: str, sites: list, pop: dict, min_votes: int, other_ps=()):
 
 def _site(rec, si):
     """(pos, ref, alt, ps or None, first allele ALT) for a het biallelic SNV, else None."""
-    if not _snv(rec):
+    if not is_snv(rec):
         return None
     s = rec.samples[si]
     gt = s.get("GT")

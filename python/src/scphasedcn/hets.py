@@ -17,7 +17,7 @@ from collections import Counter
 
 import numpy as np
 
-from .hybrid import _bare, _names
+from .hybrid import _bare, _names, is_snv
 
 AUTOSOMES = [f"chr{i}" for i in range(1, 23)]
 
@@ -26,7 +26,7 @@ def is_candidate(rec, min_gq: int, min_dp: int) -> tuple[bool, str]:
     """PASS, biallelic SNV, het GT, GQ >= min_gq, DP >= min_dp. Returns (ok, reason)."""
     if "PASS" not in rec.filter:
         return False, "not_pass"
-    if rec.alts is None or len(rec.alts) != 1 or len(rec.ref) != 1 or len(rec.alts[0]) != 1:
+    if not is_snv(rec):                 # also REF / ALT `*`, N, IUPAC codes
         return False, "not_biallelic_snv"
     s = rec.samples[0]
     gt = s.get("GT")

@@ -168,6 +168,9 @@ budget_threshold = function(null_scores, budget_per_1000 = 1) {
 # The entry points (call_scn, cell_features, caller_normal, caller_tumour, simulate_scn) seed the RNG internally
 # for reproducibility. rng_save() / rng_restore() put the caller's global RNG state back when the outermost entry
 # point returns; nested entry points leave the stream alone, so a run draws exactly the numbers it always drew.
+# Every other function that calls set.seed() (assign_folds, make_pools, fit_depth_null, robust_rho, the null-cell
+# selection and pooled thresholds, the mirrored / windowed allele rho) does the same, so that called on its own it
+# does not reset the user's stream, and called inside an entry point it changes nothing.
 .scphasedcn_rng = new.env(parent = emptyenv())
 
 rng_save = function() {

@@ -313,6 +313,7 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
 #' @return integer fold (1..n_folds) per entry of `cells`
 #' @export
 assign_folds = function(cells, n_folds = 4, seed = 1, origin = NULL) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   base = if (is.null(origin)) as.character(cells) else fifelse(is.na(origin), as.character(cells), as.character(origin))
   u = unique(base)
   set.seed(seed)
@@ -808,6 +809,7 @@ robust_rho = function(nA, n, min_n = 30, seed = 1) {
   ok = !is.na(n) & !is.na(nA) & n >= min_n
   if (!any(!is.na(n) & n > 0)) return(1e-4)
   if (sum(ok) < 50) return(fit_allelic_null(nA, n))
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   a = nA[ok]; m = n[ok]
   zj = abs(a + runif(length(a)) - 0.5 - m / 2) / sqrt(m / 4)
@@ -826,6 +828,7 @@ robust_rho = function(nA, n, min_n = 30, seed = 1) {
 # that its rows are tested, not left without a threshold; a class without template rows gets none.
 param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t", n_sim = NULL, seed = 1,
                             by = c("class", "stratum"), groups = NULL) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   n_sim = n_sim %||% max(2e4, ceiling(20 / (1 - q)))
   tm = as.data.table(tmpl)[, c(by, "sd_null", "n_hap"), with = FALSE]
   tm[, n_hap := fifelse(is.na(n_hap), 0, n_hap)]
@@ -920,6 +923,7 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 select_null_cells = function(feat_long, states = caller_states("normal", params), params = caller_defaults(), n_iter = 2,
                              max_calls = 0, exclude = NULL, classes = c("chrom", "arm"), depth_model = "t",
                              threshold = c("parametric", "empirical"), q = 0.9999, n_sim = NULL, chroms = paste0("chr", 1:22)) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   threshold = match.arg(threshold)
   d = as.data.table(feat_long)[class %in% classes & !cell %in% exclude]
   if (!is.null(chroms)) {
@@ -1566,6 +1570,7 @@ utils::globalVariables(c("dcol", "acol"))
 #' @return data.table pool, cell, group
 #' @export
 make_pools = function(cells, group = NULL, n_pool = 20, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   g = if (is.null(group)) rep("all", length(cells)) else as.character(group)
   g[is.na(g)] = "NA"
@@ -1666,6 +1671,7 @@ utils::globalVariables("borrowed_from")
 pooled_thresholds = function(d_null, pools_fun, n_draws = 20000, by = "class", q = params$null_q, cv = TRUE,
                              states = caller_states("normal", params), scores = c("s_depth", "s_allelic", "s_comb", if (loo) "s_rob"),
                              params = caller_defaults(), max_draws = 200, loo = FALSE, standardize = FALSE, min_region_pools = 1000) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   d_null = as.data.table(d_null)
   sn = unique(as.data.table(states)[state != "neutral"]$state)
   keep = unique(c(by, scores, if (standardize) c("region", "class", paste0("cl_", sn), if (loo) paste0("lo_", sn))))

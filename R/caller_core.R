@@ -282,6 +282,7 @@ ll_allelic = function(nA, n, f, rho, eps = 0.02, two_sided = TRUE, per_row = FAL
 #' @return data.table with the `by` columns, `t_m`, `t_s`, `t_df`, `n` (finite null rows)
 #' @export
 fit_depth_null = function(d, by = c("class", "stratum"), n_max = 20000, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   d = as.data.table(d)
   d[is.finite(z), {
     set.seed(seed)

@@ -259,3 +259,18 @@ test_that("block-only phasing: no window columns, a note, and the oriented score
                                        method = "celltype", params = modifyList(caller_defaults(), list(win_allelic = TRUE))))
   expect_true("wal_f980" %in% names(fe2$long))
 })
+
+test_that("window_allelic_features (fitted rho) leaves the caller's RNG state as it was", {
+  tt = wa_toy()
+  set.seed(3)
+  votes = rbindlist(lapply(1:20, function(i) {
+    a = rbinom(30, 4, 0.5)
+    data.table(cell = i, atom = 1:30, ps = 1, nA = a, nB = 4L - a)
+  }))
+  set.seed(99)
+  s0 = .Random.seed
+  wa = window_allelic_features(votes, tt$atoms, tt$regions)
+  expect_identical(.Random.seed, s0)
+  expect_true(is.finite(attr(wa, "rho")))
+})
+

@@ -1734,3 +1734,33 @@ test_that("select_null_cells (parametric): the cells of a stratum whose cells we
   expect_identical(s$calls[cell %in% big, null], rep(FALSE, length(big)))
 })
 
+test_that("functions that seed the RNG leave the caller's RNG state as it was", {
+  chk = function(expr, label) {
+    set.seed(99)
+    s0 = .Random.seed
+    force(expr)
+    expect_identical(.Random.seed, s0, label = label)
+  }
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(120, rg, seed = 2)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  st = caller_states("normal")
+  cells = unique(ff$cell)
+  chk(assign_folds(cells, 4, seed = 3), "assign_folds")
+  chk(make_pools(cells, rep(c("a", "b"), 60), 20, seed = 3), "make_pools")
+  chk(fit_depth_null(ff, n_max = 50), "fit_depth_null")
+  x = ff[class == "chrom"]
+  chk(robust_rho(x$nA, x$n_hap, min_n = 1), "robust_rho")
+  tp = fit_depth_null(ff)
+  chk(param_thresholds(ff[class == "arm"], st, tp, 0.002, 0.999, caller_defaults(), n_sim = 2000), "param_thresholds")
+  chk(select_null_cells(ff, n_sim = 2e4), "select_null_cells")
+  sc = score_cells(ff, st, tp, 0.002, keep_rows = TRUE)
+  ct = setNames(ff[, cell_type[1], by = cell]$V1, cells)
+  fun = function(cc, seed) make_pools(cc, ct[cc], 20, seed)
+  chk(pooled_thresholds(sc, fun, n_draws = 100, cv = FALSE, loo = TRUE, standardize = TRUE, min_region_pools = 20), "pooled_thresholds")
+  # no RNG state before the call: none after it
+  if (exists(".Random.seed", envir = globalenv())) rm(".Random.seed", envir = globalenv())
+  invisible(assign_folds(cells, 4, seed = 3))
+  expect_false(exists(".Random.seed", envir = globalenv()))
+})
+

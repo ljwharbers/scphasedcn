@@ -160,6 +160,7 @@ window_allelic_features = function(votes, atoms, regions, params = caller_defaul
     nullsw = if ("null_region" %in% names(regions)) unique(map$atom[regions$null_region[map$ri] %in% TRUE]) else w$sw
     s = u[sw %in% nullsw]
     if (!nrow(s)) s = u
+    rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
     set.seed(params$seed %||% 1)
     s = s[sample.int(.N, min(.N, 2e6))]
     rho = if (nrow(s)) fit_bb_rho(s$nA, s$n) else NA_real_

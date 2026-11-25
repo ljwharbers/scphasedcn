@@ -792,6 +792,7 @@ allelic_features = function(votes, atoms, regions, orientation = c("auto", "chro
     nb = rbindlist(lapply(layers, function(l) layer_blocks(votes, map, l)))
     nb = nb[(nA + nB) >= 2]
     if ("null_region" %in% names(regions) && any(regions$null_region[nb$ri])) nb = nb[regions$null_region[ri]]
+    rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
     set.seed(params$seed); nb = nb[sample.int(.N, min(.N, 2e6))]
     rho = fit_bb_rho(nb$nA, nb$nA + nb$nB)
     rm(nb)

@@ -1602,3 +1602,31 @@ test_that("clone_state_distance / clone_trunks take numeric clone ids (columns b
   expect_equal(dn["2", "5"], 30e6)
   expect_identical(unname(clone_trunks(sn, max_dist = 1e7)), unname(clone_trunks(sg, max_dist = 1e7)))
 })
+
+test_that("contrast_data maps blocks to regions by block id and has no allelic part without votes", {
+  regions = data.table(region = c("r1", "r2"), class = "arm", chrom = c("chr1", "chr2"), start = 0, end = 10e6, eligible = TRUE,
+                       allelic_ok = TRUE)
+  atoms = data.table(atom = 1:2, chrom = c("chr1", "chr2"), start = 1e6, end = 1e6 + 100)
+  feat = data.table(cell = rep(c("a", "b"), each = 2), region = rep(c("r1", "r2"), 2), class = "arm", eligible = TRUE, log2ratio = 0)
+  # block 2 (r1, phase set 2) has votes of cell 3 only, which is not one of the cells: block ids 1 and 3 remain
+  votes = data.table(cell = c(1L, 3L, 2L), atom = c(1L, 1L, 2L), ps = c(1, 2, 3), nA = c(3L, 2L, 1L), nB = c(1L, 2L, 4L))
+  cd = contrast_data(feat, votes, atoms, regions, c("a", "b"))
+  expect_equal(ncol(cd$MA), 3L)
+  expect_equal(cd$blk_region[c(1, 3)], c(1L, 2L))
+  expect_true(is.na(cd$blk_region[2]))
+  agg = scphasedcn:::contrast_agg(cd)
+  expect_equal(sum(agg$XN), 9)
+  # votes only on chr1, allelic channel only on chr2: no votes on the allelic regions, the depth part only
+  cd1 = contrast_data(feat, votes[atom == 1L], atoms, regions, c("a", "b"), allelic_chroms = "chr2")
+  expect_null(cd1$trip)
+  expect_null(cd1$blk_region)
+  expect_equal(dim(cd1$L), c(2L, 2L))
+  expect_equal(scphasedcn:::contrast_stat(cd1, 1, 2, rho = 0.01)$stat, 0)
+})
+
+test_that("caller_tumour stops with a clear error when allelic_exclude removes every vote", {
+  inp = tum2_input()
+  ex = unique(c(inp$regions$chrom, "chrX", "chrY"))
+  expect_error(caller_tumour(inp, opts = list(allelic_exclude = ex), verbose = FALSE),
+               "caller_tumour: no allele votes outside opts\\$allelic_exclude")
+})

@@ -363,7 +363,8 @@ discover_clones = function(X, n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
 #' Data for repeated clone contrasts
 #'
 #' Pre-computes what the clone contrast (`contrast_stat`) needs for many splits: the per-cell log2 ratio matrix (cells x
-#' regions) and the molecule votes per cell x region x phase block as sparse cells x blocks matrices.
+#' regions) and the molecule votes per cell x region x phase block as sparse cells x blocks matrices. Without votes on
+#' the allelic regions the result has the depth part only (`MA`, `MB`, `blk_region`, `N`, `trip` absent).
 #' @param feat_long features long table
 #' @param votes,atoms,regions votes, atoms and regions tables
 #' @param cells cell names in vote index order (rows of the result)
@@ -380,14 +381,16 @@ contrast_data = function(feat_long, votes, atoms, regions, cells, classes = c("a
   if ("allelic_ok" %in% names(rg)) rg = rg[allelic_ok == TRUE]
   if (!is.null(allelic_chroms)) rg = rg[chrom %in% allelic_chroms]
   out = list(L = L, regions = rr, cells = cells)
-  if (!is.null(votes) && nrow(rg)) {
-    v = region_block_votes(votes, atoms, rg)
-    v = v[cell <= length(cells)]
+  v = if (!is.null(votes) && nrow(rg)) region_block_votes(votes, atoms, rg)[cell <= length(cells)] else NULL
+  # no votes on the allelic regions (e.g. every vote on a chromosome of allelic_exclude): the depth part only
+  if (!is.null(v) && nrow(v)) {
     nb = max(v$blk)
     out$MA = Matrix::sparseMatrix(i = v$cell, j = v$blk, x = as.numeric(v$nA), dims = c(length(cells), nb))
     out$MB = Matrix::sparseMatrix(i = v$cell, j = v$blk, x = as.numeric(v$nB), dims = c(length(cells), nb))
+    # region of each block id, by index: a block whose votes all belong to cells outside `cells` leaves its id unused
     bm = unique(v[, .(blk, region)])
-    out$blk_region = match(bm$region[order(bm$blk)], rr)
+    out$blk_region = rep(NA_integer_, nb)
+    out$blk_region[bm$blk] = match(bm$region, rr)
     nn = v[, .(n = sum(nA + nB)), by = .(cell, region)]
     N = matrix(0, length(cells), length(rr)); N[cbind(nn$cell, match(nn$region, rr))] = nn$n
     out$N = N

@@ -629,6 +629,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     ex = inp$atoms[chrom %in% opts$allelic_exclude, atom]
     inp$votes = inp$votes[!atom %in% ex]
     inp$allelic_chroms = setdiff(inp$allelic_chroms, opts$allelic_exclude)
+    if (!nrow(inp$votes))
+      stop("caller_tumour: no allele votes outside opts$allelic_exclude (", paste(opts$allelic_exclude, collapse = ", "),
+           "); the tumour mode needs read-phased allele votes", call. = FALSE)
   }
   mult_prob = NULL; mult = character()
   if (!is.null(multiplets)) {

@@ -89,7 +89,8 @@ test_that("multi-seed sim_tum2: caller_tumour finds the clones, their states and
     expect_lte(abs(s2$end - 25e6), 2e6, label = lab("chr2 loss end"))
     expect_true(all(sg[clone == cl("normal"), label] == "neutral"), label = lab("normal clone neutral"))
     expect_true(res$clones[clone == cl("normal"), normal], label = lab("normal clone flagged"))
-    expect_true(all(res$clones$baseline == 2), label = lab("diploid baselines"))
+    # the fitted clones (a doublet clone row has no baseline)
+    expect_true(all(res$clones[doublet %in% FALSE, baseline] == 2), label = lab("diploid baselines"))
     expect_gte(sing[, mean(map$type[match(clone, map$clone)] == type)], 0.95, label = lab("assignment accuracy"))
     pool = a[ref_pool == TRUE]
     expect_gt(nrow(pool), 10, label = lab("reference pool size"))

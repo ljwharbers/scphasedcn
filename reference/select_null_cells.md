@@ -6,9 +6,10 @@ multiplet-flagged barcodes) and minus the cells of the windowed guard
 and the allelic rho on the null rows of the current set, scores every
 candidate cell on the `classes` regions (chromosomes and arms) with
 `s_comb`, thresholds at the selection quantile `q` and keeps the cells
-with at most `max_calls` calls. Every iteration re-evaluates all
-candidates (a cell dropped earlier can come back), so the set does not
-ratchet.
+with at most `max_calls` calls (it stops early, with no null cell, when
+no candidate is left: every candidate guarded, or with more calls).
+Every iteration re-evaluates all candidates (a cell dropped earlier can
+come back), so the set does not ratchet.
 
 ## Usage
 
@@ -86,8 +87,9 @@ select_null_cells(
 
 ## Value
 
-list(null_cells, log (per iteration), calls (per candidate cell:
-n_calls, win_guard, null), tpar, rho, thresholds)
+list(null_cells, previous (the set the last iteration started from), log
+(per iteration), calls (per candidate cell: n_calls, win_guard, null),
+tpar, rho, thresholds)
 
 ## Details
 

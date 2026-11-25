@@ -351,6 +351,18 @@ the caller finds), groups for the block orientation
 (<code>groups</code>, e.g. spatial regions), known events
 (<code>events</code>, reported as their own regions) and multiplet
 probabilities (<code>multiplets</code>).</p>
+<p>The run below flags no normal cells. The input null is then fitted on
+the cells that <code><a href="../reference/tumour_null_fit.html">tumour_null_fit()</a></code> finds without a call on
+the null rows, the run warns that flagged cells give a better null, and
+its notes (<code>res_t$notes</code>) say which null was used. Those
+cells are the normal cells only when the sample has some and the null
+rows separate them from the tumour: in a tumour whose cells share clonal
+events on the null rows, the selection can settle on tumour cells, and
+the run also warns when it keeps more than two thirds of the cells. When
+no stable set exists the null is fitted on all cells, tumour cells
+included, so it absorbs the tumour’s events (a note says so). When you
+know the normal cells (e.g. from a matched RNA annotation), flag them as
+<code>flat</code>.</p>
 <div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_t</span> <span class="op">=</span> <span class="fu"><a href="../reference/call_scn.html">call_scn</a></span><span class="op">(</span><span class="st">"results/tumour/extract"</span>, mode <span class="op">=</span> <span class="st">"tumour"</span>, sex <span class="op">=</span> <span class="st">"male"</span>,</span>
 <span>                 events <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>`20q_gain` <span class="op">=</span> <span class="st">"chr20:28000000-"</span><span class="op">)</span><span class="op">)</span></span>

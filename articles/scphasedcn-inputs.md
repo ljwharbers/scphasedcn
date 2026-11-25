@@ -291,8 +291,12 @@ extractor’s `cells_qc.tsv` and your labels:
   assay). Normal-tissue mode uses them as its null cells with
   `null_cells = "features"`; without them use `null_cells = "select"`
   (the caller selects null cells from the data). Tumour mode fits its
-  input depth and allelic null on them; its normal reference pool is the
-  normal clone the caller finds and cleans itself, not these cells.
+  input depth and allelic null on them; without them it fits on the
+  cells without a call on the null rows
+  ([`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md),
+  with a warning; all cells when no stable set is found), which is the
+  weaker null. Its normal reference pool is the normal clone the caller
+  finds and cleans itself, not these cells.
 - `group`: tumour mode, groups whose pseudobulk orients the phase blocks
   (`groups = "group"`), e.g. spatial regions or RNA clusters.
 

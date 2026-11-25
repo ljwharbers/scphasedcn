@@ -134,7 +134,8 @@ intermediate results in <code>null_fit$clones</code>)</p>
     <p>Input <code>feat</code> (the feature step's <code>scn_features</code>, or an equivalent list): <code>features</code> (long table),
 <code>regions</code>, <code>votes</code>, <code>atoms</code>, <code>cells</code> (data.table with <code>cell</code>, in vote index order; <code>n_frag</code> / <code>stratum</code>),
 <code>win</code> (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
-start, end, x, e) and <code>null_fit</code> (list with <code>tpar</code> = <code><a href="fit_depth_null.html">fit_depth_null()</a></code> table and <code>rho</code>).</p>
+start, end, x, e) and <code>null_fit</code> (list with <code>tpar</code> = <code><a href="fit_depth_null.html">fit_depth_null()</a></code> table and <code>rho</code>; without it, or without its
+<code>rho</code>, the input null is <code><a href="tumour_null_fit.html">tumour_null_fit()</a></code> of the features, as in <code><a href="call_scn.html">call_scn()</a></code>).</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

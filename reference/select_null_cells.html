@@ -4,13 +4,15 @@ barcodes) and minus the cells of the windowed guard (see Details). Each iteratio
 allelic rho on the null rows of the current set, scores every candidate
 cell on the classes regions (chromosomes and arms) with s_comb,
 thresholds at the selection quantile q and keeps the cells with at most
-max_calls calls. Every iteration re-evaluates all candidates (a cell
+max_calls calls (it stops early, with no null cell, when no candidate is
+left: every candidate guarded, or with more calls). Every iteration re-evaluates all candidates (a cell
 dropped earlier can come back), so the set does not ratchet."><meta property="og:description" content="Starts from all cells of feat_long minus exclude (e.g. multiplet-flagged
 barcodes) and minus the cells of the windowed guard (see Details). Each iteration fits the depth t null per class x stratum and the
 allelic rho on the null rows of the current set, scores every candidate
 cell on the classes regions (chromosomes and arms) with s_comb,
 thresholds at the selection quantile q and keeps the cells with at most
-max_calls calls. Every iteration re-evaluates all candidates (a cell
+max_calls calls (it stops early, with no null cell, when no candidate is
+left: every candidate guarded, or with more calls). Every iteration re-evaluates all candidates (a cell
 dropped earlier can come back), so the set does not ratchet."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
@@ -57,7 +59,8 @@ barcodes) and minus the cells of the windowed guard (see Details). Each iteratio
 allelic rho on the null rows of the current set, scores every candidate
 cell on the <code>classes</code> regions (chromosomes and arms) with <code>s_comb</code>,
 thresholds at the selection quantile <code>q</code> and keeps the cells with at most
-<code>max_calls</code> calls. Every iteration re-evaluates all candidates (a cell
+<code>max_calls</code> calls (it stops early, with no null cell, when no candidate is
+left: every candidate guarded, or with more calls). Every iteration re-evaluates all candidates (a cell
 dropped earlier can come back), so the set does not ratchet.</p>
     </div>
 
@@ -134,8 +137,8 @@ null_region, eligible optional; chrom optional, else parsed from the region name
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>list(null_cells, log (per iteration), calls (per candidate cell: n_calls, win_guard, null), tpar, rho,
-thresholds)</p>
+    <p>list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
+candidate cell: n_calls, win_guard, null), tpar, rho, thresholds)</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>

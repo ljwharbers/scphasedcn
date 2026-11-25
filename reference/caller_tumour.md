@@ -94,4 +94,7 @@ Input `feat` (the feature step's `scn_features`, or an equivalent list):
 matrices, or a long table cell, chrom, start, end, x, e) and `null_fit`
 (list with `tpar` =
 [`fit_depth_null()`](https://ljwharbers.github.io/scphasedcn/reference/fit_depth_null.md)
-table and `rho`).
+table and `rho`; without it, or without its `rho`, the input null is
+[`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md)
+of the features, as in
+[`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md)).

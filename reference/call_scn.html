@@ -3,13 +3,15 @@
 channel -&amp;gt; optional chromatin embedding (scn_embedding()) for kNN pools -&amp;gt; caller_normal() (null cells,
 Student-t / beta-binomial nulls, fold-cross-validated budget thresholds, per-cell calls, pooled calls,
 events). Tumour (mode = &quot;tumour&quot;): cell_features() with model depth, automatic phasing and the pseudobulk
-groups groups, event chromosomes excluded from the null -&amp;gt; caller_tumour() (clones, clone
-segments, cell assignment, per-cell inherited / confirmed calls)."><meta property="og:description" content="Normal tissue (mode = &quot;normal&quot;): cell_features() with celltype (cell-type matched) depth and the oriented allele
+groups groups, event chromosomes excluded from the null -&amp;gt; input depth t null and allelic rho on the null rows of
+the flagged null cells, else of the cells without a call on the null rows (tumour_null_fit()) -&amp;gt; caller_tumour()
+(clones, clone segments, cell assignment, per-cell inherited / confirmed calls)."><meta property="og:description" content="Normal tissue (mode = &quot;normal&quot;): cell_features() with celltype (cell-type matched) depth and the oriented allele
 channel -&amp;gt; optional chromatin embedding (scn_embedding()) for kNN pools -&amp;gt; caller_normal() (null cells,
 Student-t / beta-binomial nulls, fold-cross-validated budget thresholds, per-cell calls, pooled calls,
 events). Tumour (mode = &quot;tumour&quot;): cell_features() with model depth, automatic phasing and the pseudobulk
-groups groups, event chromosomes excluded from the null -&amp;gt; caller_tumour() (clones, clone
-segments, cell assignment, per-cell inherited / confirmed calls)."></head><body>
+groups groups, event chromosomes excluded from the null -&amp;gt; input depth t null and allelic rho on the null rows of
+the flagged null cells, else of the cells without a call on the null rows (tumour_null_fit()) -&amp;gt; caller_tumour()
+(clones, clone segments, cell assignment, per-cell inherited / confirmed calls)."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -54,8 +56,9 @@ segments, cell assignment, per-cell inherited / confirmed calls)."></head><body>
 channel -&gt; optional chromatin embedding (<code><a href="scn_embedding.html">scn_embedding()</a></code>) for kNN pools -&gt; <code><a href="caller_normal.html">caller_normal()</a></code> (null cells,
 Student-t / beta-binomial nulls, fold-cross-validated budget thresholds, per-cell calls, pooled calls,
 events). Tumour (<code>mode = "tumour"</code>): <code><a href="cell_features.html">cell_features()</a></code> with <code>model</code> depth, automatic phasing and the pseudobulk
-groups <code>groups</code>, event chromosomes excluded from the null -&gt; <code><a href="caller_tumour.html">caller_tumour()</a></code> (clones, clone
-segments, cell assignment, per-cell inherited / confirmed calls).</p>
+groups <code>groups</code>, event chromosomes excluded from the null -&gt; input depth t null and allelic rho on the null rows of
+the flagged null cells, else of the cells without a call on the null rows (<code><a href="tumour_null_fit.html">tumour_null_fit()</a></code>) -&gt; <code><a href="caller_tumour.html">caller_tumour()</a></code>
+(clones, clone segments, cell assignment, per-cell inherited / confirmed calls).</p>
     </div>
 
     <div class="section level2">
@@ -122,7 +125,12 @@ named vector of region strings (<code>20q_gain = "chr20:28000000-"</code>; unnam
 "select" (<code><a href="select_null_cells.html">select_null_cells()</a></code>), or the null cells themselves (vector or file). Tumour mode: given null cells
 (like <code>flat</code> cells of <code>cell_meta</code>) are the cells whose null rows fit the input depth t null and allelic rho when the
 features carry no <code>null_fit</code>; they are not the reference pool (the caller finds and cleans the normal clone
-itself); "select" is ignored with a warning</p></dd>
+itself). Without flagged null cells, or with "select", the input null is fitted on the cells without a call on
+the null rows that <code><a href="tumour_null_fit.html">tumour_null_fit()</a></code> selects (on all cells when no stable set of such cells exists, e.g. a
+sample without normal cells). The run warns when no cell is flagged, and also when the selected cells are more
+than two thirds of the cells: a stable selection does not show that they are copy-number neutral (a tumour whose
+cells share clonal events on the null rows passes it too); the run notes say which null was used. Flagged
+copy-number-normal cells give the better null</p></dd>
 
 
 <dt id="arg-multiplets">multiplets<a class="anchor" aria-label="anchor" href="#arg-multiplets"></a></dt>

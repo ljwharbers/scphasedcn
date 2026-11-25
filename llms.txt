@@ -537,6 +537,9 @@ and centromere coordinates (Battenberg) are credited in
 - [`tile_name()`](https://ljwharbers.github.io/scphasedcn/reference/tile_name.md)
   : Tile region name
 
+- [`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md)
+  : Input null of the tumour mode: depth t null and allelic rho
+
 - [`update_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/update_allelic_features.md)
   : Re-aggregate the allele features of a features object without some
   atoms

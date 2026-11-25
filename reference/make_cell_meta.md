@@ -23,8 +23,11 @@ optional for the caller:
   `null_cells = "features"`; without `flat`, use `null_cells = "select"`
   (`--null-cells select`): the caller selects its own null cells. Tumour
   mode fits its input depth / allelic null on them (when the features
-  carry no null fit); its reference pool is not taken from them but is
-  the normal clone the caller finds and cleans itself.
+  carry no null fit; without `flat` it fits on the cells without a call
+  on the null rows, see
+  [`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md),
+  which is the weaker null); its reference pool is not taken from them
+  but is the normal clone the caller finds and cleans itself.
 
 - `group`: tumour mode only, pseudobulk groups of the phase-block
   orientation (`groups = "group"`, `--groups group`), e.g. spatial

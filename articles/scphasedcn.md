@@ -306,6 +306,20 @@ finds), groups for the block orientation (`groups`, e.g. spatial
 regions), known events (`events`, reported as their own regions) and
 multiplet probabilities (`multiplets`).
 
+The run below flags no normal cells. The input null is then fitted on
+the cells that
+[`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md)
+finds without a call on the null rows, the run warns that flagged cells
+give a better null, and its notes (`res_t$notes`) say which null was
+used. Those cells are the normal cells only when the sample has some and
+the null rows separate them from the tumour: in a tumour whose cells
+share clonal events on the null rows, the selection can settle on tumour
+cells, and the run also warns when it keeps more than two thirds of the
+cells. When no stable set exists the null is fitted on all cells, tumour
+cells included, so it absorbs the tumour’s events (a note says so). When
+you know the normal cells (e.g. from a matched RNA annotation), flag
+them as `flat`.
+
 ``` r
 
 res_t = call_scn("results/tumour/extract", mode = "tumour", sex = "male",

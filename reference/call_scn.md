@@ -12,7 +12,11 @@ budget thresholds, per-cell calls, pooled calls, events). Tumour
 (`mode = "tumour"`):
 [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md)
 with `model` depth, automatic phasing and the pseudobulk groups
-`groups`, event chromosomes excluded from the null -\>
+`groups`, event chromosomes excluded from the null -\> input depth t
+null and allelic rho on the null rows of the flagged null cells, else of
+the cells without a call on the null rows
+([`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md))
+-\>
 [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
 (clones, clone segments, cell assignment, per-cell inherited / confirmed
 calls).
@@ -99,7 +103,17 @@ call_scn(
   cells (like `flat` cells of `cell_meta`) are the cells whose null rows
   fit the input depth t null and allelic rho when the features carry no
   `null_fit`; they are not the reference pool (the caller finds and
-  cleans the normal clone itself); "select" is ignored with a warning
+  cleans the normal clone itself). Without flagged null cells, or with
+  "select", the input null is fitted on the cells without a call on the
+  null rows that
+  [`tumour_null_fit()`](https://ljwharbers.github.io/scphasedcn/reference/tumour_null_fit.md)
+  selects (on all cells when no stable set of such cells exists, e.g. a
+  sample without normal cells). The run warns when no cell is flagged,
+  and also when the selected cells are more than two thirds of the
+  cells: a stable selection does not show that they are copy-number
+  neutral (a tumour whose cells share clonal events on the null rows
+  passes it too); the run notes say which null was used. Flagged
+  copy-number-normal cells give the better null
 
 - multiplets:
 

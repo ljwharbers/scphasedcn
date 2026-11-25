@@ -26,8 +26,8 @@ test_that("simulate_scn: seed controls the data with the default genome; the gen
   # the same genome value gives the same data, passed precomputed or evaluated in the call
   g = sim_genome()
   expect_identical(simulate_scn(n_cells = 20, genome = g, seed = 2)$scn$counts, b$scn$counts)
-  # seed 1 with the default genome: the data it gave before the fix (the part drawn before the SNPs; the SNP part
-  # differs only at former duplicate positions, see below)
+  # seed 1 with the default genome: the data it gave before the fix, for the part drawn before the SNPs (the SNP
+  # part moved the former duplicate SNPs, which can shift the allele-error draws; see the last test)
   expect_equal(sim_fingerprint(a)[pre_snp],
                c(n_frag = 73358, frag_start = 1550714655678, frag_end = 1550776049591, frag_mix = 18653385374,
                  counts = 73358, counts_ij = 725615605, cn = 106800))

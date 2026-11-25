@@ -25,7 +25,9 @@ lazy_cached = function(name, build, env = parent.frame()) {
 
 # Every simulation uses seed 1. Before simulate_scn() evaluated its genome ahead of seeding, the default (or an inline)
 # sim_genome() reseeded the stream to its own seed 1, so all of these were drawn from the seed-1 stream whatever their
-# `seed`; seed = 1 keeps exactly the data the tests below were written on.
+# `seed`; seed = 1 keeps the data the tests below were written on (depth counts, truth and fragments exactly; since
+# SNP positions are unique, the former duplicate SNPs sit one or more bp further on, which in sim_norm_f / sim_norm_blk
+# shifted the allele-error draws (fragment haplotype calls differ) and in sim_tum4 / sim_tri raised some phase sets by 1).
 # Cell-private events of the normal-tissue simulation. The simulator draws carriers of a "private"
 # event independently per event: each nucleus carries it with probability `private_frac` (0.05),
 # so ~10 of 200 barcodes carry each event (a few carry two).

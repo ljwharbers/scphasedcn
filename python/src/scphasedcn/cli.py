@@ -378,8 +378,18 @@ def cmd_run(a):
     if jobs == 1:
         res = [_run_one(ns) for ns in nss]
     else:
-        with ProcessPoolExecutor(max_workers=jobs) as ex:
-            res = list(ex.map(_run_one, nss))
+        from concurrent.futures.process import BrokenProcessPool
+        try:
+            with ProcessPoolExecutor(max_workers=jobs) as ex:
+                res = list(ex.map(_run_one, nss))
+        except BrokenProcessPool:   # a worker was killed (e.g. by the out-of-memory killer) or crashed
+            P = Path(d["out"]) / "partials"
+            undone = [c for c in chroms if not (P / c / "DONE").exists()]
+            raise SystemExit(f"run: a worker process died (killed, e.g. by the out-of-memory killer, or crashed); "
+                             f"chromosomes without a finished partial (no DONE): {', '.join(undone) or 'none'}. "
+                             f"Finished partials are kept in {P}. Run again with a lower --jobs (now {jobs}; each "
+                             f"worker needs memory for one chromosome), or extract the missing chromosomes with "
+                             f"`scphasedcn extract --chrom <chrom>` and then `scphasedcn merge`") from None
     for c, code, msg in res:
         if code != 0:
             fails.append(c); _log(f"run: {c} failed {msg}")

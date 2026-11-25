@@ -415,3 +415,32 @@ def test_spanning_deletion_and_n_alleles_are_not_snvs(tmp_path):
     with pysam.VariantFile(str(raw)) as vf:
         why = [is_candidate(r, 10, 20)[1] for r in vf]
     assert why == ["ok", "not_biallelic_snv", "not_biallelic_snv", "ok", "not_biallelic_snv"]
+
+
+# --------------------------------------------------------------------------------------------- a worker killed
+def _die_on_chr2(ns):
+    """Stand-in for cli._run_one in a worker: chr2 dies like an OOM-killed process; other chromosomes are done."""
+    import os
+    if ns.chrom == "chr2":
+        os._exit(9)
+    return ns.chrom, 0, ""
+
+
+def test_run_reports_a_killed_worker(genome, bam, tmp_path, monkeypatch):
+    import concurrent.futures
+    import multiprocessing
+    import scphasedcn.cli as cli
+    out = tmp_path / "o"
+    assert main(["extract", "--chrom", "chr1"] + _common(genome, bam, out)) == 0      # finished before
+    done = (out / "partials" / "chr1" / "DONE").read_bytes()
+    real = concurrent.futures.ProcessPoolExecutor
+
+    class ForkPool(real):
+        def __init__(self, max_workers=None):
+            super().__init__(max_workers=max_workers, mp_context=multiprocessing.get_context("fork"))
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", ForkPool)
+    monkeypatch.setattr(cli, "_run_one", _die_on_chr2)
+    with pytest.raises(SystemExit, match=r"(?s)worker process died.*chr2.*--jobs"):
+        main(["run", "--chroms", "chr1,chr2", "--jobs", "2"] + _common(genome, bam, out))
+    assert (out / "partials" / "chr1" / "DONE").read_bytes() == done                # the finished partial survives
+    assert not (out / "partials" / "chr2" / "DONE").exists()

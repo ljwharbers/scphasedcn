@@ -387,6 +387,9 @@ and centromere coordinates (Battenberg) are credited in
 - [`new_scphasedcn()`](https://ljwharbers.github.io/scphasedcn/reference/new_scphasedcn.md)
   : The caller's result object
 
+- [`normal_state_set()`](https://ljwharbers.github.io/scphasedcn/reference/normal_state_set.md)
+  : State set of normal mode
+
 - [`normalise_depth()`](https://ljwharbers.github.io/scphasedcn/reference/normalise_depth.md)
   : Normalise read depth against a reference
 

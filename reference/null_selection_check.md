@@ -30,7 +30,8 @@ null_selection_check(
   select_args = list(),
   null_chroms = paste0("chr", 1:22),
   false_calls = NULL,
-  conf = 0.95
+  conf = 0.95,
+  phasing = NULL
 )
 ```
 
@@ -62,7 +63,7 @@ null_selection_check(
 
   extra arguments for
   [`select_null_cells()`](https://ljwharbers.github.io/scphasedcn/reference/select_null_cells.md)
-  (its `chroms` is set per half)
+  (its `chroms` is set per half; without `states` the run's state set)
 
 - null_chroms:
 
@@ -79,6 +80,12 @@ null_selection_check(
 - conf:
 
   confidence level of the intervals
+
+- phasing:
+
+  the features' phasing record (`features$phasing`;
+  [`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md)
+  passes it) or NULL; used by `params$states_normal = "auto"` only
 
 ## Value
 
@@ -110,4 +117,10 @@ rows of one cell overlap (a chromosome and its arms), so they are
 somewhat too narrow. Costs about one more
 [`caller_normal()`](https://ljwharbers.github.io/scphasedcn/reference/caller_normal.md)
 scoring pass (two half passes without pools). With `calib_rho = "chrom"`
-the measured half has no null rows and takes the global rho.
+the measured half has no null rows and takes the global rho. The
+selection and the scoring of both halves use the run's normal-mode state
+set (`params$states_normal`,
+[`normal_state_set()`](https://ljwharbers.github.io/scphasedcn/reference/normal_state_set.md)
+with `phasing`), as
+[`caller_normal()`](https://ljwharbers.github.io/scphasedcn/reference/caller_normal.md)
+does.

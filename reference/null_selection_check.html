@@ -78,7 +78,8 @@ are swapped and the counts combined.</p>
 <span>  select_args <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  null_chroms <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"chr"</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">22</span><span class="op">)</span>,</span>
 <span>  false_calls <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  conf <span class="op">=</span> <span class="fl">0.95</span></span>
+<span>  conf <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>  phasing <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -107,7 +108,8 @@ are swapped and the counts combined.</p>
 
 
 <dt id="arg-select-args">select_args<a class="anchor" aria-label="anchor" href="#arg-select-args"></a></dt>
-<dd><p>extra arguments for <code><a href="select_null_cells.html">select_null_cells()</a></code> (its <code>chroms</code> is set per half)</p></dd>
+<dd><p>extra arguments for <code><a href="select_null_cells.html">select_null_cells()</a></code> (its <code>chroms</code> is set per half; without <code>states</code> the
+run's state set)</p></dd>
 
 
 <dt id="arg-null-chroms">null_chroms<a class="anchor" aria-label="anchor" href="#arg-null-chroms"></a></dt>
@@ -121,6 +123,11 @@ cross-validated rate on all null rows)</p></dd>
 
 <dt id="arg-conf">conf<a class="anchor" aria-label="anchor" href="#arg-conf"></a></dt>
 <dd><p>confidence level of the intervals</p></dd>
+
+
+<dt id="arg-phasing">phasing<a class="anchor" aria-label="anchor" href="#arg-phasing"></a></dt>
+<dd><p>the features' phasing record (<code>features$phasing</code>; <code><a href="call_scn.html">call_scn()</a></code> passes it) or NULL; used by
+<code>params$states_normal = "auto"</code> only</p></dd>
 
 </dl></div>
     <div class="section level2">
@@ -144,7 +151,9 @@ chromosomes, so a class whose regions differ in their null spread (e.g. chromoso
 shows up.
 Confidence intervals are exact binomial (Clopper-Pearson) over rows; rows of one cell overlap (a chromosome and its
 arms), so they are somewhat too narrow. Costs about one more <code><a href="caller_normal.html">caller_normal()</a></code> scoring pass (two half passes
-without pools). With <code>calib_rho = "chrom"</code> the measured half has no null rows and takes the global rho.</p>
+without pools). With <code>calib_rho = "chrom"</code> the measured half has no null rows and takes the global rho.
+The selection and the scoring of both halves use the run's normal-mode state set (<code>params$states_normal</code>,
+<code><a href="normal_state_set.html">normal_state_set()</a></code> with <code>phasing</code>), as <code><a href="caller_normal.html">caller_normal()</a></code> does.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

@@ -6,7 +6,9 @@
     all TRUE), never `multiplets`; 2. Student-t depth null per class x
     stratum and allelic rho on the null arm rows; 3.
     [`score_cells()`](https://ljwharbers.github.io/scphasedcn/reference/score_cells.md)
-    with the normal state set; 4. fold-CV budget thresholds
+    with the normal-mode state set (`params$states_normal`,
+    [`normal_state_set()`](https://ljwharbers.github.io/scphasedcn/reference/normal_state_set.md)); 4.
+    fold-CV budget thresholds
     ([`budget_thresholds()`](https://ljwharbers.github.io/scphasedcn/reference/budget_thresholds.md)); 5.
     per-cell calls by
     [`call_policy()`](https://ljwharbers.github.io/scphasedcn/reference/call_policy.md); 6.
@@ -42,7 +44,8 @@ caller_normal(
   gain_gate_q = 0.95,
   pool_loo = TRUE,
   pool_standardize = TRUE,
-  null_chroms = paste0("chr", 1:22)
+  null_chroms = paste0("chr", 1:22),
+  phasing = NULL
 )
 ```
 
@@ -151,6 +154,14 @@ caller_normal(
   [`select_null_cells()`](https://ljwharbers.github.io/scphasedcn/reference/select_null_cells.md)
   checks); NULL = every `null_region`
 
+- phasing:
+
+  the features' phasing record (`features$phasing` of
+  [`cell_features()`](https://ljwharbers.github.io/scphasedcn/reference/cell_features.md),
+  named `detected`, `orientation`;
+  [`call_scn()`](https://ljwharbers.github.io/scphasedcn/reference/call_scn.md)
+  passes it) or NULL; used by `params$states_normal = "auto"` only
+
 ## Value
 
 `scphasedcn` (mode normal) with `scores`, `thresholds` (column `level`:
@@ -159,7 +170,7 @@ cell (folds 0 to `n_folds`), pool_type, pool_knn (fold 0 only)), `calls`
 [`resolve_nested()`](https://ljwharbers.github.io/scphasedcn/reference/resolve_nested.md);
 with `gain_gate = "z"` also its `gate_z`, `gate_thr`), `events`,
 `pools`,
-`null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)`
+`null_fit = list(tpar, rho, null_cells, selection, state_set, pool_scale, sex, vote_bins, rho_chrom)`
 (`vote_bins`: the
 [`vote_bins()`](https://ljwharbers.github.io/scphasedcn/reference/vote_bins.md)
 table with `params$calib = "votes"`; `rho_chrom`: the
@@ -206,3 +217,22 @@ by default:
 [`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md)).
 Removed options stop with an error: `calib` "region" / "region_votes" /
 "votes_cont", `calib_rho` "cell" / "chrom_cell".
+
+State set (`params$states_normal`,
+[`caller_defaults()`](https://ljwharbers.github.io/scphasedcn/reference/caller_defaults.md)):
+`"normal"` (default), `"normal_att"` (opt-in: loss and CN-LOH rows over
+`params$f_att_normal`, for merged chromosome-scale phase sets whose
+switch errors attenuate the allelic imbalance of real events) or
+`"auto"` (`normal_att` when `phasing` says the regime is `chromosome`).
+The one set is used everywhere the run scores states: the null-cell
+selection (unless `select_args` has `states`), the per-cell scores and
+thresholds, the pooled scores, scales and thresholds, and the named
+events (which borrow thresholds computed under the same set). With a set
+other than `normal` the scores and the per-cell calls carry `f_state`,
+the best-fitting fraction of the called state's allelic rows. The run
+notes name the set and why. The windowed allele term
+(`params$win_score`) applies to the allelic rows whose fraction has a
+window column (`1 - eps`, always in the `normal_att` grid), so under
+`normal_att` the 0.98 loss / CN-LOH rows take the better of the oriented
+and the windowed LLR and the attenuated rows stay oriented; `f_state` is
+taken after that substitution.

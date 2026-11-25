@@ -4,8 +4,8 @@
 null cells: the features' null_cell column, or select_null_cells()
 (null_cells = &quot;auto&quot; selects when the column is missing, all NA or all
 TRUE), never multiplets; 2. Student-t depth null per class x stratum
-and allelic rho on the null arm rows; 3. score_cells() with the normal
-state set; 4. fold-CV budget thresholds (budget_thresholds()); 5.
+and allelic rho on the null arm rows; 3. score_cells() with the normal-mode
+state set (params$states_normal, normal_state_set()); 4. fold-CV budget thresholds (budget_thresholds()); 5.
 per-cell calls by call_policy(); 6. pools within cell type
 (make_pools()) and, with an embedding, kNN pools (knn_pools()),
 pooled null thresholds (pooled_thresholds()) and pooled calls; 7.
@@ -16,8 +16,8 @@ events (consolidate_calls()). Rows with eligible = FALSE are dropped first.
 null cells: the features' null_cell column, or select_null_cells()
 (null_cells = &quot;auto&quot; selects when the column is missing, all NA or all
 TRUE), never multiplets; 2. Student-t depth null per class x stratum
-and allelic rho on the null arm rows; 3. score_cells() with the normal
-state set; 4. fold-CV budget thresholds (budget_thresholds()); 5.
+and allelic rho on the null arm rows; 3. score_cells() with the normal-mode
+state set (params$states_normal, normal_state_set()); 4. fold-CV budget thresholds (budget_thresholds()); 5.
 per-cell calls by call_policy(); 6. pools within cell type
 (make_pools()) and, with an embedding, kNN pools (knn_pools()),
 pooled null thresholds (pooled_thresholds()) and pooled calls; 7.
@@ -68,8 +68,8 @@ events (consolidate_calls()). Rows with eligible = FALSE are dropped first.
 <ol><li><p>null cells: the features' <code>null_cell</code> column, or <code><a href="select_null_cells.html">select_null_cells()</a></code>
 (<code>null_cells = "auto"</code> selects when the column is missing, all NA or all
 TRUE), never <code>multiplets</code>; 2. Student-t depth null per class x stratum
-and allelic rho on the null arm rows; 3. <code><a href="score_cells.html">score_cells()</a></code> with the normal
-state set; 4. fold-CV budget thresholds (<code><a href="budget_thresholds.html">budget_thresholds()</a></code>); 5.
+and allelic rho on the null arm rows; 3. <code><a href="score_cells.html">score_cells()</a></code> with the normal-mode
+state set (<code>params$states_normal</code>, <code><a href="normal_state_set.html">normal_state_set()</a></code>); 4. fold-CV budget thresholds (<code><a href="budget_thresholds.html">budget_thresholds()</a></code>); 5.
 per-cell calls by <code><a href="call_policy.html">call_policy()</a></code>; 6. pools within cell type
 (<code><a href="make_pools.html">make_pools()</a></code>) and, with an <code>embedding</code>, kNN pools (<code><a href="knn_pools.html">knn_pools()</a></code>),
 pooled null thresholds (<code><a href="pooled_thresholds.html">pooled_thresholds()</a></code>) and pooled calls; 7.
@@ -97,7 +97,8 @@ events (<code><a href="consolidate_calls.html">consolidate_calls()</a></code>). 
 <span>  gain_gate_q <span class="op">=</span> <span class="fl">0.95</span>,</span>
 <span>  pool_loo <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  pool_standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  null_chroms <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"chr"</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">22</span><span class="op">)</span></span>
+<span>  null_chroms <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"chr"</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">22</span><span class="op">)</span>,</span>
+<span>  phasing <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -187,13 +188,18 @@ same construction) before the per-class pooled thresholds</p></dd>
 <dd><p>chromosomes whose rows can be null rows (default the autosomes, the chromosomes
 <code><a href="select_null_cells.html">select_null_cells()</a></code> checks); NULL = every <code>null_region</code></p></dd>
 
+
+<dt id="arg-phasing">phasing<a class="anchor" aria-label="anchor" href="#arg-phasing"></a></dt>
+<dd><p>the features' phasing record (<code>features$phasing</code> of <code><a href="cell_features.html">cell_features()</a></code>, named <code>detected</code>,
+<code>orientation</code>; <code><a href="call_scn.html">call_scn()</a></code> passes it) or NULL; used by <code>params$states_normal = "auto"</code> only</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p><code>scphasedcn</code> (mode normal) with <code>scores</code>, <code>thresholds</code> (column <code>level</code>:
 cell (folds 0 to <code>n_folds</code>), pool_type, pool_knn (fold 0 only)), <code>calls</code> (cell and pool level; <code>resolved</code>
 for gains changed by <code><a href="resolve_nested.html">resolve_nested()</a></code>; with <code>gain_gate = "z"</code> also its <code>gate_z</code>, <code>gate_thr</code>), <code>events</code>,
-<code>pools</code>, <code>null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex, vote_bins, rho_chrom)</code> (<code>vote_bins</code>: the <code><a href="vote_bins.html">vote_bins()</a></code> table with <code>params$calib = "votes"</code>; <code>rho_chrom</code>: the
+<code>pools</code>, <code>null_fit = list(tpar, rho, null_cells, selection, state_set, pool_scale, sex, vote_bins, rho_chrom)</code> (<code>vote_bins</code>: the <code><a href="vote_bins.html">vote_bins()</a></code> table with <code>params$calib = "votes"</code>; <code>rho_chrom</code>: the
 <code><a href="rho_by_chrom.html">rho_by_chrom()</a></code> table with <code>params$calib_rho = "chrom"</code>)</p>
     </div>
     <div class="section level2">
@@ -216,6 +222,16 @@ default) adds a per-region tail factor to the pooled region scale (<code><a href
 thresholds of their <code>sd_class</code> (<code><a href="budget_thresholds.html">budget_thresholds()</a></code>); their pools are called only with <code>params$pool_events</code>
 (experimental, off by default: <code><a href="caller_defaults.html">caller_defaults()</a></code>). Removed options stop with
 an error: <code>calib</code> "region" / "region_votes" / "votes_cont", <code>calib_rho</code> "cell" / "chrom_cell".</p>
+<p>State set (<code>params$states_normal</code>, <code><a href="caller_defaults.html">caller_defaults()</a></code>): <code>"normal"</code> (default), <code>"normal_att"</code> (opt-in: loss and
+CN-LOH rows over <code>params$f_att_normal</code>, for merged chromosome-scale phase sets whose switch errors attenuate the
+allelic imbalance of real events) or <code>"auto"</code> (<code>normal_att</code> when <code>phasing</code> says the regime is <code>chromosome</code>). The
+one set is used everywhere the run scores states: the null-cell selection (unless <code>select_args</code> has <code>states</code>),
+the per-cell scores and thresholds, the pooled scores, scales and thresholds, and the named events (which borrow
+thresholds computed under the same set). With a set other than <code>normal</code> the scores and the per-cell calls carry
+<code>f_state</code>, the best-fitting fraction of the called state's allelic rows. The run notes name the set and why.
+The windowed allele term (<code>params$win_score</code>) applies to the allelic rows whose fraction has a window column
+(<code>1 - eps</code>, always in the <code>normal_att</code> grid), so under <code>normal_att</code> the 0.98 loss / CN-LOH rows take the better of
+the oriented and the windowed LLR and the attenuated rows stay oriented; <code>f_state</code> is taken after that substitution.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

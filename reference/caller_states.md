@@ -8,8 +8,15 @@ best row (two-sided), its depth LLR the row's log2 shift.
   (2/3) and 3:1 (3/4), both at the gain shift; cnloh 2:0 at 1 - eps
   (shift 0). The normal-tissue state set.
 
-- `normal_att`: as `normal` with the loss and cnloh rows over `f_att`
-  (an attenuation-aware sensitivity variant).
+- `normal_att`: as `normal` with the loss and cnloh rows over
+  `f_att_normal` (the attenuation-aware opt-in of normal mode,
+  `params$states_normal`; `f_att` when the parameters have no
+  `f_att_normal`), always together with `1 - eps`, the fraction of the
+  `normal` rows (so the set contains the `normal` loss / cnloh rows, and
+  the windowed allele term of
+  [`score_cells()`](https://ljwharbers.github.io/scphasedcn/reference/score_cells.md)
+  always finds its row). Loss and cnloh keep one shared row set, so
+  their allelic class stays `loss_or_cnloh`.
 
 - `tumour` (per-cell detection and assignment): loss 1:0 at f in c(0.80,
   f_att); cnloh 2:0 over f_att; gain 2:1 (2/3); gain_as 3:0 over f_att

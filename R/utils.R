@@ -31,8 +31,20 @@ chrom_rank = function(x) {
   num = suppressWarnings(as.integer(base))
   r = ifelse(!is.na(num), num,
              ifelse(base == "X", 100L, ifelse(base == "Y", 101L, ifelse(base == "M" | base == "MT", 102L, 200L))))
-  r + match(x, sort(unique(x), method = "radix")) / 1e6
+  r + match(x, c_sort(x)) / 1e6
 }
+
+# unique non-NA strings in C-locale (byte) order whatever the session's collation, for orders that feed seeded draws
+# or must not depend on the platform. data.table's ordering, not sort(method = "radix"): the latter stops on
+# non-ASCII strings of "unknown" (native) encoding, as fread() / read.delim() return them (e.g. a cell type
+# "Mueller glia" with an umlaut); data.table orders native, UTF-8 and Latin-1 strings alike
+c_sort = function(x) {
+  u = unique(as.character(x))
+  u = u[!is.na(u)]
+  if (length(u) < 2L) return(u)
+  setorder(data.table(u_ = u), u_)$u_
+}
+utils::globalVariables("u_")
 
 #' Parse a region string "chr20:28000000-" or "chr5" into a data.table
 #' @param x character vector of regions (`chrom`, `chrom:start-end`, `chrom:start-`)

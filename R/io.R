@@ -247,7 +247,7 @@ h5_read_obsm = function(file, name, n_obs) {
 bins_file = function(dir) {
   f = file.path(dir, "bins_100kb.h5ad")
   if (file.exists(f)) return(f)
-  cand = sort(list.files(dir, pattern = "^bins_.+\\.h5ad$"), method = "radix")
+  cand = c_sort(list.files(dir, pattern = "^bins_.+\\.h5ad$"))
   if (length(cand) == 1L) return(file.path(dir, cand))
   if (!length(cand)) stop(sprintf("no bins file (bins_<tag>.h5ad, by default bins_100kb.h5ad) in %s", dir), call. = FALSE)
   stop(sprintf("%d bins files in %s (%s) and no bins_100kb.h5ad: keep one, or read one with read_bins_h5ad()",

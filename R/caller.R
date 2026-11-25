@@ -1578,7 +1578,7 @@ make_pools = function(cells, group = NULL, n_pool = 20, seed = 1) {
   g = if (is.null(group)) rep("all", length(cells)) else as.character(group)
   g[is.na(g)] = "NA"
   out = list()
-  for (gg in sort(unique(g), method = "radix")) {         # C-locale order: one seeded stream is consumed group by group
+  for (gg in c_sort(g)) {         # C-locale order: one seeded stream is consumed group by group
     cc = cells[g == gg]
     n = length(cc)
     if (n < ceiling(n_pool / 2)) next

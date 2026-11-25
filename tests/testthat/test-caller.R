@@ -1771,17 +1771,22 @@ test_that("make_pools and chrom_rank: the same seed gives the same pools and ord
   on.exit(Sys.setlocale("LC_COLLATE", old), add = TRUE)
   ok = nzchar(suppressWarnings(Sys.setlocale("LC_COLLATE", "en_US.UTF-8")))
   skip_if_not(ok && !identical(sort(c("a", "B")), c("B", "a")), "no en_US.UTF-8 collation")
-  cells = sprintf("c%03d", 1:120)
-  g = rep(c("b", "A", "a", "B"), each = 30)
-  ch = c("chrUn_b", "chr1", "chrUn_A", "chrX", "chrM")
+  # non-ASCII names as a metadata file gives them (native, "unknown" encoding) and one marked Latin-1
+  nat = "Müller glia"
+  Encoding(nat) = "unknown"
+  lat = iconv("Zoë", "UTF-8", "latin1")
+  expect_identical(Encoding(lat), "latin1")
+  cells = sprintf("c%03d", 1:180)
+  g = rep(c("b", "A", "a", "B", nat, lat), each = 30)
+  ch = c("chrUn_a", "chr1", "chrUn_B", "chrX", "chrM", paste0("chrUn_", nat))
   pu = make_pools(cells, g, 20, seed = 4)
   ru = chrom_rank(ch)
   Sys.setlocale("LC_COLLATE", "C")
   pc = make_pools(cells, g, 20, seed = 4)
   expect_identical(pu, pc)
-  expect_identical(unique(pc$group), c("A", "B", "a", "b"))
+  expect_identical(unique(pc$group), c("A", "B", "Müller glia", "Zoë", "a", "b"))
   expect_identical(chrom_rank(ch), ru)
-  expect_identical(ch[order(ru)], c("chr1", "chrX", "chrM", "chrUn_A", "chrUn_b"))
+  expect_identical(ch[order(ru)], c("chr1", "chrX", "chrM", "chrUn_B", paste0("chrUn_", nat), "chrUn_a"))
 })
 
 test_that("caller_normal: cells without a cell type in cell_meta keep the features' cell type", {

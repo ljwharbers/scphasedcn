@@ -7,8 +7,9 @@ is no allele-frequency window (it would delete LOH and amplified sites in tumour
 Optionally (recommended) the sites are intersected with a population sites VCF (`loci`, e.g. 1000 Genomes SNVs:
 position + REF + ALT), which removes most systematic long-read genotyping errors. Contigs in `no_loci_contigs` (default
 chrX: population panels are often autosomes only) are kept without the intersect. Loci contig names may differ from the
-VCF's by the `chr` prefix (`1` vs `chr1`). Selecting no autosomal site (no site at all when no autosome is processed)
-is an error and leaves no output.
+VCF's by the `chr` prefix (`1` vs `chr1`). Selecting no site at all is an error and leaves no output (nor a `stats`
+file of an earlier run); selecting sites but none on an autosome while autosomes had records (or were named in
+`contigs`) is a loud warning (e.g. a loci file that matches chrX only).
 """
 from __future__ import annotations
 
@@ -45,9 +46,22 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
                 no_loci_contigs: list[str] | None = None, min_gq: int = 10, min_dp: int = 20,
                 dp_quantile: float = 0.99, stats: str | None = None, log=None) -> dict:
     """Write the selected sites to `out` (.vcf.gz + .tbi). Returns the total counts (candidate, selected, ...)."""
+    import os
     import pysam
     log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
-    contigs = list(contigs) if contigs else AUTOSOMES + ["chrX"]
+    if stats:   # never a stats file of an earlier run next to this run's error
+        try:
+            os.unlink(stats)
+        except FileNotFoundError:
+            pass
+
+    def fail(msg):   # no output that looks like a selection (nor an index of an earlier one)
+        for f in (out, f"{out}.tbi"):
+            if os.path.exists(f):
+                os.unlink(f)
+        raise SystemExit(msg)
+    given = list(contigs) if contigs else []
+    contigs = given or AUTOSOMES + ["chrX"]
     no_loci = set(["chrX"] if no_loci_contigs is None else no_loci_contigs)
     vcf = pysam.VariantFile(vcf_path)
     lf = pysam.VariantFile(loci) if loci else None
@@ -59,15 +73,16 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
         contigs = [c for c in contigs if c not in missing]
 
     # pass 1: DP distribution of the candidates -> upper bound
-    dps, reasons = [], Counter()
+    dps, reasons, nrec = [], Counter(), Counter()
     for c in contigs:
         for rec in vcf.fetch(c):
+            nrec[c] += 1
             ok, why = is_candidate(rec, min_gq, min_dp)
             reasons[why] += 1
             if ok:
                 dps.append(rec.samples[0]["DP"])
     if not dps:
-        raise SystemExit("select-hets: no candidate sites")
+        fail("select-hets: no candidate sites")
     dps = np.asarray(dps)
     dp_max = int(np.quantile(dps, dp_quantile))
     log(f"[pass1] candidates={len(dps)} median_DP={int(np.median(dps))} DP_q{dp_quantile:.2f}={dp_max} reasons={dict(reasons)}")
@@ -123,19 +138,24 @@ def select_hets(vcf_path: str, out: str, loci: str | None = None, contigs: list[
         log(f"[{c}] " + " ".join(f"{k}={v}" for k, v in sorted(n.items())))
     ofh.close()
     log("[total] " + " ".join(f"{k}={v}" for k, v in sorted(tot.items())))
-    auto = [c for c in contigs if _bare(c) in {str(i) for i in range(1, 23)}]
-    if (auto and sum(n["selected"] for c, n in rows if c in auto) == 0) or tot["selected"] == 0:
-        import os
-        os.unlink(out)   # no empty VCF that looks like a selection (nor an index of an earlier one)
-        if os.path.exists(f"{out}.tbi"):
-            os.unlink(f"{out}.tbi")
-        hint = ""
-        if lf is not None:
-            lcs = sorted(loci_contigs)
-            hint = (f"; the loci file has contigs {', '.join(lcs[:4]) or 'none'}{', ...' if len(lcs) > 4 else ''}: do "
-                    f"they match the VCF's ({', '.join(contigs[:4])}{', ...' if len(contigs) > 4 else ''})?")
-        raise SystemExit(f"select-hets: {'no autosomal site' if auto else 'no site'} selected ("
-                         + " ".join(f"{k}={v}" for k, v in sorted(tot.items())) + f"){hint}")
+    is_auto = lambda c: _bare(c) in {str(i) for i in range(1, 23)}
+    auto = [c for c in contigs if is_auto(c)]
+    hint = ""
+    if lf is not None:
+        lcs = sorted(loci_contigs)
+        hint = (f"; the loci file has contigs {', '.join(lcs[:4]) or 'none'}{', ...' if len(lcs) > 4 else ''}: do "
+                f"they match the VCF's ({', '.join(contigs[:4])}{', ...' if len(contigs) > 4 else ''})?")
+    if tot["selected"] == 0:
+        fail(f"select-hets: {'no autosomal site' if auto else 'no site'} selected ("
+             + " ".join(f"{k}={v}" for k, v in sorted(tot.items())) + f"){hint}")
+    with_rec = [c for c in auto if nrec[c]]
+    named = [c for c in given if is_auto(c)]
+    if sum(n["selected"] for c, n in rows if c in auto) == 0 and (with_rec or named):
+        log(f"[WARN] select-hets: NO AUTOSOMAL SITE selected ({tot['selected']} sites on "
+            f"{', '.join(c for c, n in rows if n['selected'])}), although "
+            + (f"{', '.join(with_rec[:4])}{', ...' if len(with_rec) > 4 else ''} had records" if with_rec
+               else f"--contigs names {', '.join(named[:4])}{', ...' if len(named) > 4 else ''}")
+            + f": the allele layer will have no autosomal site{hint}")
     pysam.tabix_index(out, preset="vcf", force=True)
     if stats:
         keys = ["candidate", "dp_above_q", "not_in_loci", "pos_in_loci_allele_mismatch", "selected", "selected_phased"]

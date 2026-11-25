@@ -2,6 +2,7 @@
 synthetic BAM in conftest.bam)."""
 import json
 import shutil
+from pathlib import Path
 
 import anndata as ad
 import pandas as pd
@@ -401,6 +402,41 @@ def test_select_hets_loci_with_other_contig_names(tmp_path):
     with pytest.raises(SystemExit, match="no autosomal site"):
         main(base + ["--out", str(out2), "--loci", loci("other", "chr9")])
     assert not out2.exists() and not (tmp_path / "none.vcf.gz.tbi").exists()
+
+
+def test_select_hets_chrx_only_call_set(tmp_path, capsys):
+    """A chrX-only call set whose header lists the autosomes too selects its chrX sites (no autosome had records);
+    sites but none on an autosome that had records, or that --contigs names, is a loud warning, not an error. An
+    error leaves no output and no --stats file of an earlier run."""
+    hdr = _HETS_HDR.replace("##contig=<ID=chr2,length=100000>\n",
+                            "##contig=<ID=chr2,length=100000>\n##contig=<ID=chrX,length=100000>\n")
+    x = "".join(f"chrX\t{p}\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:30:40\n" for p in (1001, 2001))
+    raw = tmp_path / "x.vcf"
+    raw.write_text(hdr + x)
+    out, st = tmp_path / "het.vcf.gz", tmp_path / "stats.tsv"
+    base = ["select-hets", "--vcf", _bgzip(raw), "--out", str(out), "--dp-quantile", "1", "--stats", str(st)]
+    capsys.readouterr()
+    assert main(base) == 0
+    assert [(r.chrom, r.pos) for r in pysam.VariantFile(str(out))] == [("chrX", 1001), ("chrX", 2001)]
+    assert "NO AUTOSOMAL SITE" not in capsys.readouterr().err and st.exists()
+    assert main(base + ["--contigs", "chr1,chrX"]) == 0                                # an autosome named: warn
+    assert "NO AUTOSOMAL SITE selected (2 sites on chrX), although --contigs names chr1" in capsys.readouterr().err
+    raw2 = tmp_path / "x2.vcf"                                                         # chr1 records, none selected
+    raw2.write_text(hdr + "chr1\t1001\t.\tA\tG\t50\tPASS\t.\tGT:GQ:DP\t0|1:5:40\n" + x)
+    base2 = ["select-hets", "--vcf", _bgzip(raw2), "--out", str(out), "--dp-quantile", "1", "--stats", str(st)]
+    assert main(base2) == 0
+    assert "NO AUTOSOMAL SITE selected (2 sites on chrX), although chr1 had records" in capsys.readouterr().err
+    assert st.exists() and out.exists()
+    lo = tmp_path / "loci.vcf"                                                         # chrX only, none selected
+    lo.write_text("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=100000>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                  "chr1\t1001\t.\tA\tG\t.\t.\t.\n")
+    with pytest.raises(SystemExit, match="no site selected"):
+        main(base2 + ["--contigs", "chrX", "--loci", _bgzip(lo), "--no-loci-contigs", ""])
+    assert not st.exists() and not out.exists() and not Path(f"{out}.tbi").exists()
+    st.write_text("stats of an earlier run")
+    with pytest.raises(SystemExit, match="no candidate sites"):
+        main(base2 + ["--min-dp", "100"])
+    assert not st.exists()
 
 
 # --------------------------------------------------------------------------------------------- biallelic SNV test

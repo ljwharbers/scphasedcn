@@ -7,6 +7,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: R and Python versions match the ref (release tag = X.Y.Z, else a development version)
+        run: bash tools/check_versions.sh
+
   python:
     runs-on: ubuntu-latest
     strategy:

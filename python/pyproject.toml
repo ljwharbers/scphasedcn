@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scphasedcn"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Extraction layer of scphasedcn: per-cell depth, read-phased alleles and fragment tables from SPLONGGET single-cell long-read DNA BAMs"
 readme = "README.md"
 license = { text = "MIT" }
@@ -30,6 +30,9 @@ test = ["pytest>=7"]
 [project.scripts]
 scphasedcn = "scphasedcn.cli:main"
 scphasedcn-extract = "scphasedcn.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "scphasedcn.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

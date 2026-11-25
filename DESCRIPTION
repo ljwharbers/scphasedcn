@@ -1,7 +1,7 @@
 Package: scphasedcn
 Type: Package
 Title: Single-Cell Copy-Number Calling from Long-Read Single-Cell DNA Data
-Version: 0.1.1
+Version: 0.1.1.9000
 Authors@R: c(person("Luuk", "Harbers", email = "luuk.harbers@vib.be", role = c("aut", "cre")))
 Description: Calls copy-number alterations in single cells from SPLONGGET
     data (single-cell long-read DNA sequencing with 10x Multiome barcodes and

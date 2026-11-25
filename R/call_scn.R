@@ -60,7 +60,7 @@ caller_params = function(file = NULL, overrides = list()) {
 # defaults of the caller_normal() arguments that call_scn() does not set itself (the `normal:` block)
 normal_arg_defaults = function() {
   f = formals(caller_normal)
-  keep = setdiff(names(f), c("feat", "params", "cell_meta", "multiplets", "regions", "embedding", "null_cells"))
+  keep = setdiff(names(f), c("feat", "params", "cell_meta", "multiplets", "regions", "embedding", "null_cells", "phasing"))
   out = lapply(keep, function(k) eval(f[[k]]))
   names(out) = keep
   out$depth_model = out$depth_model[1]
@@ -522,7 +522,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
         warning(sprintf("call_scn: %s needs features$votes and features$atoms; no mask applied",
                         paste(c("rho" = "mask_allelic", "f0" = "mask_f0")[rules], collapse = " / ")), call. = FALSE)
       } else {
-        sel0 = select_null_cells(long[eligible %in% TRUE], params = params, exclude = mcells)
+        st0 = caller_states(normal_state_set(params, features$phasing, votes = any(long$n_hap > 0, na.rm = TRUE))$set, params)
+        sel0 = select_null_cells(long[eligible %in% TRUE], states = st0, params = params, exclude = mcells)
         isn0 = long$cell %in% sel0$null_cells & long$null_region %in% TRUE & long$eligible %in% TRUE & long$chrom %in% AUTOSOMES_CALLER
         amask = allelic_noisy_tiles(long, null = isn0, params = params, rules = rules)
         nm = sum(amask$masked)
@@ -544,7 +545,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     }
     say("caller_normal (null cells: ", nc_mode, ")")
     res = do.call(caller_normal, c(list(feat = long, params = params, cell_meta = ctm, multiplets = mcells, regions = features$regions,
-                                        embedding = emb, null_cells = nc_mode), caller_args))
+                                        embedding = emb, null_cells = nc_mode, phasing = features$phasing), caller_args))
     if (!is.null(amask)) {
       res$null_fit$allelic_mask = amask
       res$notes = c(res$notes, mask_note)
@@ -565,7 +566,8 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
       say("null selection check (null cells selected on odd / even autosomes, exceedances on the other half)")
       res$null_check = null_selection_check(long, params = params, multiplets = mcells, regions = features$regions,
                                             depth_model = na_run$depth_model[1], select_args = na_run$select_args %||% list(),
-                                            null_chroms = na_run$null_chroms, false_calls = res$false_calls)
+                                            null_chroms = na_run$null_chroms, false_calls = res$false_calls,
+                                            phasing = features$phasing)
       nca = res$null_check[stratum == "all"]
       res$notes = c(res$notes, sprintf(paste("null selection check: %s per 1,000 on rows not used for selection (in-sample %s);",
                                              "upper bound of the null rate: real events on those rows count too; %.1f min"),

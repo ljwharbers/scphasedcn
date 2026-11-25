@@ -26,8 +26,11 @@ row (two-sided), its depth LLR the row's log2 shift.
 \item \code{normal}: neutral 1:1; loss 1:0 at f = 1 - eps (shift loss);
 gain 2:1 (2/3) and 3:1 (3/4), both at the gain shift; cnloh 2:0 at
 1 - eps (shift 0). The normal-tissue state set.
-\item \code{normal_att}: as \code{normal} with the loss and cnloh rows over \code{f_att} (an
-attenuation-aware sensitivity variant).
+\item \code{normal_att}: as \code{normal} with the loss and cnloh rows over \code{f_att_normal} (the attenuation-aware opt-in of
+normal mode, \code{params$states_normal}; \code{f_att} when the parameters have no \code{f_att_normal}), always together with
+\code{1 - eps}, the fraction of the \code{normal} rows (so the set contains the \code{normal} loss / cnloh rows, and the
+windowed allele term of \code{\link[=score_cells]{score_cells()}} always finds its row). Loss and cnloh keep one shared row set, so their
+allelic class stays \code{loss_or_cnloh}.
 \item \code{tumour} (per-cell detection and assignment): loss 1:0 at f in
 c(0.80, f_att); cnloh 2:0 over f_att; gain 2:1 (2/3); gain_as 3:0 over
 f_att (gain shift); amp 3:1 (0.75), 2:2 (0.5), 4:1 (0.80) with shift

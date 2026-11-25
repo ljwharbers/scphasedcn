@@ -1720,3 +1720,17 @@ test_that("a named event in a depth stratum without a fit of its sd_class is sco
   expect_identical(r$calls[region != "ev8"], r0$calls)
 })
 
+test_that("select_null_cells (parametric): the cells of a stratum whose cells were all dropped stay out of the null set", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))[class %in% c("chrom", "arm")]
+  big = fake_features(300, rg, seed = 4)[stratum == ">=50k", unique(cell)]
+  expect_gt(length(big), 10)
+  ev = CJ(cell = big, region = c("chr1", "chr1p", "chr1q"))[, state := "loss"]
+  ff = fake_features(300, rg, events = ev, seed = 4)                     # every >=50k cell carries a chr1 loss
+  expect_identical(ff[stratum == ">=50k", unique(cell)], big)
+  s = select_null_cells(ff, n_iter = 2, n_sim = 2e4)
+  expect_false(any(big %in% s$previous))                                # the first iteration drops all of them
+  expect_false(any(big %in% s$null_cells))                              # and the second, without null rows there, too
+  expect_gt(length(s$null_cells), 150)
+  expect_identical(s$calls[cell %in% big, null], rep(FALSE, length(big)))
+})
+

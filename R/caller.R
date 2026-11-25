@@ -820,9 +820,12 @@ robust_rho = function(nA, n, min_n = 30, seed = 1) {
 # Parametric null thresholds: every template row (the current null rows: class, stratum, sd_null, n_hap) is
 # re-drawn under the fitted null (z ~ location-scale t of its class x stratum, or N(0, 1); nA ~ BB(n_hap, 1/2,
 # rho)), scored with the same states, and the type-7 q quantile of s_comb is taken per class x stratum. Rows are
-# replicated until each group has at least n_sim draws.
+# replicated until each group has at least n_sim draws. `groups` (optional: the `by` groups the thresholds must
+# cover, e.g. every class x stratum of the scored rows): a group without template rows (every cell of a stratum
+# dropped from the null set) takes the quantile of its class's simulated rows over strata (`pooled_fallback`), so
+# that its rows are tested, not left without a threshold; a class without template rows gets none.
 param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t", n_sim = NULL, seed = 1,
-                            by = c("class", "stratum")) {
+                            by = c("class", "stratum"), groups = NULL) {
   n_sim = n_sim %||% max(2e4, ceiling(20 / (1 - q)))
   tm = as.data.table(tmpl)[, c(by, "sd_null", "n_hap"), with = FALSE]
   tm[, n_hap := fifelse(is.na(n_hap), 0, n_hap)]
@@ -839,7 +842,19 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
   sim[, nA := as.numeric(rbinom(n, n_hap, p))]
   sc = score_cells(sim, states, tpar, rho, depth_model = depth_model, params = params)
   res = sc[, .(thr = q7(s_comb, q), n_null = .N), by = by]
-  res[, `:=`(score = "s_comb", fold = 0L, q = q, pooled_fallback = FALSE)]
+  res[, pooled_fallback := FALSE]
+  coarse = setdiff(by, "stratum")
+  if (!is.null(groups) && length(coarse) && length(coarse) < length(by)) {
+    g = unique(as.data.table(groups)[, by, with = FALSE])
+    miss = g[!group_key(g, by) %in% group_key(res, by)]
+    if (nrow(miss)) {
+      rc = sc[, .(thr = q7(s_comb, q), n_null = .N), by = coarse]
+      k = match(group_key(miss, coarse), group_key(rc, coarse))
+      fb = miss[!is.na(k)][, `:=`(thr = rc$thr[k[!is.na(k)]], n_null = rc$n_null[k[!is.na(k)]], pooled_fallback = TRUE)]
+      if (nrow(fb)) res = rbind(res, fb, use.names = TRUE)
+    }
+  }
+  res[, `:=`(score = "s_comb", fold = 0L, q = q)]
   if (!"stratum" %in% by) res[, stratum := "all"]
   res[, n_null := as.integer(n_null)]
   setcolorder(res, c("score", "class", "stratum", "fold", "q", "thr", "n_null", "pooled_fallback"))
@@ -895,8 +910,12 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' cell out of the null set, which costs little (6 of 4,105 cells of a normal thyroid sample). It sees only chromosome
 #' and arm rows, so a null cell can still carry a windowed call on a smaller tile. The selection's scores themselves
 #' stay oriented, so that they match what the parametric thresholds simulate.
+#' A class x stratum left without null rows in an iteration (every cell of a stratum dropped) is thresholded with
+#' its class over strata (parametric: the class's simulated rows; empirical: the class fallback of
+#' [budget_thresholds()]); a cell with an eligible row that still has no threshold is not assessed (`n_calls` NA)
+#' and is never a null cell.
 #' @return list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
-#'   candidate cell: n_calls, win_guard, null), tpar, rho, thresholds)
+#'   candidate cell: n_calls (NA: a row without a threshold), win_guard, null), tpar, rho, thresholds)
 #' @export
 select_null_cells = function(feat_long, states = caller_states("normal", params), params = caller_defaults(), n_iter = 2,
                              max_calls = 0, exclude = NULL, classes = c("chrom", "arm"), depth_model = "t",
@@ -938,11 +957,16 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
     rho = if (threshold == "parametric") robust_rho(d$nA[arm], d$n_hap[arm], seed = params$seed) else fit_allelic_null(d$nA[arm], d$n_hap[arm])
     sc = score_cells(d, states, tpar, rho, depth_model = depth_model, params = params)
     thr = if (threshold == "parametric") {
-      param_thresholds(d[isn], states, tpar, rho, q, params, depth_model, n_sim, seed = params$seed + it)
+      param_thresholds(d[isn], states, tpar, rho, q, params, depth_model, n_sim, seed = params$seed + it,
+                       groups = unique(d[, .(class, stratum)]))
     } else budget_thresholds(sc, "s_comb", q = q, cv = TRUE, min_null = params$min_null_rows, params = params, null = isn)
     sc = apply_thresholds(sc, thr, "s_comb")
-    nc = sc[, .(n_calls = sum(call_s_comb & eligible, na.rm = TRUE)), by = cell]
-    new = nc[n_calls <= max_calls & !cell %in% guard_win, cell]
+    # a cell with an eligible row that has no threshold (no null row to calibrate it on, even at class level) is not
+    # assessed: n_calls NA, never a null cell (its untested rows must not count as clean)
+    nc = sc[, .(n_calls = sum(call_s_comb & eligible, na.rm = TRUE), nothr_ = any(eligible %in% TRUE & is.na(thr_s_comb))), by = cell]
+    nc[nothr_ == TRUE, n_calls := NA_integer_]
+    nc[, nothr_ := NULL]
+    new = nc[!is.na(n_calls) & n_calls <= max_calls & !cell %in% guard_win, cell]
     fr = 1000 * mean(sc$call_s_comb[isn], na.rm = TRUE)
     log[[it]] = data.table(iter = it, n_in = length(cur), n_out = length(new), n_dropped = length(setdiff(cur, new)),
                            n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr,

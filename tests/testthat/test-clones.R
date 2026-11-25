@@ -1523,3 +1523,250 @@ test_that("baseline candidates are narrowed only after a fit with an informative
   expect_equal(nxt(full, fd), c(1.75, 2, 2.25))
 })
 
+
+# ---- RNG state, input validation, doublet bookkeeping ------------------------------------------------------------
+
+test_that("the seeded clone functions leave the caller's RNG state as they found it", {
+  inp = tum2_input()
+  cells = inp$cells$cell
+  same_rng = function(expr, what) {
+    set.seed(42)
+    s0 = .Random.seed
+    force(expr)
+    expect_identical(.Random.seed, s0, info = what)
+  }
+  same_rng(split_votes(inp$votes, 0.5, seed = 3), "split_votes")
+  same_rng(split_win(inp$win, 0.5, seed = 3), "split_win")
+  set.seed(1)
+  X = matrix(stats::rnorm(120 * 6), 120, dimnames = list(paste0("c", 1:120), NULL))
+  X[1:60, 1] = X[1:60, 1] + 4
+  same_rng(dc <- discover_clones(X, n_pc = 3, k = 5, max_leaves = 4, min_size = 10, seed = 3), "discover_clones")
+  fv = fake_block_votes(rep(c(0.5, 0.8), each = 60), n = 20)
+  cd = fake_cdata(fv$nA, fv$nB, rep(1L, 6), "r1")
+  same_rng(merge_clones(NULL, NULL, NULL, NULL, dc$leaves, dc$smooth, n_perm = 5, cdata = cd, cells = cd$cells), "merge_clones")
+  m = data.table(cell = cells[1:40], clone = rep(c("K1", "K2"), each = 20))
+  same_rng(clone_profiles(inp$win, inp$votes, inp$atoms, m, seed = 3, cells = cells), "clone_profiles")
+  lf = inp$features[cell %in% cells[1:80]]
+  same_rng(tumour_null_fit(lf, select = TRUE, n_iter = 2), "tumour_null_fit")
+  cdt = contrast_data(inp$features, inp$votes, inp$atoms, inp$regions, cells)
+  nfr = stats::setNames(inp$cells$n_frag, cells)
+  same_rng(discover_within(clone_input(inp), cells[1:100], inp$votes, inp$features, cdt, nfr,
+                           opts = modifyList(clone_defaults(), list(min_size = 10, n_perm = 5)), seed = 3), "discover_within")
+})
+
+test_that("the caller and split_disagree() fit and segment clone states through one helper that honours the options", {
+  p = fake_profile_b(tri_states(), B = 3)
+  o = modifyList(clone_defaults(), list(ploidy = 3, p_switch = 1e-4, min_win = 2, gain_support = 0, max_contra = Inf))
+  f = scphasedcn:::fit_states_opts(p, cn_grid(), o)
+  expect_identical(f, fit_clone_states(p, cn_grid(), p_switch = 1e-4, min_win = 2, baseline = 3, ploidy_tol = o$ploidy_tol))
+  expect_equal(unique(f$par$base), 3)
+  expect_identical(scphasedcn:::segment_states_opts(f, cn_grid(), o),
+                   segment_clone(f, 1e-4, 2, cn_grid(), o$min_llr, o$min_excess, o$bal_frac, o$min_bal_len, Inf, 0))
+})
+
+test_that("split_disagree tests the segments of a clone at baseline 3 on its own state grid (3:2 is not in the diploid grid)", {
+  inp = tum2_input()
+  tr = sim_truth(sim_tum2)[mult == FALSE]
+  mk = tr[type == "cloneA", cell]
+  members = data.table(cell = mk, clone = "K3")
+  ch = inp$regions[class == "chrom" & chrom == "chr2"]
+  sg = data.table(clone = "K3", chrom = "chr2", start = ch$start, end = ch$end, n_win = 10L, nA = NA_integer_, nB = NA_integer_,
+                  cn = 5L, state = "3:2", log2 = 0, f = NA_real_, llr = 50, confident = TRUE, label = "amp", ploidy = 2L)
+  par = data.table(clone = "K3", c = 0.8, a = 0.9, rho = 0.01, base = 3)
+  expect_equal(nrow(split_alt_states("3:2", cn_grid())), 0)
+  expect_gt(nrow(split_alt_states("3:2", baseline_grid(3))), 0)
+  set.seed(42); s0 = .Random.seed
+  sp = split_disagree(members, sg, par, inp, inp$win, inp$votes, cdata = NULL, opts = list(min_size = 10), seed = 1)
+  expect_identical(.Random.seed, s0)                                  # T6: the caller's RNG state is restored
+  expect_false(is.null(sp$tests))
+  expect_equal(sp$tests$state, "3:2")
+  expect_true(sp$tests$alt %in% baseline_grid(3)$state)
+  # the same clone at the diploid baseline: no alternative of 3:2 on the diploid grid, nothing tested
+  sp2 = split_disagree(members, sg, copy(par)[, base := 2], inp, inp$win, inp$votes, cdata = NULL, opts = list(min_size = 10), seed = 1)
+  expect_null(sp2$tests)
+})
+
+test_that("clone_state_distance / clone_trunks take numeric clone ids (columns by name, not by position)", {
+  seg = function(clone, states) data.table(clone = clone, chrom = "chr1", start = c(0, 30e6), end = c(30e6, 60e6), state = states,
+                                           ploidy = 2L)
+  sg = rbind(seg("K2", c("1:1", "1:0")), seg("K5", c("1:1", "2:1")), seg("K9", c("1:1", "1:0")))
+  sg[, `:=`(cn = nA_of(state) + nB_of(state), label = state_label(nA_of(state), nB_of(state), 2L))]
+  sn = copy(sg)[, clone := as.numeric(sub("K", "", clone))]
+  sn_in = copy(sn)
+  dc = clone_state_distance(sg)
+  dn = clone_state_distance(sn)
+  expect_identical(sn, sn_in)
+  expect_equal(unname(dn), unname(dc))
+  expect_identical(rownames(dn), c("2", "5", "9"))
+  expect_equal(dn["2", "9"], 0)
+  expect_equal(dn["2", "5"], 30e6)
+  expect_identical(unname(clone_trunks(sn, max_dist = 1e7)), unname(clone_trunks(sg, max_dist = 1e7)))
+})
+
+test_that("contrast_data maps blocks to regions by block id and has no allelic part without votes", {
+  regions = data.table(region = c("r1", "r2"), class = "arm", chrom = c("chr1", "chr2"), start = 0, end = 10e6, eligible = TRUE,
+                       allelic_ok = TRUE)
+  atoms = data.table(atom = 1:2, chrom = c("chr1", "chr2"), start = 1e6, end = 1e6 + 100)
+  feat = data.table(cell = rep(c("a", "b"), each = 2), region = rep(c("r1", "r2"), 2), class = "arm", eligible = TRUE, log2ratio = 0)
+  # block 2 (r1, phase set 2) has votes of cell 3 only, which is not one of the cells: block ids 1 and 3 remain
+  votes = data.table(cell = c(1L, 3L, 2L), atom = c(1L, 1L, 2L), ps = c(1, 2, 3), nA = c(3L, 2L, 1L), nB = c(1L, 2L, 4L))
+  cd = contrast_data(feat, votes, atoms, regions, c("a", "b"))
+  expect_equal(ncol(cd$MA), 3L)
+  expect_equal(cd$blk_region[c(1, 3)], c(1L, 2L))
+  expect_true(is.na(cd$blk_region[2]))
+  agg = scphasedcn:::contrast_agg(cd)
+  expect_equal(sum(agg$XN), 9)
+  # votes only on chr1, allelic channel only on chr2: no votes on the allelic regions, the depth part only
+  cd1 = contrast_data(feat, votes[atom == 1L], atoms, regions, c("a", "b"), allelic_chroms = "chr2")
+  expect_null(cd1$trip)
+  expect_null(cd1$blk_region)
+  expect_equal(dim(cd1$L), c(2L, 2L))
+  expect_equal(scphasedcn:::contrast_stat(cd1, 1, 2, rho = 0.01)$stat, 0)
+})
+
+test_that("caller_tumour stops with a clear error when allelic_exclude removes every vote", {
+  inp = tum2_input()
+  ex = unique(c(inp$regions$chrom, "chrX", "chrY"))
+  expect_error(caller_tumour(inp, opts = list(allelic_exclude = ex), verbose = FALSE),
+               "caller_tumour: no allele votes outside opts\\$allelic_exclude")
+})
+
+test_that("caller_tumour reads every multiplet_table() form and, without an input null, fits it with its params and multiplets", {
+  inp = tum2_input()
+  cells = inp$cells$cell
+  mc = cells[1:3]
+  # clone_input(): the input null of features without one follows the caller's params and excludes the given cells
+  f0 = inp; f0$null_fit = NULL
+  f0$features = copy(f0$features)[, null_cell := FALSE]               # no flagged cells: the selection runs
+  p = modifyList(caller_defaults(), list(seed = 7))
+  ci = clone_input(f0, params = p, exclude = mc)
+  nf = tumour_null_fit(f0$features, params = p, exclude = mc)
+  expect_identical(ci$rho, nf$rho)
+  expect_identical(ci$tpar, nf$tpar)
+  expect_identical(ci$null_note, nf$note)
+  expect_false(any(mc %in% nf$null_cells))
+  expect_null(clone_input(inp)$null_note)                               # an input null: nothing fitted
+  expect_true(is.na(clone_input(f0, null_fit = FALSE)$rho))
+  # a vector of cells is a multiplet table (prob 1): flagged and left out of discovery; the input null's note is a run note
+  res = caller_tumour(f0, params = p, multiplets = mc, verbose = FALSE)
+  a = res$assignments
+  expect_true(all(a[cell %in% mc, multiplet]))
+  expect_false(any(a[!cell %in% mc, multiplet]))
+  expect_identical(res$notes[1], nf$note)
+  expect_identical(res$null_fit$rho, nf$rho)
+})
+
+test_that("caller_tumour: a doublet clone flagged before the split pass renumbers does not name or remove another clone", {
+  # round 1 flags its first tumour clone as a doublet (mock); the split pass (mock: splits the largest clone in two,
+  # tumour clones first) renumbers the clones, so the flagged id is reused by a tumour clone afterwards
+  real_flag = flag_doublet_clones
+  n_flag = 0L; flagged = NA_character_
+  local_mocked_bindings(
+    flag_doublet_clones = function(clones, segments, profiles, fit = NULL, ...) {
+      n_flag <<- n_flag + 1L
+      dc = real_flag(clones, segments, profiles, fit, ...)
+      if (n_flag == 2L) {
+        flagged <<- sort(setdiff(dc$clone, "N0"))[1]
+        dc[clone == flagged, `:=`(doublet = TRUE, best_pair = "X+Y")]
+      }
+      dc
+    },
+    split_disagree = function(members, ...) {
+      m = copy(members)
+      k = m[clone != "N0", .N, by = clone][order(-N)]$clone[1]
+      cc = m[clone == k, cell]
+      b = cc[seq(2, length(cc), by = 2)]
+      m[clone == k & cell %in% b, clone := paste0(k, "b")]
+      m[clone == k, clone := paste0(k, "a")]
+      m = m[order(clone == "N0")]
+      tt = data.table(clone = k, region = "r", chrom = "chr1", start = 0, end = 1, state = "2:1", alt = "3:0", contra = 0.5,
+                      n_a = length(cc) - length(b), n_b = length(b), state_a = "2:1", state_b = "3:0", differ = TRUE, split = TRUE)
+      list(members = m, tests = tt, cells_b = stats::setNames(list(b), paste0(k, "b")), sets = list())
+    })
+  res = caller_tumour(tum2_input(), opts = list(split_pass = "disagree"), verbose = FALSE)
+  ct = res$clones
+  # the collision this test is about: the id flagged in round 1 names a real clone at the end
+  expect_true(flagged %in% ct[doublet == FALSE, clone])
+  expect_true(flagged %in% res$segments$clone)
+  # the defect: that id has one row (no doublet row for it), and no doublet row names a clone of the other tables
+  expect_equal(anyDuplicated(ct$clone), 0L)
+  expect_false(any(ct[doublet == TRUE, clone] %in% c(res$segments$clone, res$assignments$clone)))
+  expect_true(all(ct[doublet == FALSE, clone] %in% res$segments$clone))
+  # the log keeps the flag with the id it had then
+  lg = res$null_fit$clones$doublet_log
+  expect_equal(lg[round == "round 1", .(clone, best_pair, ids)], data.table(clone = flagged, best_pair = "X+Y", ids = "trunk"))
+  expect_identical(res$null_fit$clones$doublet_clones, ct[doublet == TRUE, clone])
+})
+
+test_that("gain_support_pass at a half-integer baseline: a gain is above the integer baseline, never replaced by itself", {
+  g = baseline_grid(2.5)
+  st = g$state
+  W = 10L
+  item = function(state, nA, E_best) {
+    wn = data.table(window = paste0("w", seq_len(W)), start = (seq_len(W) - 1) * 1e6, end = seq_len(W) * 1e6, ploidy = 2L)
+    E = matrix(-10, W, length(st)); E[, match(state, st)] = -2; E[, match(E_best, st)] = -1
+    list(k = "K", ch = "chr1", wn = wn, E = E, path = rep(match(state, st), W),
+         wk = data.table(window = wn$window, log2 = 0, n_cells = 100, base = 2.5, n_hap = 100, nA = nA),
+         pk = data.table(clone = "K", c = 1, a = 1, base = 2.5), nodepth = logical(W), st = st, g = g, nb = 3L)
+  }
+  gsp = scphasedcn:::gain_support_pass
+  # B = 2.5, nb = 3: a 2:1 run without depth support is copy-neutral (3 copies), not swapped for 3:0 (same depth)
+  o1 = gsp(list(item("2:1", 90, "3:0")), 0.3, 0.5)[[1]]
+  expect_true(all(st[o1$path] == "2:1"))
+  expect_false(any(o1$nodepth))
+  # a 3:1 run (4 copies) without depth support: replaced by a supported copy-neutral imbalanced state ...
+  o2 = gsp(list(item("3:1", 90, "3:0")), 0.3, 0.5)[[1]]
+  expect_true(all(st[o2$path] == "3:0"))
+  # ... or, without allelic support for one, flagged (label "imbalance", depth_ok FALSE)
+  o3 = gsp(list(item("3:1", 50, "3:0")), 0.3, 0.5)[[1]]
+  expect_true(all(st[o3$path] == "3:1"))
+  expect_true(all(o3$nodepth))
+})
+
+test_that("clean_reference: a negative threshold does not remove cells without positive evidence (score <= 0)", {
+  r = tum2_result()
+  inp = tum2_input()
+  m = r$assignments[assigned == TRUE, .(cell, clone)]
+  cr = clean_reference(inp, r$assignments, r$segments, thr = -1, par = r$null_fit$clones$par, members = m)
+  tb = cr$table
+  expect_gt(nrow(tb[score <= 0 & score > -1]), 0)
+  expect_false(any(tb[score <= 0, flag]))
+  expect_identical(tb$flag, tb$score > 0)
+  # a positive threshold: unchanged rule
+  c2 = clean_reference(inp, r$assignments, r$segments, thr = 2, par = r$null_fit$clones$par, members = m)
+  expect_identical(c2$table$flag, c2$table$score > 2)
+  expect_setequal(c2$pool, c2$table[score <= 2, cell])
+})
+
+test_that("split_disagree (direct call): checks its options, fits a missing input null with its params, re-fits the parts at the parent's baseline", {
+  inp = tum2_input()
+  tr = sim_truth(sim_tum2)[mult == FALSE]
+  members = data.table(cell = tr[type %in% c("cloneA", "cloneB"), cell], clone = "K3")
+  ch = inp$regions[class == "chrom" & chrom == "chr22"]
+  sg = data.table(clone = "K3", chrom = "chr22", start = ch$start, end = ch$end, n_win = 10L, nA = NA_integer_, nB = NA_integer_,
+                  cn = 1L, state = "1:0", log2 = 0, f = NA_real_, llr = 50, confident = TRUE, label = "loss", ploidy = 2L)
+  par = data.table(clone = "K3", c = 0.8, a = 0.9, rho = 0.01, base = 2)
+  # a config-style ploidy ("3") is checked and converted as by caller_tumour(); mocks: every other member prefers the
+  # alternative (a clear candidate) and the split test says "different", so the default re-fit of the two parts runs
+  o = list(min_size = 10, small_clone = 0, ploidy = "3")
+  real_fit = fit_states_opts; real_nf = tumour_null_fit
+  seen = numeric(); nf_seed = NULL
+  local_mocked_bindings(
+    disagree_ll = function(l, sdh, oA, oN, st, ...) {
+      n = length(l); L = matrix(0, n, nrow(st)); L[, 2] = rep_len(c(5, -5), n)
+      list(L = L, alt = 2L, contra = 0.5, contra_null = 0, by_state = rep(0.5, nrow(st)), by_state_null = rep(0, nrow(st)),
+           a_eff = 1, infl = 1)
+    },
+    split_test = function(...) data.table(stat = 10, thr = 1, n_perm = 1L, p = 0.001, differ = TRUE),
+    fit_states_opts = function(profile, grid, opts, ...) { seen <<- c(seen, opts$ploidy); real_fit(profile, grid, opts, ...) },
+    tumour_null_fit = function(long, params = caller_defaults(), ...) { nf_seed <<- params$seed; real_nf(long, params = params, ...) })
+  f0 = inp; f0$null_fit = NULL
+  cd = list(regions = inp$regions[chrom == "chr22", region], cells = inp$cells$cell)
+  sp = split_disagree(members, sg, par, f0, inp$win, inp$votes, cd, opts = o, params = modifyList(caller_defaults(), list(seed = 11)),
+                      seed = 1)
+  expect_equal(nf_seed, 11)                                           # the input null of `inp` with the given params
+  expect_equal(sp$tests$outcome[1] != "candidate", TRUE)              # the candidate was tested (outcome replaced)
+  expect_gt(length(seen), 0)                                          # the default re-fit ran (fit_states_opts) ...
+  expect_true(all(seen == 2))                                         # ... at the parent clone's baseline, not opts$ploidy (3)
+  expect_error(split_disagree(members, sg, par, inp, inp$win, inp$votes, cd, opts = list(bogus = 1)), "unknown option")
+})

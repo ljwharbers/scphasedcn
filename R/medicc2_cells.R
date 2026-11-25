@@ -90,12 +90,17 @@ utils::globalVariables(c("w", "w_clones", "n_clones", "neutral"))
 #' block table: `oA` = votes of the cn_a haplotype (`nA` when `sign > 0`, `nB` when `sign < 0`), `oN` = oriented votes.
 #' With `loo`, the reference clone's pooled votes are first reduced by the cell's own votes when the cell was one of
 #' the cells that oriented the block (`loo` maps cells to the clone whose pool they joined; only blocks whose `ref`
-#' is that clone are affected): the orientation is then the one the other cells give, and the cell's own votes cannot
-#' confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
+#' is that clone are affected): the orientation is then the one the other cells give, in the block table's current
+#' label convention (on a piece whose labels the chaining of [orient_clone_states()] flipped, the sign of the
+#' remaining votes is negated as `sign` is). The flip of a piece is the `flipped` column of `blocks`, else of `pieces`
+#' (e.g. the export's QC table), else it is inferred from the piece's non-tied oriented blocks; where none of these
+#' gives it (a block table without `flipped` whose piece has only tied blocks), the cell's leave-one-out rows of that
+#' piece are dropped (unoriented) rather than taken as unflipped. The cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
 #' from the orientation input.
 #' @param features scn_features list (`win`, `long`, `regions`, `votes`, `atoms`, `cells`; as the tumour mode reads it)
-#' @param pieces piece table (`piece, chrom, start, end`, one row per piece or per clone x piece)
-#' @param blocks block orientation (`piece, ps, sign` and, for `loo`, `ref, nA_ref, nB_ref`)
+#' @param pieces piece table (`piece, chrom, start, end`, one row per piece or per clone x piece; `flipped` optional,
+#'   see `loo`)
+#' @param blocks block orientation (`piece, ps, sign` and, for `loo`, `ref, nA_ref, nB_ref`; `flipped` optional)
 #' @param cells cells to score (default all cells of `features`)
 #' @param ref_cells reference cells of the depth centring (>= 10 used; NULL = no centring)
 #' @param loo NULL, or data.table `cell, clone`: the cells whose votes formed each reference clone's pool
@@ -112,7 +117,7 @@ utils::globalVariables(c("w", "w_clones", "n_clones", "neutral"))
 cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = NULL, loo = NULL, params = caller_defaults(),
                            sd_scale = TRUE, ref_center = c("pseudobulk", "mean"), center = TRUE, s_sys = 0, haploid_sd = sqrt(2)) {
   ref_center = match.arg(ref_center)
-  inp = clone_input(features)
+  inp = clone_input(features, null_fit = FALSE)          # depth and votes only: no input null needed
   pc = unique(as.data.table(pieces)[, .(piece, chrom, start = as.numeric(start), end = as.numeric(end))], by = "piece")
   pc = pc[order(chrom_rank(chrom), start)]
   all_cells = inp$cells$cell
@@ -163,7 +168,7 @@ cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = N
   # ---- alleles ----
   out_al = data.table(cell = character(), piece = character(), oA = numeric(), oN = numeric(), n_blocks = integer())
   votes = inp$votes
-  bl = as.data.table(blocks)
+  bl = copy(as.data.table(blocks))                    # columns are added below: never modify the caller's table
   if (!is.null(votes) && nrow(votes) && nrow(bl)) {
     ci = match(cells, all_cells)
     atoms = inp$atoms
@@ -178,14 +183,26 @@ cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = N
     bl[, `:=`(pix = match(piece, pc$piece), ps = as.numeric(ps))]
     bl = bl[!is.na(pix)]
     if (!"sign" %in% names(bl)) stop("cell_piece_data: blocks need `sign`")
-    cols = intersect(c("ref", "nA_ref", "nB_ref"), names(bl))
+    if (!is.null(loo) && all(c("nA_ref", "nB_ref") %in% names(bl))) {
+      # the piece's label flip (orient_clone_states() chaining): sign = phi_ * sign(nA_ref - nB_ref), phi_ = -1 on flipped
+      # pieces; from `flipped` of the blocks, else of the pieces, else from the piece's non-tied oriented blocks; NA
+      # (the loo rows of the piece are dropped) when none gives it
+      if (!"flipped" %in% names(bl) && "flipped" %in% names(pieces)) {
+        pf = unique(as.data.table(pieces)[, .(piece, flipped = as.logical(flipped))], by = "piece")
+        bl[pf, flipped := i.flipped, on = "piece"]
+      }
+      bl[, phi_ := { k = which(sign != 0 & nA_ref != nB_ref)
+                     if (length(k)) as.integer(sign[k[1]] * sign(nA_ref[k[1]] - nB_ref[k[1]])) else NA_integer_ }, by = pix]
+      if ("flipped" %in% names(bl)) bl[!is.na(flipped), phi_ := fifelse(flipped, -1L, 1L)]
+    }
+    cols = intersect(c("ref", "nA_ref", "nB_ref", "phi_"), names(bl))
     v = bl[, c("pix", "ps", "sign", cols), with = FALSE][v, on = .(pix, ps), nomatch = NULL]
     if (!is.null(loo) && nrow(v)) {
       if (!all(c("ref", "nA_ref", "nB_ref") %in% names(v))) stop("cell_piece_data: `loo` needs blocks with ref, nA_ref, nB_ref")
       lc = as.data.table(loo)
       own = as.character(lc$clone)[match(all_cells[v$cell], as.character(lc$cell))]
       m = !is.na(own) & own == v$ref
-      v[, sign := as.integer(fifelse(m, sign((nA_ref - nB_ref) - (nA - nB)), sign))]
+      v[, sign := as.integer(fifelse(m, phi_ * sign((nA_ref - nB_ref) - (nA - nB)), sign))]
     }
     v = v[!is.na(sign) & sign != 0L]
     if (nrow(v)) {
@@ -200,7 +217,7 @@ cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = N
   d[]
 }
 utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "pix", "piece", "oA", "i.oA", "i.oN", "i.n_blocks",
-                         "rs", "re", "nA_ref", "nB_ref", "ws", "we", "offset", "off", "i.off"))
+                         "rs", "re", "nA_ref", "nB_ref", "ws", "we", "offset", "off", "i.off", "phi_", "flipped", "i.flipped"))
 
 #' Per-cell copy-number states on the MEDICC2 pieces
 #'
@@ -208,10 +225,11 @@ utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "p
 #' clone has on the piece; haploid pieces: one-copy states) are scored with the cell's own evidence
 #' ([cell_piece_data()]); the cell's clone assignment is not used.
 #' - Depth: `ll_depth_shift(z, mu, tpar)` with `mu = c * log2(max(cn, 0.2) / base) / pmax(sd, sd_floor)` (the shift
-#'   model of the clone states, [fit_clone_states()] / [assign_cells()]: `base` = the piece ploidy when the depth is
-#'   centred on the reference pool, else 2), relative to the neutral state's shift (the neutral state's own depth
-#'   term is `ll_depth_shift(z, 0) = 0`), Student-t null per sd_class x stratum ([fit_depth_null()] parameters,
-#'   fallbacks as in [assign_cells()]) or Gaussian when `tpar` is NULL.
+#'   model of the clone states, [fit_clone_states()] / [assign_cells()]: `base` = the cell's baseline B (`baseline`, 2
+#'   by default) times the piece ploidy / 2 when the depth is centred on the reference pool, else B), relative to the
+#'   neutral state's shift (at B = 2 the neutral state's own depth term is `ll_depth_shift(z, 0) = 0`), Student-t null
+#'   per sd_class x stratum ([fit_depth_null()] parameters, fallbacks as in [assign_cells()]) or Gaussian when `tpar`
+#'   is NULL.
 #' - Alleles: one-sided beta-binomial LLR vs 1:1 of the oriented votes `(oA, oN)` at the expected cn_a fraction
 #'   `0.5 + a * (cn_a / cn - 0.5)` (`a` = orientation attenuation of the clone model; 0.5 for cn = 0), overdispersion
 #'   `rho`; haploid pieces have no allele term.
@@ -220,7 +238,12 @@ utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "p
 #'
 #' `c`, `a` and `s_sys` are global (one value for every cell): by default the median over the tumour clones (kept clones
 #' of `pieces` except `normal`), weighted by their assigned cells, of the clones' fitted `c` / `a` / `s_sys` (`clones`
-#' table). A per-cell value would have to come from the cell's clone, which this function must not use.
+#' table). A per-cell value would have to come from the cell's clone, which this function must not use. For the same
+#' reason the depth scale of every cell is diploid by default: a cell's depth is centred on its own median, which is
+#' at B copies for a cell of a clone with baseline B (`clones$baseline`), so the states of cells of a clone with B != 2
+#' are scored on the wrong scale (off by `c * log2(B / 2)`) unless their baselines are given in `baseline`, e.g.
+#' `setNames(clones$baseline[match(assignments$clone, clones$clone)], assignments$cell)` (the clone membership then
+#' enters the depth scale).
 #' @param features scn_features list (see [cell_piece_data()])
 #' @param pieces clone x piece table with `cn_a, cn_b` (orient_clone_states()$pieces or the export's pieces.tsv), or a
 #'   `medicc2_orientation`
@@ -251,6 +274,8 @@ utils::globalVariables(c("n_win", "i.n_win", "len", "i.end", "i.start", "sd", "p
 #' @param s_sys systematic depth SD added to the per-cell SD (NULL = the cell-weighted median of the tumour clones'
 #'   `s_sys`, 0 when `clones` lacks it); see [cell_piece_data()]
 #' @param data precomputed [cell_piece_data()] output (skips the depth / vote aggregation)
+#' @param baseline per-cell baseline B (the copy number of the cell's median depth): NULL (default) = 2 for every cell
+#'   (diploid), one number for every cell, or a numeric vector named by cell (cells without a value: 2)
 #' @param keep_ll return the per-candidate log-likelihoods
 #' @return list of class `cell_piece_states`: `states` (one row per cell x piece: cell, piece, chrom, start, end,
 #'   ploidy, cn_a, cn_b, state (MAP), posterior, llr_neutral, ll_depth, ll_allele (MAP terms vs neutral), n_cand, z,
@@ -262,10 +287,13 @@ cell_piece_states = function(features, pieces, blocks = NULL, cells = NULL, para
                              prior = c("neutral", "uniform", "clone_freq"), p_neutral = 0.5, clones = NULL, c = NULL, a = NULL, rho = "ref", tpar = NULL,
                              ref_cells = NULL, loo = NULL, normal = "N0", sd_scale = TRUE, ref_center = c("pseudobulk", "mean"),
                              center = TRUE, s_sys = NULL, haploid_sd = sqrt(2), data = NULL, keep_ll = FALSE,
-                             rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25)) {
+                             rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25), baseline = NULL) {
   ref_center = match.arg(ref_center)
   prior = match.arg(prior)
   if (inherits(pieces, "medicc2_orientation")) {
+    # the export's piece-level chaining flip for block tables without it (cell_piece_data(loo = ))
+    if (is.null(blocks) && !is.null(pieces$blocks) && !"flipped" %in% names(pieces$blocks) && "flipped" %in% names(pieces$qc))
+      blocks = copy(as.data.table(pieces$blocks))[, flipped := pieces$qc$flipped[match(piece, pieces$qc$piece)]]
     blocks = blocks %||% pieces$blocks
     pieces = pieces$pieces
   }
@@ -288,7 +316,7 @@ cell_piece_states = function(features, pieces, blocks = NULL, cells = NULL, para
   rho_mode = if (is.character(rho)) match.arg(rho, c("ref", "auto")) else "given"
   if (rho_mode == "ref" && !use_ref) stop("cell_piece_states: rho = \"ref\" needs >= 10 `ref_cells`")
   if (is.null(rho)) {
-    rho = if (!is.null(features)) clone_input(features)$rho else NA_real_
+    rho = if (!is.null(features)) clone_input(features, params = params)$rho else NA_real_
     rho_mode = "null_fit"
   }
   if (rho_mode %in% c("given", "null_fit") && !is.finite(rho)) stop("cell_piece_states: need `rho`")
@@ -314,6 +342,18 @@ cell_piece_states = function(features, pieces, blocks = NULL, cells = NULL, para
                                                                   on = "piece", allow.cartesian = TRUE]
   tp = cl_match_tpar(L, tpar)
   base = if (use_ref) L$ploidy else 2
+  if (!is.null(baseline)) {
+    # the cells' baselines: the copy number of their median depth (centred on it), times ploidy / 2 with a reference
+    if (!is.numeric(baseline) || (length(baseline) != 1 && is.null(names(baseline))))
+      stop("cell_piece_states: `baseline` must be one number or a numeric vector named by cell")
+    if (!is.null(names(baseline)) && !any(names(baseline) %in% L$cell))
+      stop("cell_piece_states: the names of `baseline` match none of the scored cells")
+    bc = if (length(baseline) == 1 && is.null(names(baseline))) rep(as.numeric(baseline), nrow(L)) else
+      as.numeric(baseline[L$cell])
+    bc[!is.finite(bc)] = 2
+    if (any(bc <= 0)) stop("cell_piece_states: `baseline` must be positive")
+    base = bc * (if (use_ref) L$ploidy / 2 else 1)
+  }
   L[, mu := c_ * log2(pmax(cn, 0.2) / base) / pmax(sd, params$sd_floor)]
   mu0 = c_ * log2(fifelse(L$ploidy == 1L, 1, 2) / base) / pmax(L$sd, params$sd_floor)
   L[, ll_depth := ll_depth_shift(z, mu, tp) - ll_depth_shift(z, mu0, tp)]

@@ -14,7 +14,7 @@ scn_embedding(
 )
 }
 \arguments{
-\item{dir}{extraction directory (bins_100kb.h5ad)}
+\item{dir}{extraction directory (the bins file \verb{bins_<tag>.h5ad}, by default \code{bins_100kb.h5ad})}
 
 \item{cells}{cells to embed (default all)}
 

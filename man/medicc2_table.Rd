@@ -19,17 +19,21 @@ medicc2_table(
 
 \item{normal}{name of the normal sample}
 
-\item{cap}{maximal copy number (MEDICC2 caps at 8)}
+\item{cap}{maximal copy number (cn_a, cn_b and their total; MEDICC2's default maximum is 8). Clone states can exceed
+it (the state grid of a clone at baseline B reaches 2 B + 1 copies, amplicons more): clipped values are counted in
+the attribute \code{n_capped} and a warning says so; raise \code{cap} (and MEDICC2's maximum) to keep them}
 
 \item{chroms}{chromosomes kept}
 }
 \value{
-data.table (MEDICC2 TSV layout); attribute \code{n_pieces} (pieces before merging)
+data.table (MEDICC2 TSV layout); attributes \code{n_pieces} (pieces before merging) and \code{n_capped} (sample x
+piece rows clipped in the table written: cn_a or cn_b above \code{cap} (allele-specific), cn_a + cn_b above it (total))
 }
 \description{
 One row per sample x segment with integer copy numbers capped at \code{cap}: \verb{sample_id, chrom, start, end, cn_a, cn_b}
 (allele-specific) or \verb{sample_id, chrom, start, end, cn} (total = cn_a + cn_b, for \verb{--total-copy-numbers --input-allele-columns cn}). Adjacent pieces of a chromosome whose values are identical in every sample are merged
 (after the cap; on cn_a / cn_b, or on cn for the total table), so every sample has the same segments, as MEDICC2
-requires. The normal clone \code{normal} is a sample (MEDICC2 \verb{--normal-name N0}); when absent it is added as 1:1 on
+requires; pieces separated by a gap (e.g. a range dropped by \code{\link[=medicc2_pieces]{medicc2_pieces()}}) are never merged, so no segment
+spans a range without states. The normal clone \code{normal} is a sample (MEDICC2 \verb{--normal-name N0}); when absent it is added as 1:1 on
 diploid and 1:0 on haploid pieces (male chrX), so it is the root of the tree. Chromosomes are sorted naturally.
 }

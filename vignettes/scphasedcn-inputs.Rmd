@@ -218,4 +218,6 @@ data.table::fwrite(m, file.path(tempdir(), "cell_meta.tsv"), sep = "\t")
 ```
 
 Multiplets (barcodes holding more than one nucleus) inflate calls; pass a per-cell multiplet probability as
-`multiplets` (a table `cell, prob`) to leave them out of the null and the clone discovery.
+`multiplets` (a table `cell, prob`, or any form `multiplet_table()` reads) to leave them out of the null (prob > 0.5)
+and, in tumour mode, of the clone discovery and the clone pseudobulks (prob above the `multiplet_prob` option, 0.9 by
+default).

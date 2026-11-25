@@ -173,6 +173,126 @@ test_that("medicc2_table: N0 sample, merging, total = a + b, cap and order", {
   expect_equal(t2[sample_id == "N0" & chrom == "chrX", unique(paste(cn_a, cn_b))], "1 0")
   # cap
   d2 = copy(d)[clone == "A" & chrom == "chr2", cn_a := 12L]
-  expect_equal(max(medicc2_table(d2)$cn_a), 8L)
-  expect_equal(max(medicc2_table(d2, allele_specific = FALSE)$cn), 8L)
+  expect_warning(ta <- medicc2_table(d2), "above cap = 8 and were clipped")
+  expect_equal(max(ta$cn_a), 8L)
+  expect_warning(tt <- medicc2_table(d2, allele_specific = FALSE), "above cap = 8 and were clipped")
+  expect_equal(max(tt$cn), 8L)
+})
+
+test_that("medicc2_pieces / orient_clone_states take numeric clone ids and do not modify the caller's tables", {
+  x = m2_toy()
+  ids = c(A = 3, B = 5, C = 7, N0 = 9, D = 11, E = 13)
+  sg = copy(x$segments)[, clone := ids[clone]]
+  cl = copy(x$clones)[, clone := ids[clone]]
+  cl_in = copy(cl)
+  pn = medicc2_pieces(sg, cl, min_len = 1e6, normal = 9)
+  pc = medicc2_pieces(x$segments, x$clones, min_len = 1e6)
+  expect_identical(cl, cl_in)                                        # no `reason` column added to the caller's table
+  expect_type(pn$clone, "character")
+  key = function(p) p[, .(piece, clone, state, cn, imbalanced)][order(piece, clone)]
+  pc_n = copy(pc)[, clone := as.character(ids[clone])]
+  expect_identical(key(pn), key(pc_n))
+  expect_identical(attr(pn, "clones_dropped")[order(clone), reason], attr(pc, "clones_dropped")[order(clone), reason])
+  asg = copy(x$assignments)[, clone := ids[clone]]
+  on = orient_clone_states(pn, x$features, asg, cl)
+  oc = orient_clone_states(pc, x$features, x$assignments, x$clones)
+  expect_identical(on$pieces[order(piece, clone), .(cn_a, cn_b, flag)], oc$pieces[, clone := as.character(ids[clone])][order(piece, clone), .(cn_a, cn_b, flag)])
+})
+
+test_that("MEDICC2 export: no segment and no absorbed piece spans a dropped range", {
+  # medicc2_table: chr1 [0, 10 Mb) and [30, 50 Mb) with equal states, [10, 30 Mb) dropped -> two segments
+  d = data.table(clone = rep(c("K1", "K2"), each = 2), chrom = "chr1", start = c(0, 30e6), end = c(10e6, 50e6),
+                 cn_a = rep(c(1L, 2L), each = 2), cn_b = 0L, ploidy = 2L)
+  tb = medicc2_table(d)
+  expect_equal(tb[sample_id == "K1", .(start, end)], data.table(start = c(0L, 30000000L), end = c(10000000L, 50000000L)))
+  expect_true(all(tb[, .N, by = sample_id]$N == 2L))
+  # contiguous pieces with equal states are still merged
+  d2 = copy(d)[start == 30e6, start := 10e6]
+  expect_equal(nrow(medicc2_table(d2)[sample_id == "K1"]), 1L)
+  # medicc2_pieces: a short piece next to a dropped range is absorbed into its contiguous neighbour only
+  seg = function(clone, start, end, state) data.table(clone = clone, chrom = "chr1", start = start, end = end, state = state)
+  sg = rbind(seg("A", c(0, 30.5e6), c(30.5e6, 50e6), c("1:0", "1:1")),
+             seg("B", c(0, 30e6), c(10e6, 50e6), c("1:0", "1:0")))
+  pc = medicc2_pieces(sg, min_len = 1e6)
+  u = unique(pc[, .(start, end)])[order(start)]
+  expect_equal(u, data.table(start = c(0, 30e6), end = c(10e6, 50e6)))
+  pd = attr(pc, "pieces_dropped")
+  expect_equal(pd[reason == "not_all_clones", .(start, end)], data.table(start = 10e6, end = 30e6))
+  # the absorbed short piece takes the contiguous neighbour's states
+  expect_equal(pc[start == 30e6][order(clone), state], c("1:1", "1:0"))
+  # max_gap opts in to absorption across the gap (the old default): the left piece then claims [10, 30 Mb)
+  pg = medicc2_pieces(sg, min_len = 1e6, max_gap = Inf)
+  expect_equal(unique(pg[, .(start, end)])[order(start)], data.table(start = c(0, 30.5e6), end = c(30.5e6, 50e6)))
+})
+
+test_that("orient_clone_states: the block table carries the piece's chaining flip", {
+  # chr1: A loses haplotype B on 0-60 Mb, B loses haplotype A on 30-60 Mb. Piece 0-30 Mb is oriented by A (the only
+  # imbalanced clone), piece 30-60 Mb by B (a = 1 against A's 0.5): its own convention is B's major haplotype, so the
+  # chaining flips it to keep A's labels continuous
+  bins = make_bins(c(chr1 = 60e6), 1e5)
+  atoms = data.table(atom = seq_len(nrow(bins)), chrom = bins$chrom, start = bins$start, end = bins$end, bin = seq_len(nrow(bins)))
+  lab = rep(c("A", "B", "N0"), each = 40)
+  ev = data.table(clone = c("A", "B"), chrom = "chr1", start = c(0, 30e6), end = 60e6, cnA = c(1L, 0L), cnB = c(0L, 1L))
+  votes = fake_votes(length(lab), atoms, lab, ev, flip_prob = 0.5, seed = 4, block_atoms = 10L, mol_per_atom = 0.5)
+  cells = sprintf("cell%03d", seq_along(lab))
+  seg = function(clone, start, end, state) data.table(clone = clone, chrom = "chr1", start = start, end = end, state = state, ploidy = 2L)
+  sg = rbind(seg("A", c(0, 30e6), c(30e6, 60e6), c("1:0", "1:0")), seg("B", c(0, 30e6), c(30e6, 60e6), c("1:1", "1:0")),
+             seg("N0", 0, 60e6, "1:1"))
+  cl = data.table(clone = c("A", "B", "N0"), n_assigned = 40, a = c(0.5, 1, 1))
+  pc = medicc2_pieces(sg, cl)
+  feat = list(votes = votes, atoms = atoms, cells = data.table(cell = cells))
+  asg = data.table(cell = cells, clone = lab, confident = TRUE, assigned = TRUE)
+  for (ch in c("parsimony", "none")) {
+    o = orient_clone_states(pc, feat, asg, cl, chain = ch)
+    b = o$blocks
+    expect_true(is.logical(b$flipped))
+    expect_identical(b$flipped, o$qc$flipped[match(b$piece, o$qc$piece)])
+    expect_true(all(b$sign == fifelse(b$flipped, -1L, 1L) * sign(b$nA_ref - b$nB_ref)))
+    expect_identical(any(b$flipped), ch == "parsimony")               # not trivial: the chaining flips the second piece
+  }
+  # after the flip A keeps its labels over both pieces
+  o = orient_clone_states(pc, feat, asg, cl)
+  expect_equal(uniqueN(o$pieces[clone == "A", paste(cn_a, cn_b)]), 1L)
+})
+
+test_that("medicc2_pieces: an imbalance segment enters at the balanced state of its clone's integer baseline", {
+  x = m2_toy()
+  x$segments[clone == "B" & chrom == "chr2" & start == 20e6, label := "imbalance"]
+  # the flagged run is an imbalanced gain above the clone's integer baseline (what gain_support can flag): 2:1 at 2,
+  # 3:1 at 3, 4:1 at 4, 4:2 at 5
+  at = function(B, st_) {
+    cl = copy(x$clones)[, baseline := 2][clone == "B", baseline := B]
+    sg = copy(x$segments)[clone == "B" & chrom == "chr2" & start == 20e6, `:=`(state = st_, cn = nA_of(st_) + nB_of(st_))]
+    expect_equal(sg[clone == "B" & chrom == "chr2" & start == 20e6, state], st_)
+    medicc2_pieces(sg, cl, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"]
+  }
+  b2 = at(2, "2:1")
+  expect_equal(b2$state, "1:1"); expect_equal(b2$cn, 2); expect_equal(b2$label, "neutral")
+  expect_identical(b2, medicc2_pieces(x$segments, x$clones, min_len = 1e6)[chrom == "chr2" & start == 20e6 & clone == "B"])
+  b4 = at(4, "4:1")
+  expect_equal(b4$state, "2:2"); expect_equal(b4$cn, 4); expect_false(b4$imbalanced)
+  expect_equal(at(3.75, "4:1")$state, "2:2")                           # nb = 4
+  b3 = at(3, "3:1")                                                    # odd nb: the least imbalanced 3-copy state
+  expect_equal(b3$state, "2:1"); expect_equal(b3$cn, 3); expect_true(b3$imbalanced)
+  expect_equal(at(5, "4:2")$state, "3:2")
+})
+
+test_that("medicc2_table counts and warns about copy numbers above the cap", {
+  d = data.table(clone = c("K1", "K2"), chrom = "chr1", start = 0, end = 10e6, cn_a = c(9L, 2L), cn_b = c(1L, 1L), ploidy = 2L)
+  expect_warning(tb <- medicc2_table(d), "1 sample x piece rows have a copy number above cap = 8")
+  expect_equal(attr(tb, "n_capped"), 1L)
+  expect_equal(tb[sample_id == "K1", c(cn_a, cn_b)], c(8L, 1L))
+  expect_no_warning(t2 <- medicc2_table(d, cap = 12L))
+  expect_equal(attr(t2, "n_capped"), 0L)
+})
+
+test_that("medicc2_table counts clipped rows per output kind", {
+  # 5:4 at cap 8: kept in the allele-specific table (5 and 4 <= 8), clipped in the total table (9 > 8)
+  d = data.table(clone = c("K1", "K2"), chrom = "chr1", start = 0, end = 10e6, cn_a = c(5L, 2L), cn_b = c(4L, 1L), ploidy = 2L)
+  expect_no_warning(ta <- medicc2_table(d))
+  expect_equal(attr(ta, "n_capped"), 0L)
+  expect_equal(ta[sample_id == "K1", c(cn_a, cn_b)], c(5L, 4L))
+  expect_warning(tt <- medicc2_table(d, allele_specific = FALSE), "1 sample x piece rows have a copy number above cap = 8")
+  expect_equal(attr(tt, "n_capped"), 1L)
+  expect_equal(tt[sample_id == "K1", cn], 8L)
 })

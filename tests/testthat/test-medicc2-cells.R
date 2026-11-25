@@ -213,3 +213,82 @@ test_that("cell_piece_states: a cell's global depth offset is removed by its own
   r3[, lab := x$lab[cell]]
   expect_true(any(r3[lab == "bal", state] != "1:1"))
 })
+
+test_that("cell_piece_data / cell_piece_states with loo on a piece flipped by chaining: the reference clone's cells keep its convention", {
+  x = mc_toy(n_each = 6L)
+  rc = x$cells[x$lab == "s20"]
+  ci = match(rc, x$cells)
+  # K20's pooled votes orient the blocks of p1b (unflipped: cn_a = K20's major haplotype)
+  own = x$features$votes[cell %in% ci][x$features$atoms[, .(atom, chrom, astart = start)], on = "atom", nomatch = NULL]
+  own = own[chrom == "chr1" & astart >= 30e6, .(nA_ref = sum(nA), nB_ref = sum(nB)), by = ps]
+  b0 = copy(x$blocks)[piece == "p1b"][own, on = "ps", nomatch = NULL]
+  b0[, `:=`(ref = "K20", sign = as.integer(sign(nA_ref - nB_ref)))]
+  # the same table after a chaining flip of p1b: signs negated, reference counts unchanged, cn_a / cn_b swapped
+  b1 = copy(b0)[, sign := -sign]
+  b1_in = copy(b1)
+  p1 = copy(x$pieces)[piece == "p1b", `:=`(cn_a = cn_b, cn_b = cn_a)]
+  loo = data.table(cell = rc, clone = "K20")
+  d0 = cell_piece_data(x$features, x$pieces, b0, cells = rc, loo = loo)[piece == "p1b"]
+  d1 = cell_piece_data(x$features, p1, b1, cells = rc, loo = loo)[piece == "p1b"]
+  expect_identical(b1, b1_in)                                         # the caller's block table is not modified
+  expect_gt(min(d0$oN), 0)
+  expect_equal(d1$oN, d0$oN)
+  expect_equal(d1$oA, d0$oN - d0$oA)
+  # the flip flag of orient_clone_states() gives the same; a table without the flip is unchanged
+  d2 = cell_piece_data(x$features, p1, copy(b1)[, flipped := TRUE], cells = rc, loo = loo)[piece == "p1b"]
+  expect_equal(d2$oA, d1$oA)
+  d3 = cell_piece_data(x$features, x$pieces, copy(b0)[, flipped := FALSE], cells = rc, loo = loo)[piece == "p1b"]
+  expect_equal(d3$oA, d0$oA)
+  # states: the truly 2:0 cells of the reference clone are called as their clone, 2:0 unflipped and 0:2 after the flip
+  st = function(p, b) cell_piece_states(x$features, p, b, cells = rc, clones = x$clones, ref_cells = x$ref, loo = loo,
+                                         rho = 0.01)$states[piece == "p1b"]
+  expect_true(all(st(x$pieces, b0)$state == "2:0"))
+  expect_true(all(st(p1, b1)$state == "0:2"))
+})
+
+test_that("cell_piece_states: per-cell baselines put the depth on the cell's scale (diploid by default)", {
+  x = mc_toy(n_each = 4L)
+  run = function(...) cell_piece_states(x$features, x$pieces, x$blocks, clones = x$clones, ref_cells = x$ref, keep_ll = TRUE, ...)
+  r0 = run()
+  expect_identical(run(baseline = 2)$states, r0$states)
+  expect_identical(run(baseline = stats::setNames(rep(2, length(x$cells)), x$cells))$states, r0$states)
+  # the balanced cells (depth at their median on p1b) scored as cells of a triploid clone (B = 3): the 3-copy state 2:1
+  # sits at the median, so its depth term beats the neutral 1:1 (2 copies, below the median); diploid, the reverse
+  bal = x$cells[x$lab == "bal"]
+  r3 = run(baseline = stats::setNames(rep(3, length(bal)), bal))
+  l0 = r0$ll[cell %in% bal & piece == "p1b" & state == "2:1", ll_depth]
+  l3 = r3$ll[cell %in% bal & piece == "p1b" & state == "2:1", ll_depth]
+  expect_true(all(l0 < 0))
+  expect_true(all(l3 > 0))
+  # cells without a baseline stay diploid
+  expect_identical(r3$states[!cell %in% bal], r0$states[!cell %in% bal])
+})
+
+test_that("cell_piece_data loo: the piece-level flip comes from the pieces when the blocks lack it; unknown flips drop the loo rows", {
+  x = mc_toy(n_each = 6L)
+  rc = x$cells[x$lab == "s20"]
+  loo = data.table(cell = rc, clone = "K20")
+  # a flipped piece whose reference blocks are all tied (no block says which way the piece was flipped)
+  bt = copy(x$blocks)[piece == "p1b"][, `:=`(ref = "K20", nA_ref = 5, nB_ref = 5, sign = 0L)]
+  p1 = copy(x$pieces)[piece == "p1b", `:=`(cn_a = cn_b, cn_b = cn_a)]
+  dk = cell_piece_data(x$features, p1, copy(bt)[, flipped := TRUE], cells = rc, loo = loo)[piece == "p1b"]
+  expect_gt(min(dk$oN), 0)
+  # the flip given by the pieces table (e.g. the export's QC) gives the same as the flip on the blocks
+  dp = cell_piece_data(x$features, copy(p1)[, flipped := piece == "p1b"], bt, cells = rc, loo = loo)[piece == "p1b"]
+  expect_equal(dp$oA, dk$oA)
+  expect_equal(dp$oN, dk$oN)
+  # without any flip information the loo rows of the piece are dropped, not taken as unflipped
+  du = cell_piece_data(x$features, p1, bt, cells = rc, loo = loo)[piece == "p1b"]
+  expect_true(all(du$oN == 0))
+  # cells outside the reference clone are not affected (tied blocks stay unoriented for them)
+  o2 = x$cells[x$lab == "s10"]
+  expect_true(all(cell_piece_data(x$features, p1, bt, cells = o2, loo = loo)[piece == "p1b", oN] == 0))
+})
+
+test_that("cell_piece_states(baseline = ): an unnamed vector or names matching no cell stop", {
+  x = mc_toy(n_each = 2L)
+  run = function(b) cell_piece_states(x$features, x$pieces, x$blocks, clones = x$clones, ref_cells = x$ref, baseline = b)
+  expect_error(run(rep(3, length(x$cells))), "one number or a numeric vector named by cell")
+  expect_error(run(c(other_cell = 3)), "match none of the scored cells")
+  expect_error(run("3"), "one number or a numeric vector named by cell")
+})

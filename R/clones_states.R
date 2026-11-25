@@ -60,6 +60,7 @@ row_sd = function(M) {
 #' @export
 clone_profiles = function(win, votes, atoms, assign, ref_cells = NULL, size = 1e6, seed = 1, cells = colnames(win$x),
                           rho = 0.01, allelic_chroms = NULL, haploid = character(), min_ref = 30) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   assign = as.data.table(assign)[!is.na(clone), .(cell, clone = as.character(clone))]
   cl = sort(unique(assign$clone))
   if (length(size) == 1) size = stats::setNames(rep(size, length(cl)), cl)
@@ -511,7 +512,7 @@ seg_path = function(E, p_switch, lw, min_win) {
 #'   mean log2 has the opposite sign of its expected shift by more than this takes the best supported copy-neutral
 #'   imbalanced state (nb copies: CN-LOH at baseline 2), or the balanced reference when none is supported (Inf = off)
 #' @param gain_support with a [fit_clone_states()] input: an imbalanced gain (diploid window, copy number above the
-#'   window's base) needs a mean log2 of at least this share of its expected shift `c * log2(cn / base)`, measured
+#'   clone's integer baseline nb) needs a mean log2 of at least this share of its expected shift `c * log2(cn / base)`, measured
 #'   against the region's depth offset (per window, the median over the other clones that are 1:1 there, with at
 #'   least 50 cells, of their log2 minus the 1:1 expectation). A run that fails takes the best copy-neutral imbalanced
 #'   state (nb copies: CN-LOH at baseline 2) if its pooled oriented fraction supports one (as `min_excess`); otherwise
@@ -662,7 +663,8 @@ utils::globalVariables(c("w_ids", "w_from", "depth_ok"))
 # the clone's profile windows (wk), parameters (pk), states (st, g) and integer baseline (nb). The regional depth offset
 # of a window is the median, over the clones that are 1:1 there (diploid window, >= 50 cells), of their log2 minus the
 # 1:1 expectation c log2(2 / base) (0 for a diploid baseline); a clone's own window never enters its offset because
-# only non-1:1 runs are tested. An imbalanced gain (above the clone's baseline) whose run log2 minus the run's mean
+# only non-1:1 runs are tested. An imbalanced gain (more copies than the clone's integer baseline nb; at a half-integer
+# baseline such as 2.5, nb = 3 and 2:1 is copy-neutral, not a gain) whose run log2 minus the run's mean
 # offset is below gain_support x its expected shift takes the best copy-neutral imbalanced state (nb copies; CN-LOH for
 # a diploid baseline) when its pooled oriented fraction supports one (as min_excess), else it is flagged
 # (nodepth = TRUE) and keeps its state.
@@ -687,7 +689,9 @@ gain_support_pass = function(keep, gain_support, min_excess) {
       rows = sts[j]:ends[j]
       s_ = r$values[j]
       base_ = wk$base[rows[1]] %||% 2
-      if (it$wn$ploidy[rows[1]] != 2 || g$nA[s_] == g$nB[s_] || g$cn[s_] <= base_) next
+      # a gain = more copies than the clone's integer baseline nb (the copy-neutral states have nb copies, as in
+      # segment_clone()); at an integer baseline nb is the diploid window's base, at B = 2.5 a 2:1 run is copy-neutral
+      if (it$wn$ploidy[rows[1]] != 2 || g$nA[s_] == g$nB[s_] || g$cn[s_] <= it$nb) next
       exp_ = pk$c * log2(g$cn[s_] / base_)
       obs_ = mean(wk$log2[rows], na.rm = TRUE)
       o_ = off$off[match(it$wn$window[rows], off$window)]
@@ -695,7 +699,7 @@ gain_support_pass = function(keep, gain_support, min_excess) {
       if (!is.finite(obs_) || !is.finite(exp_) || exp_ <= 0 || obs_ - o_ >= gain_support * exp_) next
       nh = sum(wk$n_hap[rows], na.rm = TRUE)
       fo = if (nh > 0) sum(wk$nA[rows], na.rm = TRUE) / nh else 0.5
-      cn2 = which(g$cn == it$nb & g$nA != g$nB)
+      cn2 = setdiff(which(g$cn == it$nb & g$nA != g$nB), s_)     # never the run's own state
       if (is.finite(min_excess) && min_excess > 0) cn2 = cn2[(fo - 0.5) >= min_excess * pk$a * (g$f[cn2] - 0.5)]
       if (length(cn2)) path[rows] = cn2[which.max(colSums(it$E[rows, cn2, drop = FALSE]))]
       else it$nodepth[rows] = TRUE

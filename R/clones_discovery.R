@@ -73,8 +73,11 @@ cl_part = function(feat, names, required = TRUE) {
   NULL
 }
 
-# normalised view of the scn_features input used by the clone functions
-clone_input = function(feat) {
+# normalised view of the scn_features input used by the clone functions. Without an input rho (no `null_fit` / `rho`,
+# e.g. a direct caller_tumour() call) the input null is fitted with tumour_null_fit(features, params, exclude) and its
+# note (with any caution) is kept as `null_note` for the run notes; `null_fit = FALSE` skips that fit (rho NA, tpar
+# as given) for callers that need no null. An input that is already a clone_input is returned as it is.
+clone_input = function(feat, params = NULL, exclude = NULL, null_fit = TRUE) {
   if (inherits(feat, "clone_input")) return(feat)
   features = as.data.table(cl_part(feat, c("features", "long")))
   regions = as.data.table(cl_part(feat, "regions"))
@@ -86,15 +89,18 @@ clone_input = function(feat) {
   tpar = feat$tpar %||% nf$tpar %||% nf$depth
   rho = feat$rho %||% nf$rho %||% nf$allelic
   if (is.data.frame(rho)) rho = stats::median(rho$rho, na.rm = TRUE)
-  if (is.null(rho) || !is.finite(rho)) {
+  null_note = NULL
+  if (null_fit && (is.null(rho) || !is.finite(rho))) {
     # no input rho: the call_scn() recipe (tumour_null_fit(): flagged null cells, else the cells without a call on the
     # null rows, else all cells), which also gives a missing depth null; rho stays NA without votes on the null rows
     # (caller_tumour() then stops)
     need = c("cell", "class", "stratum", "z", "sd_null", "nA", "n_hap", "null_region", "eligible")
-    nf = if (all(need %in% names(features))) tumour_null_fit(features) else NULL
+    nf = if (all(need %in% names(features))) tumour_null_fit(features, params = params %||% caller_defaults(), exclude = exclude) else NULL
     if (is.null(tpar)) tpar = nf$tpar
     rho = nf$rho %||% NA_real_
+    null_note = nf$note
   }
+  if (is.null(rho) || !length(rho)) rho = NA_real_
   win = cl_part(feat, c("win", "windows_1mb", "win1mb"), required = FALSE)
   if (!is.null(win)) win = as_clone_win(win, cells$cell)
   haploid = character()
@@ -102,7 +108,7 @@ clone_input = function(feat) {
   if (length(ao)) haploid = intersect(ao, c("chrX", "chrY"))
   structure(list(features = features, regions = regions, votes = as.data.table(cl_part(feat, "votes")),
                  atoms = as.data.table(cl_part(feat, "atoms")), cells = cells, win = win, tpar = tpar, rho = rho,
-                 haploid = haploid, allelic_chroms = regions[allelic_ok == TRUE, unique(chrom)]),
+                 haploid = haploid, allelic_chroms = regions[allelic_ok == TRUE, unique(chrom)], null_note = null_note),
             class = "clone_input")
 }
 
@@ -179,6 +185,7 @@ cl_orient = function(votes, regions, atoms, groups = NULL, loo = TRUE) {
 #' @return list(disc, test): votes tables (rows with no votes dropped)
 #' @export
 split_votes = function(votes, frac = 0.5, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   v = as.data.table(votes)
   a1 = stats::rbinom(nrow(v), v$nA, frac); b1 = stats::rbinom(nrow(v), v$nB, frac)
@@ -198,6 +205,7 @@ split_votes = function(votes, frac = 0.5, seed = 1) {
 #' @return list(disc, test): window depth lists
 #' @export
 split_win = function(win, frac = 0.5, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   x = round(win$x)
   x1 = matrix(stats::rbinom(length(x), as.vector(x), frac), nrow(x), dimnames = dimnames(x))
@@ -293,6 +301,7 @@ allele_fraction_feature = function(nA, n, rho, min_n = 5, cap = Inf) {
 
 # PCA (irlba) of the centred matrix + kNN smoothing (mean over each cell and its k neighbours)
 smooth_embedding = function(X, n_pc = 20, k = 20, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   set.seed(seed)
   Xc = sweep(X, 2, colMeans(X), "-")
   keep = apply(Xc, 2, stats::var) > 0
@@ -345,6 +354,7 @@ absorb_small = function(lab, S, min_size) {
 #' @return list(tree = hclust, leaves = named integer labels (names = cells), pc, smooth)
 #' @export
 discover_clones = function(X, n_pc = 20, k = 20, max_leaves = 40, min_size = 20, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   em = smooth_embedding(X, n_pc, k, seed)
   tree = stats::hclust(stats::dist(em$smooth), method = "ward.D2")
   lab = as.character(stats::cutree(tree, k = min(max_leaves, nrow(X))))
@@ -359,7 +369,8 @@ discover_clones = function(X, n_pc = 20, k = 20, max_leaves = 40, min_size = 20,
 #' Data for repeated clone contrasts
 #'
 #' Pre-computes what the clone contrast (`contrast_stat`) needs for many splits: the per-cell log2 ratio matrix (cells x
-#' regions) and the molecule votes per cell x region x phase block as sparse cells x blocks matrices.
+#' regions) and the molecule votes per cell x region x phase block as sparse cells x blocks matrices. Without votes on
+#' the allelic regions the result has the depth part only (`MA`, `MB`, `blk_region`, `N`, `trip` absent).
 #' @param feat_long features long table
 #' @param votes,atoms,regions votes, atoms and regions tables
 #' @param cells cell names in vote index order (rows of the result)
@@ -376,14 +387,16 @@ contrast_data = function(feat_long, votes, atoms, regions, cells, classes = c("a
   if ("allelic_ok" %in% names(rg)) rg = rg[allelic_ok == TRUE]
   if (!is.null(allelic_chroms)) rg = rg[chrom %in% allelic_chroms]
   out = list(L = L, regions = rr, cells = cells)
-  if (!is.null(votes) && nrow(rg)) {
-    v = region_block_votes(votes, atoms, rg)
-    v = v[cell <= length(cells)]
+  v = if (!is.null(votes) && nrow(rg)) region_block_votes(votes, atoms, rg)[cell <= length(cells)] else NULL
+  # no votes on the allelic regions (e.g. every vote on a chromosome of allelic_exclude): the depth part only
+  if (!is.null(v) && nrow(v)) {
     nb = max(v$blk)
     out$MA = Matrix::sparseMatrix(i = v$cell, j = v$blk, x = as.numeric(v$nA), dims = c(length(cells), nb))
     out$MB = Matrix::sparseMatrix(i = v$cell, j = v$blk, x = as.numeric(v$nB), dims = c(length(cells), nb))
+    # region of each block id, by index: a block whose votes all belong to cells outside `cells` leaves its id unused
     bm = unique(v[, .(blk, region)])
-    out$blk_region = match(bm$region[order(bm$blk)], rr)
+    out$blk_region = rep(NA_integer_, nb)
+    out$blk_region[bm$blk] = match(bm$region, rr)
     nn = v[, .(n = sum(nA + nB)), by = .(cell, region)]
     N = matrix(0, length(cells), length(rr)); N[cbind(nn$cell, match(nn$region, rr))] = nn$n
     out$N = N
@@ -561,6 +574,7 @@ subset_contrast_data = function(cd, idx) {
 split_test = function(cd, a, b, rho, q = 0.999, n_perm = 200, max_cells = 250, seed = 1, early = TRUE, depth_delta = 0.2,
                       with_p = FALSE, perm_decision = c("quantile", "pvalue"), allele = "z", drift_test = "none",
                       drift_regions = 3, pop = NULL) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   perm_decision = match.arg(perm_decision)
   set.seed(seed)
   if (length(a) > max_cells) a = sample(a, max_cells)
@@ -795,6 +809,7 @@ utils::globalVariables(c("in_", "gA", "gB"))
 merge_clones = function(feat_long, votes, atoms, regions, leaves, tree, q = 0.999, n_perm = 200, seed = 1,
                         rho = 0.01, classes = c("arm", "20Mb"), cells = NULL, max_cells = 250, cdata = NULL, depth_delta = 0.2,
                         n_nb = 3, perm_decision = c("quantile", "pvalue"), allele = c("z", "fraction", "centred"), drift_test = "none") {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   perm_decision = match.arg(perm_decision)
   allele = match.arg(allele)
   S = if (is.matrix(tree)) tree else tree$smooth
@@ -878,6 +893,7 @@ utils::globalVariables(c("differ", "l1", "l2", "depth_used", "p"))
 #' @return list(clones = named integer labels of the discovery cells, tests, regions = selected regions, n_leaves)
 #' @export
 discover_within = function(inp, tcells, votes_disc, feat_disc, cdata, n_frag, opts = clone_defaults(), seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   cells = inp$cells$cell
   ti = match(tcells, cells)
   rg = inp$regions[class %in% opts$classes & eligible == TRUE & allelic_ok == TRUE & chrom %in% inp$allelic_chroms]
@@ -989,7 +1005,8 @@ subset_contrast_regions = function(cd, regs) {
 #' a chr21 3:0 / 4:0 LOH-gain subclone inside a 2:1 clone, fitted 3:1). For each clone with >= 2 `min_size`
 #' members and each of its non-neutral segments (ploidy 2, >= `split_min_len`; the copy-neutral 2:0 included), every
 #' member is scored on the discovery halves (`win_disc`, `votes_disc`) under the clone state and under each alternative of
-#' [split_alt_states()]. Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
+#' [split_alt_states()] on the clone's state grid (the diploid [cn_grid()] at baseline 2, else the grid of its fitted
+#' baseline `par$base`, as [fit_clone_states()] uses it). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
 #' profiles are relative to the clone baseline), in units of its `sd_null` scaled to the half depth and inflated by the
 #' members' own robust spread, t density at `c * log2(cn / cn_state)` (clone c from `par`). Alleles: the cell's votes
 #' oriented by the clone's leave-one-out pseudobulk, beta-binomial at `0.5 + a_eff (f - 0.5)`, a_eff = the attenuation of
@@ -1009,17 +1026,21 @@ subset_contrast_regions = function(cd, regs) {
 #' state of a mixture is an average: e.g. a fitted 4:1 / 3:1 clone that is a mix of 2:1 and 3:0 / 4:0 cells).
 #' @param members data.table cell, clone (confident members)
 #' @param segments segments table of the members' clones
-#' @param par data.table clone, c, a ([fit_clone_states()] `par`)
+#' @param par data.table clone, c, a and optionally base (the clone baseline; 2 without it) ([fit_clone_states()] `par`)
 #' @param inp scn_features list or `clone_input` (regions, atoms, cells, features for `sd_null`, tpar, rho)
 #' @param win_disc,votes_disc discovery halves of the window depth and the votes ([split_win()], [split_votes()])
 #' @param cdata [contrast_data()] of the test halves
 #' @param win_test,votes_test test halves for the re-fit (default: the full `inp$win` / `inp$votes`)
 #' @param ref_cells depth reference cells of the re-fit (used with >= `min_ref` cells)
-#' @param fit_states optional replacement of [fit_clone_states()] (`function(profile, grid)`)
-#' @param opts [clone_defaults()] (`min_size`, `split_sep`, `split_max`, `split_cand`, `split_min_len`, `split_min_df`,
+#' @param fit_states optional replacement of the re-fit's state fit (`function(profile, grid)`); default
+#'   [fit_clone_states()] with the `opts` of the run (`p_switch`, `min_win`, `ploidy_tol`) at the parent clone's fitted
+#'   baseline (`par$base`, 2 without it), so the two parts are compared on the parent's scale ([caller_tumour()] passes
+#'   its own fit)
+#' @param opts [clone_defaults()], checked as [caller_tumour()] checks them (`min_size`, `split_sep`, `split_max`, `split_cand`, `split_min_len`, `split_min_df`,
 #'   `split_min_excess`, `q`, `n_perm`, `max_cells`, `depth_delta`, `same_dist`, `small_clone`, `size_small`, `min_ref`, `p_switch`,
-#'   `min_win`, `min_llr`)
-#' @param params [caller_defaults()] (`sd_floor`, `eps`)
+#'   `min_win`, `ploidy`, `ploidy_tol`, `min_llr` and the [segment_clone()] rules `min_excess`, `bal_frac`, `min_bal_len`,
+#'   `max_contra`, `gain_support`)
+#' @param params [caller_defaults()] (`sd_floor`, `eps`; and the input null fit when `inp` carries none)
 #' @param seed RNG seed
 #' @param frac fraction of the counts in the discovery half
 #' @return list(members = relabelled members (split clones get suffixes `a` / `b`, `b` = the part that prefers the
@@ -1033,14 +1054,14 @@ subset_contrast_regions = function(cd, regs) {
 split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cdata, win_test = NULL, votes_test = NULL,
                           ref_cells = character(), fit_states = NULL, opts = clone_defaults(), params = caller_defaults(),
                           seed = 1, frac = 0.5) {
-  inp = clone_input(inp)
-  opts = utils::modifyList(clone_defaults(), as.list(opts))
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
+  inp = clone_input(inp, params = params)
+  opts = check_clone_opts(opts)                       # as caller_tumour(): unknown keys / bad values stop here
   cells = inp$cells$cell
   members = copy(as.data.table(members))[, .(cell, clone = as.character(clone))]
   sg = as.data.table(segments)
   par = as.data.table(par)
   grid = cn_grid()
-  fit_states = fit_states %||% function(profile, grid) fit_clone_states(profile, grid)
   inp_d = inp; inp_d$win = win_disc %||% inp$win
   vd = votes_disc %||% inp$votes
   win_t = win_test %||% inp$win; votes_t = votes_test %||% inp$votes
@@ -1050,6 +1071,9 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     mk = members[clone == k, cell]
     pk = par[clone == k]
     if (length(mk) < 2 * opts$min_size || !nrow(pk)) next
+    # the clone's state grid: the diploid grid at baseline 2, else the baseline grid its states were fitted on
+    # (fit_clone_states(); e.g. 3:2 and 3:3 at baseline 3)
+    gk = clone_state_grid(clone_baseline(pk, k), grid)
     ev_all = sg[clone == k & ploidy == 2 & (end - start) >= opts$split_min_len]
     ev = ev_all[label != "neutral"]
     if (!nrow(ev)) next
@@ -1078,10 +1102,10 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     rho_k = if (nrow(rr)) max(stats::median(pmax(rr$num / rr$den, 0)), 1e-4) else inp$rho
     for (i in seq_len(nrow(ev))) {
       s0 = ev$state[i]
-      alts = split_alt_states(s0, grid, opts$split_min_df)
+      alts = split_alt_states(s0, gk, opts$split_min_df)
       x = d[region == ev_reg[i] & is.finite(log2ratio)]
       if (!nrow(alts) || nrow(x) < 2 * opts$min_size) next
-      st = rbind(grid[state == s0], alts)
+      st = rbind(gk[state == s0], alts)
       tp = cl_match_tpar(x, inp$tpar)
       set.seed(seed + length(cands))
       ds = disagree_ll(x$log2ratio, x$sdh, x$oA, x$oN, st, pk$c[1], pk$a[1], rho_k, params$eps, if (is.null(tp)) 5 else tp$t_df,
@@ -1111,14 +1135,17 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
   ord = tests[outcome == "candidate"][order(-excess, -sep), id]
   tests[ord, rank := seq_along(ord)]
   crg = as.data.table(inp$regions)[region %in% cdata$regions, .(region, chrom, start, end)]
-  refit = function(m2) {
+  # re-fit of the two parts of clone k: `fit_states`, by default the run's options at k's fitted baseline (par$base, 2
+  # without it), so the parts' copy numbers are compared on the parent clone's scale
+  refit = function(m2, k) {
     sz = m2[, .N, by = clone]
     size = stats::setNames(ifelse(sz$N < opts$small_clone, opts$size_small, 1e6), sz$clone)
     prof = clone_profiles(win_t, votes_t, inp$atoms, m2, ref_cells = if (length(ref_cells) >= opts$min_ref) ref_cells else NULL,
                           size = size, seed = seed, cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms,
                           haploid = inp$haploid, min_ref = opts$min_ref)
-    segment_clone(fit_states(prof, grid), opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac,
-                  opts$min_bal_len, opts$max_contra, opts$gain_support %||% 0)
+    fit = if (is.null(fit_states)) fit_states_opts(prof, grid, utils::modifyList(opts, list(ploidy = clone_baseline(par, k)))) else
+      fit_states(prof, grid)
+    segment_states_opts(fit, grid, opts)
   }
   done = character(); n_tested = list(); moved = list()
   for (ii in ord) {
@@ -1136,12 +1163,11 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     ia = match(cs$a, cdata$cells); ib = match(cs$b, cdata$cells)
     tt = split_test(subset_contrast_regions(cdata, treg), ia[!is.na(ia)], ib[!is.na(ib)], inp$rho, opts$q, opts$n_perm,
                     opts$max_cells, seed = seed + ii, depth_delta = opts$depth_delta, with_p = TRUE,
-                    perm_decision = opts$perm_decision %||% "quantile", allele = opts$test_allele %||% "z",
-                    drift_test = opts$drift_test %||% "none")
+                    perm_decision = opts$perm_decision, allele = opts$test_allele, drift_test = opts$drift_test)
     tests[ii, `:=`(stat = tt$stat, thr = tt$thr, n_perm = tt$n_perm, p = tt$p, differ = tt$differ)]
     if (!tt$differ) { tests[ii, outcome := "not different on the test halves"]; next }
     ka = paste0(k, "a"); kb = paste0(k, "b")
-    sgr = refit(data.table(cell = c(cs$a, cs$b), clone = c(rep(ka, length(cs$a)), rep(kb, length(cs$b)))))
+    sgr = refit(data.table(cell = c(cs$a, cs$b), clone = c(rep(ka, length(cs$a)), rep(kb, length(cs$b)))), k)
     mid = (tk$start + tk$end) / 2
     at = function(kk) { y = sgr[clone == kk & chrom == tk$chrom & start <= mid & end > mid]; if (nrow(y)) y$state[1] else NA_character_ }
     clip = sgr[chrom == tk$chrom & end > tk$start & start < tk$end]

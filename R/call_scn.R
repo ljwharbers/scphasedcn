@@ -193,12 +193,16 @@ multiplet_table = function(x) {
   data.table(cell = as.character(d$cell), prob = p)
 }
 
+# cells of a multiplet table ([multiplet_table()]) kept out of a null fit: prob > 0.5 (normal mode's null cells and pools,
+# the tumour input null of call_scn() / caller_tumour()); NULL without multiplets
+null_multiplets = function(mult) if (is.null(mult)) NULL else mult[prob > 0.5, cell]
+
 #' Chromatin embedding of the cells of a sample
 #'
 #' [chromatin_embedding()] (high-pass filtered log ratios to the all-cell leave-one-out reference, top principal
 #' components) of the given cells on the used bins of an extraction directory, with the cell ids as row
 #' names, ready for [knn_pools()]. Built from depth only (no copy-number features), as kNN pools require.
-#' @param dir extraction directory (bins_100kb.h5ad)
+#' @param dir extraction directory (the bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad`)
 #' @param cells cells to embed (default all)
 #' @param use logical bin filter over all bins of the sample (default [bin_filter()] on chr1-22 + chrX)
 #' @param n_pc components
@@ -207,6 +211,7 @@ multiplet_table = function(x) {
 #' @return cells x components matrix
 #' @export
 scn_embedding = function(dir, cells = NULL, use = NULL, n_pc = 20, hp_window = 21, seed = 1) {
+  rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   scn = read_sample_depth(dir)
   if (!is.null(cells)) {
     miss = setdiff(cells, scn$cells$cell)
@@ -310,7 +315,8 @@ utils::globalVariables(c("st", "k", "region"))
 #' groups `groups`, event chromosomes excluded from the null -> input depth t null and allelic rho on the null rows of
 #' the flagged null cells, else of the cells without a call on the null rows ([tumour_null_fit()]) -> [caller_tumour()]
 #' (clones, clone segments, cell assignment, per-cell inherited / confirmed calls).
-#' @param dir extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)
+#' @param dir extraction directory (the bins file `bins_<tag>.h5ad`, by default `bins_100kb.h5ad`; fragments.tsv.gz +
+#'   .tbi, cells_qc.tsv)
 #' @param mode "normal" or "tumour"
 #' @param cell_meta NULL, a table or a TSV path with `cell` and optional `qc_pass, cell_type, flat, fold, group,
 #'   stratum, n_frag` (passed to [cell_features()]: without `cells` only its cells that pass [cell_qc()] are called,
@@ -334,9 +340,11 @@ utils::globalVariables(c("st", "k", "region"))
 #'   cells share clonal events on the null rows passes it too); the run notes say which null was used. Flagged
 #'   copy-number-normal cells give the better null
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
-#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`, which sets aside the cells
-#'   above its `multiplet_prob` option (default 0.9). The `multiplet` column of the cells table flags the cells each
-#'   mode set aside
+#'   are never null cells and never pooled; tumour mode: cells with prob > 0.5 are left out of the input null fit
+#'   ([tumour_null_fit()]), and `caller_tumour()` sets aside the cells above its `multiplet_prob` option (default 0.9)
+#'   from clone discovery and the clone pseudobulks (a higher cut: a cell set aside there no longer shapes the clone
+#'   states, while the null fit only needs enough clean cells) and uses every cell's prob as its doublet prior. The
+#'   `multiplet` column of the cells table flags the cells each mode set aside (tumour mode: above `multiplet_prob`)
 #' @param control_regions tumour mode: control regions for the null (regions table)
 #' @param groups tumour mode: pseudobulk groups of the block orientation (a column of `cell_meta`, a vector named
 #'   by cell, or one label per cell); ignored with a warning in normal mode
@@ -594,7 +602,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     if (!own_nf) {
       # depth t null and allelic rho on the null rows of the flagged null cells; without any (or with
       # null_cells = "select"), of the cells without a call on the null rows (all cells when no stable set exists)
-      nf = tumour_null_fit(long, params = params, exclude = if (is.null(mult)) NULL else mult[prob > 0.5, cell],
+      nf = tumour_null_fit(long, params = params, exclude = null_multiplets(mult),
                            select = nc_mode == "select")
       if (!is.null(nf)) {
         features$null_fit = list(tpar = nf$tpar, rho = nf$rho)
@@ -760,7 +768,8 @@ null_fit_table = function(nf) {
   r = if (!is.null(nf$rho) && length(nf$rho) == 1) data.table(kind = "allelic_rho", rho = as.numeric(nf$rho)) else
     if (is.data.frame(nf$rho)) copy(as.data.table(nf$rho))[, kind := "allelic_rho"] else NULL
   extra = if (!is.null(nf$ref_thr) && length(nf$ref_thr) == 1 && is.numeric(nf$ref_thr)) data.table(kind = "reference_thr", thr = nf$ref_thr) else NULL
-  # tumour mode: the confirmation null (rho / depth t refitted on the reference pool, or the input fits)
+  # tumour mode: the confirmation null of the per-cell calls: the depth t is always the input fit (depth_t_confirm rows
+  # repeat depth_t), the rho is refitted on the reference pool with opts$ref_null = "rho", else the input rho
   tc = if (!is.null(nf$tpar_confirm)) copy(as.data.table(nf$tpar_confirm))[, kind := "depth_t_confirm"] else NULL
   rc = if (!is.null(nf$rho_confirm) && length(nf$rho_confirm) == 1) data.table(kind = "allelic_rho_confirm", rho = as.numeric(nf$rho_confirm)) else NULL
   # normal mode: overdispersion of the windowed allele term (window_allelic_features())
@@ -786,7 +795,8 @@ utils::globalVariables("part")
 #' Flat tables: `cells.tsv` (cell, qc, stratum, fold, null_cell, n_calls, n_events, clone / posterior /
 #' doublet_like / ref_pool when present), `calls.tsv` (cell- and clone-level calls: called rows in normal mode,
 #' all inherited / confirmed rows in tumour mode), `pooled_calls.tsv` (called pool rows), `events.tsv`,
-#' `thresholds.tsv`, `null_fit.tsv` (depth t rows + rho), `false_calls.tsv` + `false_events.tsv` + `expected_false.tsv`
+#' `thresholds.tsv`, `null_fit.tsv` (depth t rows + rho; tumour mode also the confirmation null: `depth_t_confirm` rows,
+#' always the input depth t, and `allelic_rho_confirm`, refitted on the reference pool with `ref_null = "rho"`), `false_calls.tsv` + `false_events.tsv` + `expected_false.tsv`
 #' (normal mode; [event_fdr()]), `null_selection_check.tsv` (normal mode with `call_scn(null_check = TRUE)`),
 #' tumour mode: `clones.tsv`, `assignments.tsv`, `clone_segments.tsv`, `clone_profiles.tsv.gz`,
 #' `reference_pool.txt`; `regions.tsv`; `result.rds` (the object without scores and features), `params.yaml`,

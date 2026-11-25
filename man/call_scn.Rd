@@ -27,7 +27,8 @@ call_scn(
 )
 }
 \arguments{
-\item{dir}{extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv)}
+\item{dir}{extraction directory (the bins file \verb{bins_<tag>.h5ad}, by default \code{bins_100kb.h5ad}; fragments.tsv.gz +
+.tbi, cells_qc.tsv)}
 
 \item{mode}{"normal" or "tumour"}
 
@@ -57,9 +58,11 @@ cells share clonal events on the null rows passes it too); the run notes say whi
 copy-number-normal cells give the better null}
 
 \item{multiplets}{NULL or multiplet flags (\code{\link[=multiplet_table]{multiplet_table()}} forms); normal mode: cells with prob > 0.5
-are never null cells and never pooled; tumour mode: passed to \code{caller_tumour()}, which sets aside the cells
-above its \code{multiplet_prob} option (default 0.9). The \code{multiplet} column of the cells table flags the cells each
-mode set aside}
+are never null cells and never pooled; tumour mode: cells with prob > 0.5 are left out of the input null fit
+(\code{\link[=tumour_null_fit]{tumour_null_fit()}}), and \code{caller_tumour()} sets aside the cells above its \code{multiplet_prob} option (default 0.9)
+from clone discovery and the clone pseudobulks (a higher cut: a cell set aside there no longer shapes the clone
+states, while the null fit only needs enough clean cells) and uses every cell's prob as its doublet prior. The
+\code{multiplet} column of the cells table flags the cells each mode set aside (tumour mode: above \code{multiplet_prob})}
 
 \item{control_regions}{tumour mode: control regions for the null (regions table)}
 

@@ -18,8 +18,12 @@ caller_tumour(
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}}}
 
-\item{multiplets}{optional data.table cell, prob (\code{\link[=multiplet_table]{multiplet_table()}}); cells above \code{opts$multiplet_prob} are excluded from
-discovery and pseudobulks but assigned and flagged}
+\item{multiplets}{optional multiplet flags in any form of \code{\link[=multiplet_table]{multiplet_table()}} (a vector or file of cells, a table with
+\code{prob}, or with a logical \code{multiplet} / \code{clean_singlet} column). Each cell's probability (clipped to [0, 1]) raises
+its prior of the mixture (doublet) hypotheses of the assignment (capped at \code{opts$max_mix_prior}); cells above
+\code{opts$multiplet_prob} (default 0.9) are excluded from discovery and the pseudobulks but assigned and flagged
+(\code{multiplet} in the assignments). When \code{feat} carries no input null, the cells with prob > 0.5 are also left out of
+the input null fit (\code{\link[=tumour_null_fit]{tumour_null_fit()}} \code{exclude}), as \code{\link[=call_scn]{call_scn()}} does}
 
 \item{control_regions}{optional user control regions (regions table) replacing the automatic ones (of the
 confirmation null and of the reference cleaning, \code{\link[=clean_reference]{clean_reference()}})}
@@ -30,7 +34,12 @@ confirmation null and of the reference cleaning, \code{\link[=clean_reference]{c
 }
 \value{
 \code{scphasedcn} (mode tumour) with clones, assignments, segments, profiles, calls (plus \code{extra}:
-intermediate results in \code{null_fit$clones})
+intermediate results in \code{null_fit$clones}). \code{clones} has one row per clone and one row per doublet clone of the
+final clone ids (\code{doublet} TRUE: flagged by an EM round since the clone ids were last numbered, and dissolved, so it
+has no segments, profiles or assigned cells); every clone id in it is unique. Every doublet flag of the run, with
+the round, the clone id at that time, the best pair, its members and its id set (\code{ids}: \code{global}, \code{trunk} or
+\code{split}), is in \code{null_fit$clones$doublet_log}; \code{null_fit$clones$doublet_clones} holds the ids of the \code{clones}
+rows
 }
 \description{
 Full loop: \code{\link[=split_votes]{split_votes()}} (discovery / test halves) -> clone feature matrix (discovery half, re-oriented by the
@@ -53,5 +62,6 @@ Input \code{feat} (the feature step's \code{scn_features}, or an equivalent list
 \code{regions}, \code{votes}, \code{atoms}, \code{cells} (data.table with \code{cell}, in vote index order; \code{n_frag} / \code{stratum}),
 \code{win} (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
 start, end, x, e) and \code{null_fit} (list with \code{tpar} = \code{\link[=fit_depth_null]{fit_depth_null()}} table and \code{rho}; without it, or without its
-\code{rho}, the input null is \code{\link[=tumour_null_fit]{tumour_null_fit()}} of the features, as in \code{\link[=call_scn]{call_scn()}}).
+\code{rho}, the input null is \code{\link[=tumour_null_fit]{tumour_null_fit()}} of the features with \code{params} and without the cells whose multiplet
+prob is above 0.5, as in \code{\link[=call_scn]{call_scn()}}; its note, and any caution, is the first run note).
 }

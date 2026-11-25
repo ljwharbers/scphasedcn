@@ -1015,3 +1015,12 @@ test_that("call_scn: states_normal 'auto' picks the state set from the features'
   expect_true(any(grepl("state set normal (states_normal = \"auto\": phasing regime block)", r2$notes, fixed = TRUE)))
   expect_false("f_state" %in% names(r2$calls))
 })
+
+test_that("scn_embedding leaves the caller's RNG state as it found it", {
+  d = sim_dir("sim_norm_f")
+  set.seed(42)
+  s0 = .Random.seed
+  e = scn_embedding(d)
+  expect_identical(.Random.seed, s0)
+  expect_gt(nrow(e), 0)
+})

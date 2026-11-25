@@ -170,7 +170,8 @@ utils::globalVariables(c("mid", "x.clone", "x.state", "x.cn", "x.ploidy", "x.lab
 #' @return symmetric numeric matrix clones x clones (bp)
 #' @export
 clone_state_distance = function(segments, min_df = 0.15, min_dcn = 2, min_len = 5e6) {
-  sg = as.data.table(segments)
+  # clone ids as character: numeric ids would select the state matrix columns by position
+  sg = copy(as.data.table(segments))[, clone := as.character(clone)]
   K = sort(unique(sg$clone))
   out = matrix(0, length(K), length(K), dimnames = list(K, K))
   if (length(K) < 2) return(out)
@@ -425,7 +426,6 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
     }
     hyp = c(K, colnames(LM))
   }
-  sizes = as.vector(table(clones$clone)[K])
   pk = if (is.null(prior)) rep(1 / length(K), length(K)) else {
     pv = as.numeric(prior[K]); pv[is.na(pv)] = mean(pv, na.rm = TRUE)       # a clone without a prior (N0): the mean
     pv / sum(pv)
@@ -571,7 +571,9 @@ utils::globalVariables(c("best_pair", "ll_self", "ll_mix", "delta_ll", "doublet"
 #' event regions, and a call is event score > `thr`. Without `thr` (`null = "max"`), it is the type-7 `q` quantile over
 #' the candidate cells of the same maximum over the control regions (neutral in every clone; orientation by the same
 #' clones), so the multiplicity of the maximum is in the null as well; `null = "region"` is the quantile of the
-#' single-region control scores (the first build's rule, which flags too many cells when there are many events).
+#' single-region control scores (the first build's rule, which flags too many cells when there are many events). As
+#' every call of the caller, a flag needs a positive score as well (`score > max(thr, 0)`): a negative threshold does
+#' not remove cells without evidence of a tumour haplotype (score <= 0, e.g. cells without votes on the events).
 #' @param feat scn_features list (or `clone_input`)
 #' @param assign assignments ([assign_cells()])
 #' @param segments segments table
@@ -635,7 +637,11 @@ clean_reference = function(feat, assign, segments, thr = NULL, par = NULL, membe
     thr = if (!nrow(nul)) Inf else if (null == "max") unname(stats::quantile(tab$score_ctl, q, type = 7)) else
       unname(stats::quantile(nul$score, q, type = 7))
   }
-  tab[, flag := score > thr]
+  # the positive floor of every LLR call (above_thr()): a cell is removed only on positive evidence of a tumour
+  # haplotype. The one-sided score is negative where balance fits better than every f_grid value, and a cell without
+  # event votes scores 0, so a negative threshold (a control null of deep, balanced cells) would otherwise remove
+  # cells with no evidence at all, vote-less cells first, and empty the pool. Unchanged for thresholds >= 0
+  tab[, flag := above_thr(score, thr)]
   list(pool = tab[flag == FALSE, cell], table = tab, thr = thr, normal = normal)
 }
 utils::globalVariables(c("eclone", "fs", "is_ctl", "score_ctl", "n_ev", "n_ctl"))

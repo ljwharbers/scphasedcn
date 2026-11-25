@@ -14,16 +14,23 @@
 #' union of the remaining clones' segment breakpoints ([segment_pieces()]) on `chroms`, maps every clone's state to
 #' every piece (segment containing the piece midpoint, as `piece_states()`) and keeps the pieces covered by every kept
 #' clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome start, are dropped). Pieces shorter
-#' than `min_len` are then absorbed into an adjacent piece of the same chromosome (gap <= `max_gap`): the neighbour
-#' whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
-#' the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
-#' not merged here: merging needs the common haplotype orientation and is done by [medicc2_table()].
+#' than `min_len` are then absorbed into an adjacent piece of the same chromosome (gap <= `max_gap`, by default 0:
+#' only a neighbour that touches it): the neighbour whose states differ in the fewest clones, the longer one on ties;
+#' the neighbour keeps its states and extends over the short piece. A short piece without an eligible neighbour is
+#' dropped. A neighbour across a gap (a dropped range, see `pieces_dropped`, or a range without any segment) is not
+#' eligible by default: the absorbing piece would extend over the gap and claim states where not every clone has one.
+#' Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
+#' done by [medicc2_table()].
 #' Segments labelled `imbalance` (allelic imbalance without depth support, `segment_clone(gain_support = )`) enter as
-#' 1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.
+#' the least imbalanced copy-neutral state at the clone's integer baseline nb (`clones$baseline` rounded; 2 without it):
+#' `ceiling(nb / 2):floor(nb / 2)` with the major haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2
+#' at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not show one.
 #' @param segments segments table (`clone, chrom, start, end, state, cn, label, ploidy`; `nA, nB, f` optional)
-#' @param clones clones table (`clone`, `doublet`, `n_assigned`); NULL keeps every clone of `segments`
+#' @param clones clones table (`clone`, `doublet`, `n_assigned`, `baseline` optional); NULL keeps every clone of
+#'   `segments`
 #' @param min_len pieces shorter than this (bp) are absorbed into a neighbour
-#' @param max_gap maximal gap (bp) between a short piece and the neighbour it is absorbed into
+#' @param max_gap maximal gap (bp) between a short piece and the neighbour it is absorbed into (default 0: contiguous
+#'   neighbours only; a larger value lets the absorbing piece extend over the gap, i.e. claim states there)
 #' @param min_assigned clones with fewer assigned cells are dropped (the normal clone `normal` is always kept)
 #' @param chroms chromosomes exported (MEDICC2: chr1-22 and chrX)
 #' @param normal name of the normal clone
@@ -33,13 +40,16 @@
 #'   orientation, NA when absent). Attributes `clones_dropped` (clone, reason) and `pieces_dropped` (chrom, start, end,
 #'   reason: `not_all_clones` / `short_isolated`) and `n_pieces_raw` (pieces before the coverage filter).
 #' @export
-medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = Inf, min_assigned = 1,
+medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = 0, min_assigned = 1,
                           chroms = paste0("chr", c(1:22, "X")), normal = "N0") {
   sg = as.data.table(segments)[chrom %in% chroms]
   if (!nrow(sg)) stop("medicc2_pieces: no segments on ", paste(chroms, collapse = ", "))
+  # clone ids as character (numeric ids would select the state matrix columns by position); the clones table is
+  # copied, so the caller's table is not modified
+  sg[, clone := as.character(clone)]
   dropped = data.table(clone = character(), reason = character())
   if (!is.null(clones)) {
-    cl = as.data.table(clones)
+    cl = copy(as.data.table(clones))[, clone := as.character(clone)]
     if (!"doublet" %in% names(cl)) cl[, doublet := FALSE]
     if (!"n_assigned" %in% names(cl)) cl[, n_assigned := NA_real_]
     cl[, reason := fifelse(doublet %in% TRUE, "doublet",
@@ -55,9 +65,21 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = Inf,
   for (v in c("nA", "nB", "f")) if (!v %in% names(sg)) sg[, (v) := NA_real_]
   if (!"label" %in% names(sg)) sg[, label := state_label(major, minor, ploidy)]
   if (!"cn" %in% names(sg)) sg[, cn := major + minor]
-  # imbalanced runs without depth support (segment_clone(gain_support = )): copy-neutral for the tree (no extra copy)
-  if (any(sg$label == "imbalance"))
-    sg[label == "imbalance", `:=`(state = "1:1", major = nA_of("1:1"), minor = nB_of("1:1"), cn = 2 + 0 * cn, label = "neutral")]
+  # imbalanced runs without depth support (segment_clone(gain_support = )): copy-neutral for the tree (no extra copy):
+  # the least imbalanced state with the clone's integer baseline nb copies, ceiling(nb / 2):floor(nb / 2), major first
+  # as in the fitted state (1:1 at baseline 2, 2:1 at 3, 2:2 at 4; clones$baseline, 2 without it)
+  if (any(sg$label == "imbalance")) {
+    nb_ = rep(2, nrow(sg))
+    if (!is.null(clones) && "baseline" %in% names(cl)) {
+      b_ = as.numeric(cl$baseline)[match(sg$clone, cl$clone)]
+      nb_ = fifelse(is.finite(b_), floor(b_ + 0.5), 2)
+    }
+    sg[, nb_ := nb_]
+    sg[label == "imbalance", `:=`(state = paste0(ceiling(nb_ / 2), ":", floor(nb_ / 2)), major = as.integer(ceiling(nb_ / 2)),
+                                  minor = as.integer(floor(nb_ / 2)), cn = nb_ + 0 * cn,
+                                  label = state_label(ceiling(nb_ / 2), floor(nb_ / 2), 2L))]
+    sg[, nb_ := NULL]
+  }
   pcs = segment_pieces(sg)[, .(region, chrom, start, end)]
   n_raw = nrow(pcs)
   st = sg[pcs[, .(region, chrom, mid = (start + end) / 2)], on = .(chrom, start <= mid, end > mid),
@@ -104,7 +126,7 @@ medicc2_pieces = function(segments, clones = NULL, min_len = 1e6, max_gap = Inf,
   setattr(out, "n_pieces_raw", n_raw)
   out[]
 }
-utils::globalVariables(c("doublet", "n_assigned", "reason", "x.major", "x.minor", "x.nA", "x.nB", "x.f", "i.region",
+utils::globalVariables(c("doublet", "n_assigned", "reason", "x.major", "x.minor", "x.nA", "x.nB", "x.f", "i.region", "nb_",
                          "seg_nA", "seg_nB", "seg_f", "major", "minor", "ploidy", "imbalanced", "orig", "i.chrom", "i.start",
                          "i.end", "x.start", "x.end"))
 
@@ -161,16 +183,17 @@ utils::globalVariables(c("doublet", "n_assigned", "reason", "x.major", "x.minor"
 #'     `ref_votes`, `n_swapped`, `n_low_conf`.
 #'   - `blocks`: the reference orientation per block, reusable by a per-cell module: one row per piece x phase set
 #'     with reference votes: `piece, chrom, start, end` (the piece; a molecule belongs to it when its atom start is in
-#'     `[start, end)`), `ps` (phase set of the votes table), `ref` (reference clone), `nA_ref, nB_ref` and `sign`
-#'     (+1: phase-set haplotype A is cn_a; -1: haplotype B is cn_a; 0: tie, unoriented). Blocks absent from the table
-#'     are unoriented. A cell's oriented votes on a piece are `a = sum(sign > 0 ? nA : nB)`, `b = sum(sign > 0 ? nB :
+#'     `[start, end)`), `ps` (phase set of the votes table), `ref` (reference clone), `nA_ref, nB_ref` (the reference
+#'     clone's pooled votes of phase-set haplotypes A and B), `sign` (+1: phase-set haplotype A is cn_a; -1: haplotype B
+#'     is cn_a; 0: tie, unoriented) and `flipped` (the piece's labels were flipped by chaining: `sign` is then minus the
+#'     sign of `nA_ref - nB_ref`). Blocks absent from the table are unoriented. A cell's oriented votes on a piece are `a = sum(sign > 0 ? nA : nB)`, `b = sum(sign > 0 ? nB :
 #'     nA)` over its blocks with `sign != 0`; `a / (a + b)` estimates `cn_a / (cn_a + cn_b)` (attenuated).
 #'   - `params`: `use`, `near`, `chain`, `min_link`.
 #' @export
 orient_clone_states = function(pieces, features, assignments, clones = NULL, use = c("confident", "assigned"), near = 0.05,
                                chain = c("parsimony", "phase", "none"), min_link = 50) {
   use = match.arg(use); chain = match.arg(chain)
-  pl = copy(as.data.table(pieces))
+  pl = copy(as.data.table(pieces))[, clone := as.character(clone)]
   votes = features$votes; atoms = as.data.table(features$atoms)
   if (is.null(votes) || is.null(atoms)) stop("orient_clone_states: `features` needs votes and atoms")
   cells = features$cells
@@ -182,8 +205,9 @@ orient_clone_states = function(pieces, features, assignments, clones = NULL, use
   pl[pc, pix := i.pix, on = "piece"]
   pl[, cl := match(clone, K)]
   # cell index -> clone index (cells pooled per clone)
-  asg = as.data.table(assignments)
+  asg = copy(as.data.table(assignments))
   if (!use %in% names(asg)) stop("orient_clone_states: assignments lack `", use, "`")
+  asg[, clone := as.character(clone)]
   asg = asg[get(use) %in% TRUE & clone %in% K]
   ci_cl = rep(NA_integer_, length(cells))
   k = match(asg$cell, cells)
@@ -203,7 +227,7 @@ orient_clone_states = function(pieces, features, assignments, clones = NULL, use
   # reference clone per piece
   att = rep(1, length(K))
   if (!is.null(clones) && "a" %in% names(clones)) {
-    ca = as.data.table(clones)[, .(clone, a = as.numeric(a))]
+    ca = as.data.table(clones)[, .(clone = as.character(clone), a = as.numeric(a))]
     att = ca$a[match(K, ca$clone)]
     att[is.na(att)] = 1
   }
@@ -284,7 +308,7 @@ orient_clone_states = function(pieces, features, assignments, clones = NULL, use
   for (v in c("n_blocks", "votes", "n_blocks_oriented", "ref_votes")) qc[is.na(get(v)), (v) := 0]
   setcolorder(qc, c("pix", "piece", "chrom", "start", "end", "orient_ref", "ref_state", "ref_score", "flipped", "link", "link_score",
                     "n_imbalanced", "n_blocks", "n_blocks_oriented", "votes", "votes_oriented", "ref_votes", "n_swapped", "n_low_conf"))
-  blocks = blk[pc, on = "pix", nomatch = NULL][, .(piece, chrom, start, end, ps, ref, nA_ref, nB_ref, sign)]
+  blocks = blk[pc, on = "pix", nomatch = NULL][, .(piece, chrom, start, end, ps, ref, nA_ref, nB_ref, sign, flipped = flipped[pix])]
   blocks = blocks[order(chrom_rank(chrom), start, ps)]
   pl = pl[order(pix, clone)]
   pl[, c("pix", "cl", "ref_cl", "oA") := NULL]
@@ -304,24 +328,35 @@ utils::globalVariables(c("pix", "cl", "i.pix", "x.atom", "n_votes", "i.n_votes",
 #' (allele-specific) or `sample_id, chrom, start, end, cn` (total = cn_a + cn_b, for `--total-copy-numbers
 #' --input-allele-columns cn`). Adjacent pieces of a chromosome whose values are identical in every sample are merged
 #' (after the cap; on cn_a / cn_b, or on cn for the total table), so every sample has the same segments, as MEDICC2
-#' requires. The normal clone `normal` is a sample (MEDICC2 `--normal-name N0`); when absent it is added as 1:1 on
+#' requires; pieces separated by a gap (e.g. a range dropped by [medicc2_pieces()]) are never merged, so no segment
+#' spans a range without states. The normal clone `normal` is a sample (MEDICC2 `--normal-name N0`); when absent it is added as 1:1 on
 #' diploid and 1:0 on haploid pieces (male chrX), so it is the root of the tree. Chromosomes are sorted naturally.
 #' @param x [orient_clone_states()] result, or a long table with `clone, chrom, start, end, cn_a, cn_b` (+ `ploidy`)
 #' @param allele_specific TRUE: cn_a / cn_b columns; FALSE: total cn
 #' @param normal name of the normal sample
-#' @param cap maximal copy number (MEDICC2 caps at 8)
+#' @param cap maximal copy number (cn_a, cn_b and their total; MEDICC2's default maximum is 8). Clone states can exceed
+#'   it (the state grid of a clone at baseline B reaches 2 B + 1 copies, amplicons more): clipped values are counted in
+#'   the attribute `n_capped` and a warning says so; raise `cap` (and MEDICC2's maximum) to keep them
 #' @param chroms chromosomes kept
-#' @return data.table (MEDICC2 TSV layout); attribute `n_pieces` (pieces before merging)
+#' @return data.table (MEDICC2 TSV layout); attributes `n_pieces` (pieces before merging) and `n_capped` (sample x
+#'   piece rows clipped in the table written: cn_a or cn_b above `cap` (allele-specific), cn_a + cn_b above it (total))
 #' @export
 medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chroms = paste0("chr", c(1:22, "X"))) {
   d = as.data.table(if (inherits(x, "medicc2_orientation")) x$pieces else x)
   if (!all(c("clone", "chrom", "start", "end", "cn_a", "cn_b") %in% names(d))) stop("medicc2_table: need clone, chrom, start, end, cn_a, cn_b")
-  d = d[chrom %in% chroms, .(clone, chrom, start, end, cn_a, cn_b, ploidy = if ("ploidy" %in% names(d)) as.integer(ploidy) else 2L)]
+  d = d[chrom %in% chroms, .(clone = as.character(clone), chrom, start, end, cn_a, cn_b,
+                              ploidy = if ("ploidy" %in% names(d)) as.integer(ploidy) else 2L)]
   if (!normal %in% d$clone) {
     n0 = d[, .(ploidy = min(ploidy)), by = .(chrom, start, end)]
     n0 = n0[, .(clone = normal, chrom, start, end, cn_a = 1L, cn_b = fifelse(ploidy == 1L, 0L, 1L), ploidy)]
     d = rbind(d, n0)
   }
+  # clipped rows of the table written: cn_a or cn_b above the cap (allele-specific), their sum above it (total)
+  n_cap = if (allele_specific) d[, sum(round(cn_a) > cap | round(cn_b) > cap, na.rm = TRUE)] else
+    d[, sum(round(cn_a) + round(cn_b) > cap, na.rm = TRUE)]
+  if (n_cap) warning(sprintf(paste("medicc2_table: %d sample x piece rows have a copy number above cap = %d and were clipped",
+                                   "(raise `cap` and MEDICC2's maximum copy number to keep them)"), n_cap, as.integer(cap)),
+                     call. = FALSE)
   d[, `:=`(cn_a = pmin(as.integer(round(cn_a)), as.integer(cap)), cn_b = pmin(as.integer(round(cn_b)), as.integer(cap)))]
   d[, cn := pmin(cn_a + cn_b, as.integer(cap))]
   pcs = unique(d[, .(chrom, start, end)])[order(chrom_rank(chrom), start)]
@@ -331,7 +366,9 @@ medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chr
   d[, v := val]
   kk = d[order(clone), .(kk = paste(v, collapse = "|")), by = .(chrom, start, end)]
   pcs[kk, kk := i.kk, on = .(chrom, start, end)]
-  pcs[, run := rleid(chrom, kk)]
+  # a run never spans a gap between pieces (a range without states, e.g. dropped by medicc2_pieces())
+  pcs[, gap_ := cumsum(c(TRUE, start[-1] != end[-.N])), by = chrom]
+  pcs[, run := rleid(chrom, kk, gap_)]
   runs = pcs[, .(start = min(start), end = max(end), chrom = chrom[1]), by = run]
   d[pcs, run := i.run, on = .(chrom, start, end)]
   out = d[, .(cn_a = cn_a[1], cn_b = cn_b[1], cn = cn[1]), by = .(sample_id = clone, run)]
@@ -341,6 +378,7 @@ medicc2_table = function(x, allele_specific = TRUE, normal = "N0", cap = 8L, chr
   out[, `:=`(start = as.integer(start), end = as.integer(end))]
   out = if (allele_specific) out[, .(sample_id, chrom, start, end, cn_a, cn_b)] else out[, .(sample_id, chrom, start, end, cn)]
   setattr(out, "n_pieces", nrow(pcs))
+  setattr(out, "n_capped", as.integer(n_cap))
   out[]
 }
-utils::globalVariables(c("v", "run", "kk", "i.kk", "i.run", "sample_id"))
+utils::globalVariables(c("v", "run", "kk", "i.kk", "i.run", "sample_id", "gap_"))

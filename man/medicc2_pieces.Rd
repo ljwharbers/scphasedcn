@@ -8,7 +8,7 @@ medicc2_pieces(
   segments,
   clones = NULL,
   min_len = 1e+06,
-  max_gap = Inf,
+  max_gap = 0,
   min_assigned = 1,
   chroms = paste0("chr", c(1:22, "X")),
   normal = "N0"
@@ -17,11 +17,13 @@ medicc2_pieces(
 \arguments{
 \item{segments}{segments table (\verb{clone, chrom, start, end, state, cn, label, ploidy}; \verb{nA, nB, f} optional)}
 
-\item{clones}{clones table (\code{clone}, \code{doublet}, \code{n_assigned}); NULL keeps every clone of \code{segments}}
+\item{clones}{clones table (\code{clone}, \code{doublet}, \code{n_assigned}, \code{baseline} optional); NULL keeps every clone of
+\code{segments}}
 
 \item{min_len}{pieces shorter than this (bp) are absorbed into a neighbour}
 
-\item{max_gap}{maximal gap (bp) between a short piece and the neighbour it is absorbed into}
+\item{max_gap}{maximal gap (bp) between a short piece and the neighbour it is absorbed into (default 0: contiguous
+neighbours only; a larger value lets the absorbing piece extend over the gap, i.e. claim states there)}
 
 \item{min_assigned}{clones with fewer assigned cells are dropped (the normal clone \code{normal} is always kept)}
 
@@ -41,10 +43,15 @@ Drops doublet clones, clones with fewer than \code{min_assigned} assigned cells 
 union of the remaining clones' segment breakpoints (\code{\link[=segment_pieces]{segment_pieces()}}) on \code{chroms}, maps every clone's state to
 every piece (segment containing the piece midpoint, as \code{piece_states()}) and keeps the pieces covered by every kept
 clone (gaps of any clone, e.g. missing windows or a clone-specific chromosome start, are dropped). Pieces shorter
-than \code{min_len} are then absorbed into an adjacent piece of the same chromosome (gap <= \code{max_gap}): the neighbour
-whose states differ in the fewest clones, the longer one on ties; the neighbour keeps its states and extends over
-the short piece. A short piece without an eligible neighbour is dropped. Adjacent pieces with identical states are
-not merged here: merging needs the common haplotype orientation and is done by \code{\link[=medicc2_table]{medicc2_table()}}.
+than \code{min_len} are then absorbed into an adjacent piece of the same chromosome (gap <= \code{max_gap}, by default 0:
+only a neighbour that touches it): the neighbour whose states differ in the fewest clones, the longer one on ties;
+the neighbour keeps its states and extends over the short piece. A short piece without an eligible neighbour is
+dropped. A neighbour across a gap (a dropped range, see \code{pieces_dropped}, or a range without any segment) is not
+eligible by default: the absorbing piece would extend over the gap and claim states where not every clone has one.
+Adjacent pieces with identical states are not merged here: merging needs the common haplotype orientation and is
+done by \code{\link[=medicc2_table]{medicc2_table()}}.
 Segments labelled \code{imbalance} (allelic imbalance without depth support, \code{segment_clone(gain_support = )}) enter as
-1:1: MEDICC2 sees no extra copy where the clone's depth does not show one.
+the least imbalanced copy-neutral state at the clone's integer baseline nb (\code{clones$baseline} rounded; 2 without it):
+\code{ceiling(nb / 2):floor(nb / 2)} with the major haplotype of the fitted state first (1:1 at baseline 2, 2:1 at 3, 2:2
+at 4, 3:2 at 5): MEDICC2 sees no extra copy where the clone's depth does not show one.
 }

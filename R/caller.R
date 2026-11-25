@@ -34,8 +34,10 @@ utils::globalVariables(c("row_id", "shift", "fold", "is_null", "null_cell", "nul
 #'     gain 2:1 (2/3) and 3:1 (3/4), both at the gain shift; cnloh 2:0 at
 #'     1 - eps (shift 0). The normal-tissue state set.
 #'   * `normal_att`: as `normal` with the loss and cnloh rows over `f_att_normal` (the attenuation-aware opt-in of
-#'     normal mode, `params$states_normal`; `f_att` when the parameters have no `f_att_normal`). Loss and cnloh keep
-#'     one shared row set, so their allelic class stays `loss_or_cnloh`.
+#'     normal mode, `params$states_normal`; `f_att` when the parameters have no `f_att_normal`), always together with
+#'     `1 - eps`, the fraction of the `normal` rows (so the set contains the `normal` loss / cnloh rows, and the
+#'     windowed allele term of [score_cells()] always finds its row). Loss and cnloh keep one shared row set, so their
+#'     allelic class stays `loss_or_cnloh`.
 #'   * `tumour` (per-cell detection and assignment): loss 1:0 at f in
 #'     c(0.80, f_att); cnloh 2:0 over f_att; gain 2:1 (2/3); gain_as 3:0 over
 #'     f_att (gain shift); amp 3:1 (0.75), 2:2 (0.5), 4:1 (0.80) with shift
@@ -49,7 +51,7 @@ caller_states = function(set = c("normal", "normal_att", "tumour"), params = cal
   if (length(set) == 1 && set %in% c("e4", "e4_att")) set = sub("e4", "normal", set, fixed = TRUE)   # older names
   set = match.arg(set)
   eps = params$eps; sh = params$shifts; fa = params$f_att
-  if (set == "normal_att") fa = check_f_grid(params$f_att_normal %||% params$f_att, "f_att_normal")
+  if (set == "normal_att") fa = normal_att_grid(params)
   mk = function(state, a, b, shift, f) data.table(state = state, nA = as.integer(a), nB = as.integer(b),
                                                   cn = as.integer(a + b), shift = shift, f = f)
   amp = function(a, b, f) mk("amp", a, b, params$k_amp * log2((a + b) / 2), f)
@@ -73,6 +75,12 @@ check_f_grid = function(f, what = "f_att_normal") {
     stop("params$", what, " must be major-haplotype fractions in (0.5, 1), not '",
          paste(format(f), collapse = ", "), "'", call. = FALSE)
   sort(unique(f))
+}
+
+# loss / CN-LOH fractions of the normal_att set: f_att_normal (f_att without that key) plus 1 - eps, the fraction of
+# the normal set's rows and of the windowed term's column (win_f_grid() rounds alike)
+normal_att_grid = function(params = caller_defaults()) {
+  sort(unique(round(c(check_f_grid(params$f_att_normal %||% params$f_att, "f_att_normal"), 1 - params$eps), 6)))
 }
 
 #' State set of normal mode
@@ -106,19 +114,27 @@ normal_state_set = function(params = caller_defaults(), phasing = NULL, votes = 
 normal_states_note = function(ss, params) {
   sprintf("state set %s (%s)%s", ss$set, ss$reason,
           if (ss$set == "normal_att") sprintf("; loss and CN-LOH rows over f %s",
-                                              paste(sprintf("%g", check_f_grid(params$f_att_normal %||% params$f_att)), collapse = ", ")) else "")
+                                              paste(sprintf("%g", normal_att_grid(params)), collapse = ", ")) else "")
 }
 
 # best-fitting major-haplotype fraction of the called state (state_comb) of each scored row: the f of the best
-# allelic row (ar_<row_id>, score_cells(keep_rows = TRUE)) of that state; NA for neutral / depth-only rows
-state_f = function(sc, states) {
+# allelic row of that state as scored, i.e. the oriented per-row LLR (ar_<row_id>, score_cells(keep_rows = TRUE))
+# with the windowed term substituted as score_cells(window = ) does (a loss carried by the windowed LLR at 0.98 has
+# f_state 0.98, not the attenuated grid point its oriented votes fit best); NA for neutral / depth-only rows
+state_f = function(sc, states, window = "none", params = caller_defaults()) {
   ns = as.data.table(states)[state != "neutral"]
   out = rep(NA_real_, nrow(sc))
+  wmin = params$win_min %||% 0
+  arow = function(x, f, i) {
+    a = sc[[paste0("ar_", x)]][i]
+    wc = win_col(f)
+    if (window == "none" || !wc %in% names(sc)) a else win_substitute(a, as.numeric(sc[[wc]][i]), window, wmin)
+  }
   for (s in unique(ns$state)) {
     r = which(ns$state == s)
     i = which(sc$state_comb == s)
     if (!length(i)) next
-    A = do.call(cbind, lapply(ns$row_id[r], function(x) sc[[paste0("ar_", x)]][i]))
+    A = do.call(cbind, lapply(r, function(k) arow(ns$row_id[k], ns$f[k], i)))
     b = max.col(A, ties.method = "first")
     out[i] = ns$f[r][b]
   }
@@ -229,10 +245,7 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
     for (f in unique(ns$f)) {
       wc = win_col(f)
       if (!wc %in% names(d)) next
-      w = as.numeric(d[[wc]]); a = acache[[fk(f)]]
-      ok = if (window == "max") !is.na(w) & w > wmin else !is.na(w)
-      a[ok] = if (window == "max") pmax(a[ok], w[ok]) else w[ok]
-      wcache[[fk(f)]] = a
+      wcache[[fk(f)]] = win_substitute(acache[[fk(f)]], as.numeric(d[[wc]]), window, wmin)
     }
     if (length(wcache)) for (i in seq_len(nrow(ns))) if (!is.null(wcache[[fk(ns$f[i])]])) ar[[i]] = wcache[[fk(ns$f[i])]]
   }
@@ -1777,6 +1790,9 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' the per-cell scores and thresholds, the pooled scores, scales and thresholds, and the named events (which borrow
 #' thresholds computed under the same set). With a set other than `normal` the scores and the per-cell calls carry
 #' `f_state`, the best-fitting fraction of the called state's allelic rows. The run notes name the set and why.
+#' The windowed allele term (`params$win_score`) applies to the allelic rows whose fraction has a window column
+#' (`1 - eps`, always in the `normal_att` grid), so under `normal_att` the 0.98 loss / CN-LOH rows take the better of
+#' the oriented and the windowed LLR and the attenuated rows stay oriented; `f_state` is taken after that substitution.
 #' @param feat features long table (`vignette("scphasedcn-outputs", package = "scphasedcn")`)
 #' @param params [caller_defaults()]
 #' @param cell_meta optional table `cell` (+ `cell_type`) overriding the features' cell types
@@ -1921,7 +1937,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE,
                    window = if (has_win) win_score else "none")
   # normal_att: the best-fitting grid fraction of the called state, kept in the scores and the per-cell calls
-  if (ss$set != "normal") sc[, f_state := state_f(sc, states)]
+  if (ss$set != "normal") sc[, f_state := state_f(sc, states, if (has_win) win_score else "none", params)]
   thr = budget_thresholds(sc, scores, q = params$null_q, cv = TRUE, min_null = params$min_null_rows, params = params)
   sc = apply_thresholds(sc, thr, scores)
   if (is.null(sex)) sex = infer_sex(d)

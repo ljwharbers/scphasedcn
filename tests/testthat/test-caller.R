@@ -1516,3 +1516,64 @@ test_that("normal_att is used by the null-cell selection, the pools and the name
   cn = rn$calls[level == "cell" & region == "chr8_event" & called & reportable & state == "loss"]
   expect_gt(sum(sprintf("cell_%04d", 16:30) %in% ce$cell), sum(sprintf("cell_%04d", 16:30) %in% cn$cell))
 })
+
+# att_features plus window columns (window_allelic_features()): null-level windowed LLRs everywhere and a private
+# CN-LOH of chr21 (chromosome and arms) in five cells whose oriented votes stay balanced (cancelled at population-phase
+# switches) and whose depth is flat, so that only the windowed term sees it
+att_win_features = function(seed = 6) {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ev = data.table(cell = 1:20, region = "chr1p", state = "loss")
+  ff = att_features(300, rg, ev, w = 0.3, seed = seed)
+  set.seed(seed + 1)
+  ff[, n_win := 10]
+  ff[, wal_f980 := -abs(rnorm(.N, 40, 10))]
+  priv = sprintf("cell_%04d", 101:105)
+  ff[cell %in% priv & region %in% c("chr21", "chr21p", "chr21q"), `:=`(wal_f980 = 80, z = 0)]
+  ff[, null_cell := NA]                                                  # null cells selected (with the windowed guard)
+  list(ff = ff, rg = rg, priv = priv)
+}
+
+test_that("normal_att with the windowed allele term: the 0.98 loss / CN-LOH rows take the window, f_state follows it", {
+  aw = att_win_features()
+  run = function(p) caller_normal(aw$ff, regions = aw$rg, n_draws = 500, pool_classes = character(), params = p)
+  pa = modifyList(caller_defaults(), list(states_normal = "normal_att"))
+  expect_equal(pa$win_score, "max")
+  ra = run(pa)
+  expect_true(any(grepl("per-cell allele term: the better of the oriented and the windowed LLR", ra$notes, fixed = TRUE)))
+  expect_true(any(grepl("(rows at f 0.98)", ra$notes, fixed = TRUE)))
+  expect_false(any(ra$cells[cell %in% aw$priv, null_cell]))              # guarded out of the null set
+  s = ra$scores[cell %in% aw$priv & region == "chr21"]
+  ar = as.matrix(s[, paste0("ar_cnloh_", 1:4), with = FALSE])
+  expect_equal(caller_states("normal_att", pa)[state == "cnloh", f], c(0.70, 0.80, 0.90, 0.98))
+  expect_true(all(s$state_comb == "cnloh"))
+  expect_equal(s$al_cnloh, rep(80, 5))                                  # the windowed LLR at the 0.98 row
+  expect_true(all(s$al_cnloh > apply(ar, 1, max)))                     # above every oriented row of the grid
+  expect_true(all(ar[, 1] >= ar[, 4]))                                 # balanced votes: oriented, 0.70 fits best
+  expect_equal(s$f_state, rep(0.98, 5))                                 # the row that won as scored
+  cl = ra$calls[level == "cell" & cell %in% aw$priv & region == "chr21"]
+  expect_equal(nrow(cl), 5L)
+  expect_true(all(cl$called & cl$reportable & cl$state == "cnloh"))
+  expect_equal(cl$f_state, rep(0.98, 5))
+  # rows without a window above win_min: f_state is the oriented argmax over the grid, as without window columns
+  i = which(ra$scores$state_comb == "loss" & ra$scores$n_hap > 0 & !(ra$scores$wal_f980 > 15))
+  expect_gt(length(i), 0)
+  best = c(0.70, 0.80, 0.90, 0.98)[max.col(as.matrix(ra$scores[i, paste0("ar_loss_", 1:4), with = FALSE]), ties.method = "first")]
+  expect_equal(ra$scores$f_state[i], best)
+  # a grid without 1 - eps still holds the 0.98 rows, so the windowed term keeps its row (no "match no allelic row"
+  # fallback to the oriented term)
+  pg = modifyList(pa, list(f_att_normal = c(0.7, 0.8, 0.9)))
+  expect_equal(caller_states("normal_att", pg)[state == "loss", f], c(0.7, 0.8, 0.9, 0.98))
+  rg_ = withCallingHandlers(run(pg), warning = function(w) if (grepl("match no allelic row fraction", conditionMessage(w)))
+    stop("window fallback: ", conditionMessage(w)))
+  expect_equal(rg_$scores[cell %in% aw$priv & region == "chr21", al_cnloh], rep(80, 5))
+  expect_true(any(grepl("loss and CN-LOH rows over f 0.7, 0.8, 0.9, 0.98$", rg_$notes)))
+  # the default set with the window term: unset and "normal" give identical results, the window acts on the normal
+  # rows alike, and there is no f_state
+  p0 = caller_defaults(); p0$states_normal = NULL; p0$f_att_normal = NULL
+  r0 = run(p0)
+  r1 = run(modifyList(caller_defaults(), list(states_normal = "normal")))
+  for (k in setdiff(names(r0), "params")) expect_identical(r1[[k]], r0[[k]], label = k)
+  expect_equal(r1$scores[cell %in% aw$priv & region == "chr21", al_cnloh], rep(80, 5))
+  expect_false("f_state" %in% names(r1$scores))
+  expect_false(any(r1$cells[cell %in% aw$priv, null_cell]))
+})

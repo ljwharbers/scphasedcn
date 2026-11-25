@@ -32,10 +32,21 @@ phase sets, else \code{normal}; \code{\link[=normal_state_set]{normal_state_set(
 fraction of a real loss / CN-LOH toward 0.5, where the gain rows (2/3, 3/4) fit better than 1:0 at 0.98 and
 the event is labelled a gain (and then dropped as an arm gain or a gain without depth support).
 \code{normal_att} keeps such events as losses / CN-LOH, at the price of more false loss / CN-LOH labels on null
-cells and some gain recall (its loss / CN-LOH rows overlap the gain fractions);
+cells and some gain recall (its loss / CN-LOH rows overlap the gain fractions). No attenuation-aware grid
+tested so far keeps false arm losses within the benchmark's target, which is why it is not the default.
+With the windowed allele term (\code{win_score}, window columns \verb{wal_f<fff>} in the features) the substitution
+stays per allelic row and keyed by fraction: only rows whose fraction has a window column (\code{1 - eps} and
+\code{win_f}, \code{\link[=win_f_grid]{win_f_grid()}}; by default the 0.98 loss / CN-LOH rows) take the better of the oriented and the
+windowed LLR, and the attenuated rows keep the oriented term. The two address the same loss of signal in two
+ways: the grid fits the attenuated oriented sum of an event shared by many cells, the windowed term (phase
+trusted only inside a window) measures near-complete LOH without orientation and is not attenuated, so it is
+not evaluated at the attenuated fractions (it is not specific below 0.98 in normal tissue). A loss / CN-LOH
+score is the best of all its rows, and \code{f_state} names the row that won as scored (0.98 when the windowed
+LLR carried it). The null-cell guard (\code{null_win_guard}) does not depend on the state set;
 \item \code{f_att_normal} major-haplotype fractions of the 1:0 / 2:0 rows of \code{normal_att} (0.70, 0.80, 0.90, 0.98: the
 lowest point reaches a loss whose imbalance keeps about 40 \% of its excess over 0.5 after switch errors,
-0.5 + 0.42 x 0.48; points below the gain fraction 2/3 fit the null and the gains and are left out);
+0.5 + 0.42 x 0.48; points below the gain fraction 2/3 fit the null and the gains and are left out); \code{1 - eps}
+is always added, so \code{normal_att} contains the rows of \code{normal};
 \item \code{tile_sizes} named tile sizes (bp);
 \item \code{n_folds} cross-validation folds of the null thresholds (4);
 \item \code{n_pool} cells per pool (20);

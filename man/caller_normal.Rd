@@ -123,4 +123,7 @@ one set is used everywhere the run scores states: the null-cell selection (unles
 the per-cell scores and thresholds, the pooled scores, scales and thresholds, and the named events (which borrow
 thresholds computed under the same set). With a set other than \code{normal} the scores and the per-cell calls carry
 \code{f_state}, the best-fitting fraction of the called state's allelic rows. The run notes name the set and why.
+The windowed allele term (\code{params$win_score}) applies to the allelic rows whose fraction has a window column
+(\code{1 - eps}, always in the \code{normal_att} grid), so under \code{normal_att} the 0.98 loss / CN-LOH rows take the better of
+the oriented and the windowed LLR and the attenuated rows stay oriented; \code{f_state} is taken after that substitution.
 }

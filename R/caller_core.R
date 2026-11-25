@@ -44,10 +44,21 @@ utils::globalVariables(c("z", "t_m", "t_s", "t_df", "snp1", "rho", "n_rows", "nA
 #'     fraction of a real loss / CN-LOH toward 0.5, where the gain rows (2/3, 3/4) fit better than 1:0 at 0.98 and
 #'     the event is labelled a gain (and then dropped as an arm gain or a gain without depth support).
 #'     `normal_att` keeps such events as losses / CN-LOH, at the price of more false loss / CN-LOH labels on null
-#'     cells and some gain recall (its loss / CN-LOH rows overlap the gain fractions);
+#'     cells and some gain recall (its loss / CN-LOH rows overlap the gain fractions). No attenuation-aware grid
+#'     tested so far keeps false arm losses within the benchmark's target, which is why it is not the default.
+#'     With the windowed allele term (`win_score`, window columns `wal_f<fff>` in the features) the substitution
+#'     stays per allelic row and keyed by fraction: only rows whose fraction has a window column (`1 - eps` and
+#'     `win_f`, [win_f_grid()]; by default the 0.98 loss / CN-LOH rows) take the better of the oriented and the
+#'     windowed LLR, and the attenuated rows keep the oriented term. The two address the same loss of signal in two
+#'     ways: the grid fits the attenuated oriented sum of an event shared by many cells, the windowed term (phase
+#'     trusted only inside a window) measures near-complete LOH without orientation and is not attenuated, so it is
+#'     not evaluated at the attenuated fractions (it is not specific below 0.98 in normal tissue). A loss / CN-LOH
+#'     score is the best of all its rows, and `f_state` names the row that won as scored (0.98 when the windowed
+#'     LLR carried it). The null-cell guard (`null_win_guard`) does not depend on the state set;
 #'   * `f_att_normal` major-haplotype fractions of the 1:0 / 2:0 rows of `normal_att` (0.70, 0.80, 0.90, 0.98: the
 #'     lowest point reaches a loss whose imbalance keeps about 40 % of its excess over 0.5 after switch errors,
-#'     0.5 + 0.42 x 0.48; points below the gain fraction 2/3 fit the null and the gains and are left out);
+#'     0.5 + 0.42 x 0.48; points below the gain fraction 2/3 fit the null and the gains and are left out); `1 - eps`
+#'     is always added, so `normal_att` contains the rows of `normal`;
 #'   * `tile_sizes` named tile sizes (bp);
 #'   * `n_folds` cross-validation folds of the null thresholds (4);
 #'   * `n_pool` cells per pool (20);

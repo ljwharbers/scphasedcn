@@ -37,7 +37,10 @@ Imports:
     utils,
     yaml
 Suggests:
+    ggplot2 (>= 3.4.0),
+    ggrastr,
     knitr,
+    patchwork,
     rmarkdown,
     testthat (>= 3.0.0)
 VignetteBuilder: knitr

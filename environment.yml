@@ -23,6 +23,10 @@ dependencies:
   - r-knitr
   - r-rmarkdown
   - r-testthat
+  # single-cell track plots (plot_cell_tracks(), plot_cells_pdf(), inst/scripts/plot_cells.R)
+  - r-ggplot2>=3.4
+  - r-ggrastr
+  - r-patchwork
   # Python and the extractor's dependencies
   - python>=3.10,<3.13
   - pip

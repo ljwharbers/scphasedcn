@@ -58,6 +58,14 @@
   much better seed agreement. Allele-only subclones smaller than the cell-level haplotype drift are merged.
   Set the five options back to `"z"`, `"z"`, `"none"`, `"clone"` and 0 for the behaviour of 0.1.1. Normal mode is
   unchanged.
+* New single-cell track plots. `cell_tracks()` builds, for each cell, the depth log2 ratio (1 Mb and aggregated
+  windows, on the scale of the clone segments) and the phased B-allele fraction (phase blocks oriented leave-one-out
+  by the cell's clone pseudobulk in tumour mode), together with the fitted segments: the clone's segments, inherited
+  or confirmed in the cell, or the cell's own events in normal mode. `plot_cell_tracks()` plots one cell and
+  `plot_cells_pdf()` writes many cells to a multi-page PDF. ggplot2 and patchwork are suggested packages, and ggrastr
+  is used when installed.
+* `inst/scripts/plot_cells.R`: command-line front end that plots every cell of a caller run, one PDF per clone (or per
+  stratum in normal mode). It recomputes the feature step when no features .rds is given.
 
 # scphasedcn 0.1.1
 

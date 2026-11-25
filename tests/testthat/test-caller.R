@@ -1764,3 +1764,21 @@ test_that("functions that seed the RNG leave the caller's RNG state as it was", 
   expect_false(exists(".Random.seed", envir = globalenv()))
 })
 
+test_that("make_pools and chrom_rank: the same seed gives the same pools and order whatever the collation of the names", {
+  old = Sys.getlocale("LC_COLLATE")
+  on.exit(Sys.setlocale("LC_COLLATE", old), add = TRUE)
+  ok = nzchar(suppressWarnings(Sys.setlocale("LC_COLLATE", "en_US.UTF-8")))
+  skip_if_not(ok && !identical(sort(c("a", "B")), c("B", "a")), "no en_US.UTF-8 collation")
+  cells = sprintf("c%03d", 1:120)
+  g = rep(c("b", "A", "a", "B"), each = 30)
+  ch = c("chrUn_b", "chr1", "chrUn_A", "chrX", "chrM")
+  pu = make_pools(cells, g, 20, seed = 4)
+  ru = chrom_rank(ch)
+  Sys.setlocale("LC_COLLATE", "C")
+  pc = make_pools(cells, g, 20, seed = 4)
+  expect_identical(pu, pc)
+  expect_identical(unique(pc$group), c("A", "B", "a", "b"))
+  expect_identical(chrom_rank(ch), ru)
+  expect_identical(ch[order(ru)], c("chr1", "chrX", "chrM", "chrUn_A", "chrUn_b"))
+})
+

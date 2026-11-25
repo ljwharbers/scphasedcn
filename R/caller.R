@@ -1562,7 +1562,8 @@ utils::globalVariables(c("dcol", "acol"))
 #'
 #' Shuffles the cells of each group (cell type) and splits them into
 #' `round(n / n_pool)` pools of (nearly) equal size; groups with fewer than
-#' `ceiling(n_pool / 2)` cells give no pool.
+#' `ceiling(n_pool / 2)` cells give no pool. Groups are drawn (and listed) in C-locale order of their names, so a
+#' seed gives the same pools under any collation.
 #' @param cells cell ids
 #' @param group group per cell (NULL = one group)
 #' @param n_pool target pool size
@@ -1575,7 +1576,7 @@ make_pools = function(cells, group = NULL, n_pool = 20, seed = 1) {
   g = if (is.null(group)) rep("all", length(cells)) else as.character(group)
   g[is.na(g)] = "NA"
   out = list()
-  for (gg in sort(unique(g))) {
+  for (gg in sort(unique(g), method = "radix")) {         # C-locale order: one seeded stream is consumed group by group
     cc = cells[g == gg]
     n = length(cc)
     if (n < ceiling(n_pool / 2)) next

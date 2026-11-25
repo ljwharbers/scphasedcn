@@ -21,6 +21,8 @@ check_sex = function(sex, where = "scphasedcn") {
 }
 
 #' Order chromosome names naturally (chr1..chr22, chrX, chrY, chrM, others)
+#'
+#' Other names (e.g. unplaced contigs) come last, in C-locale (byte) order whatever the session's collation.
 #' @param x character vector of chromosome names
 #' @return integer ranks usable with `order()`
 #' @export
@@ -29,7 +31,7 @@ chrom_rank = function(x) {
   num = suppressWarnings(as.integer(base))
   r = ifelse(!is.na(num), num,
              ifelse(base == "X", 100L, ifelse(base == "Y", 101L, ifelse(base == "M" | base == "MT", 102L, 200L))))
-  r + match(x, sort(unique(x))) / 1e6
+  r + match(x, sort(unique(x), method = "radix")) / 1e6
 }
 
 #' Parse a region string "chr20:28000000-" or "chr5" into a data.table

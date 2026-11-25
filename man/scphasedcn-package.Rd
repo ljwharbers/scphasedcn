@@ -27,6 +27,7 @@ extraction layer; \code{=} assignment and data.table throughout.
 Useful links:
 \itemize{
   \item \url{https://github.com/ljwharbers/scphasedcn}
+  \item \url{https://ljwharbers.github.io/scphasedcn/}
   \item Report bugs at \url{https://github.com/ljwharbers/scphasedcn/issues}
 }
 

@@ -31,6 +31,15 @@ win_f_grid = function(params = caller_defaults()) sort(unique(round(c(1 - params
 #' @export
 win_col = function(f) sprintf("wal_f%03d", as.integer(round(1000 * f)))
 
+# the windowed substitution of one allelic row (score_cells(window = ), state_f()): "max" = the better of the oriented
+# LLR `a` and the windowed LLR `w` where `w` exceeds `wmin`, "only" = `w`; where `w` is NA the oriented term stays
+win_substitute = function(a, w, window = c("max", "only"), wmin = 0) {
+  window = match.arg(window)
+  ok = if (window == "max") !is.na(w) & w > wmin else !is.na(w)
+  a[ok] = if (window == "max") pmax(a[ok], w[ok]) else w[ok]
+  a
+}
+
 #' Mirrored beta-binomial LLR of one unit
 #'
 #' `log(0.5 BB(a; n, f) + 0.5 BB(a; n, 1 - f)) - log BB(a; n, 1/2)`: the evidence for an imbalance f in either

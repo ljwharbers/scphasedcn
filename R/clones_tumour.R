@@ -90,6 +90,16 @@ utils::globalVariables(c(
 #' allelic excess of imbalanced runs), `max_contra` (gains / losses contradicted by depth become copy-neutral), `bal_frac`
 #' and `min_bal_len` (support of balanced 2:2 runs), `gain_support` (an imbalanced gain needs this share of its expected
 #' depth shift against the region's offset, else CN-LOH or label "imbalance" with `depth_ok` FALSE; default 0.3, 0 = off).
+#' Clone baseline (`ploidy`): `"fit"` (default) fits per clone the copy number of its median depth (the baseline B:
+#' 3 for a near-triploid clone) from depth and alleles together ([fit_clone_states()] `baseline = "fit"`), so the
+#' states are absolute copy numbers; a number in \[1, 8\] fixes B for every clone; `2` is the diploid baseline of 0.1.x (a
+#' near-triploid or whole-genome-doubled clone is then fitted on a compressed scale: 2:2 as 1:1, 2:0 as 1:0).
+#' `ploidy_tol` (log-likelihood per window, finite, >= 0) is the tolerance within which a baseline of half the best one
+#' (a whole-genome doubling of the same profile) is preferred. Labels stay relative to the diploid normal (2:1 is a gain
+#' at any baseline, 1:1 neutral), so a clone with a baseline above 2 has non-neutral segments, and per-cell calls, over
+#' most of its genome. `clones` reports `baseline` and `ploidy` (the mean autosomal copy number); the run notes list the
+#' fitted baselines and name every clone whose depth contrast `c` sits at the lower bound of its grid (its states can be
+#' off by one copy).
 #' Assignment: `mix_prior`, `mix_w`, `mix_margin`, `mix_rel`,
 #' `mix_min_dist` (mixture hypotheses only for clone pairs whose states differ allelically on >= this many bp),
 #' `max_mix_prior`, `min_post` (confident), `member_post` (pseudobulk members), `em_rounds`, `same_dist` (clones whose
@@ -142,7 +152,8 @@ clone_defaults = function() {
        mix_rel = 0.1, mix_min_dist = 3e7, max_mix_prior = 0.5, min_post = 0.9, member_post = 0.9, same_post = "group", em_rounds = 2, same_dist = 5e6,
        ref_post = 0.9, min_ref = 30, doublet_delta = 10, multiplet_prob = 0.9, control_min_len = 2e7,
        repass = TRUE, allelic_exclude = c("chrX", "chrY"), checkpoint = "", normal_hypothesis = TRUE,
-       normal_min_event = 1e7, ref_null = "none", confirm_null = "matched", confirm_sided = "two")
+       normal_min_event = 1e7, ref_null = "none", confirm_null = "matched", confirm_sided = "two",
+       ploidy = "fit", ploidy_tol = 0.01)
 }
 
 # tumour options: clone_defaults() updated from `opts`; unknown keys stop with an error, option values are checked
@@ -167,6 +178,17 @@ check_clone_opts = function(opts) {
   opts$test_allele = match.arg(as.character(opts$test_allele)[1], c("z", "fraction", "centred"))
   opts$same_post = match.arg(as.character(opts$same_post)[1], c("clone", "group"))
   opts$drift_test = match.arg(as.character(opts$drift_test)[1], c("none", "modes", "modes_event"))
+  # ploidy: "fit" or one number in [1, 8] (the baseline grid holds every state up to 2 B + 1 copies); a number given as
+  # a string (a config file's `ploidy: 2` is coerced to the type of the "fit" default) is taken as that number
+  pl = opts$ploidy
+  if (is.character(pl) && length(pl) == 1 && !identical(pl, "fit")) {
+    pn = suppressWarnings(as.numeric(pl))
+    if (is.finite(pn)) pl = pn
+  }
+  if (!(identical(pl, "fit") || (is.numeric(pl) && length(pl) == 1 && is.finite(pl) && pl >= 1 && pl <= 8)))
+    stop("caller_tumour: opts$ploidy must be \"fit\" or one number in [1, 8] (the clone baseline; 2 = diploid, the ",
+         "behaviour up to 0.1.x), not ", paste(format(pl), collapse = ", "), call. = FALSE)
+  opts$ploidy = if (is.numeric(pl)) as.numeric(pl) else pl
   for (k in c("min_excess", "max_contra", "bal_frac", "min_bal_len", "gain_support")) {
     v = opts[[k]]
     if (!is.numeric(v) || length(v) != 1 || is.na(v) || v < 0)
@@ -193,6 +215,7 @@ check_clone_opts = function(opts) {
   chk("small_clone", function(v) whole(v) & v >= 0, ">= 0", noun = "whole number")   # 0: no clone is small
   chk(c("cap", "size_small", "split_min_len", "n_nb_trunk"), function(v) v > 0, "> 0")
   chk(c("trunk_dist", "control_min_len"), function(v) v >= 0, ">= 0")   # 0: every clone its own trunk / every piece a control
+  chk("ploidy_tol", function(v) is.finite(v) & v >= 0, ">= 0 and finite")   # log-likelihood per window
   chk(c("depth_delta", "disp_min", "imb_min", "depth_w", "split_sep", "split_min_df", "split_min_excess", "min_llr", "mix_margin",
         "mix_rel", "mix_min_dist", "same_dist", "doublet_delta", "normal_min_event"), function(v) v >= 0, ">= 0")
   for (k in c("split_depth", "repass", "normal_hypothesis")) {
@@ -236,6 +259,101 @@ confirm_null_notes = function(ref_thr = NULL, n_null = NULL, q = 0.999) {
   out
 }
 
+#' Input null of the tumour mode: depth t null and allelic rho
+#'
+#' The depth Student-t null ([fit_depth_null()], completed by class) and the beta-binomial rho
+#' ([fit_allelic_null()] on the arm rows with votes) that [caller_tumour()] uses for discovery, assignment and
+#' per-cell confirmation, fitted on the null rows (`null_region` and `eligible`) of a set of cells:
+#'   * `"flagged"`: the cells with `null_cell` TRUE (the `flat` column of the cell metadata, or given null cells),
+#'     whenever there is one and `select` is FALSE;
+#'   * `"selected"`: otherwise, the cells without a call on the null rows, as [select_null_cells()] finds them
+#'     (chromosome and arm rows, the tumour state set, `n_iter` iterations from all cells minus `exclude` and minus the
+#'     cells of its windowed allele guard, `params$null_win_guard`): the cells kept by both of its last two
+#'     iterations. They are used when there are at least `min_cells` of them and the last iteration is stable
+#'     (Jaccard index of the sets it started from and ended with >= `min_jaccard`). In a tumour sample with normal
+#'     cells that the null rows separate from the tumour, these are mostly the normal cells; tumour cells whose events
+#'     all lie outside the null rows or are too weak to call per cell pass as well; without such cells the selection
+#'     usually does not settle;
+#'   * `"all"`: otherwise all cells (no stable selection). The fit then absorbs the tumour's events on the null
+#'     rows (inflated rho, heavy depth tails), as every tumour-mode run without flagged cells did before.
+#'
+#' A fit on all cells is wrong whenever tumour cells carry events on the null rows: rho and the t tails take up the
+#' events, which weakens assignment and per-cell confirmation. Flagged copy-number-normal cells (e.g. from a matched
+#' assay) remain the better null: a stable selection does not show that the selected cells are copy-number neutral.
+#' In a tumour in which almost every cell carries the same clonal events on the null rows, the selection fits its null
+#' to those events and then keeps most of the cells. When it keeps more than `max_share` of the candidate cells
+#' (all cells minus `exclude`, guarded cells included), the result carries a `caution` and the note says so;
+#' [call_scn()] then warns. The note also gives the rho of all cells next to the fitted one: a selected null whose rho
+#' is close to the all-cell rho is a set of tumour cells that carry the same events.
+#' @param long features long table ([cell_features()] `long`: cell, region, class, sd_class, chrom, stratum, z,
+#'   sd_null, nA, n_hap, null_region, eligible, null_cell)
+#' @param params [caller_defaults()]
+#' @param exclude cells never selected (e.g. multiplets)
+#' @param select TRUE: select the cells even when some are flagged
+#' @param n_iter iterations of the selection (>= 2)
+#' @param min_cells minimal number of selected cells
+#' @param min_jaccard minimal Jaccard index of the selection's last iteration
+#' @param max_share share of the candidate cells above which a selected set gets a `caution` (2 / 3); the fit is
+#'   not changed
+#' @return NULL without null rows (of the flagged cells); else list(tpar, rho, source = "flagged" / "selected" /
+#'   "all", null_cells (the cells fitted), selection (the [select_null_cells()] log; NULL for flagged cells), share
+#'   (selected cells / candidate cells; NA for flagged cells), caution (NULL, or one line when a selected set holds more
+#'   than `max_share` of the candidates), note (one line for the run notes))
+#' @export
+tumour_null_fit = function(long, params = caller_defaults(), exclude = NULL, select = FALSE, n_iter = 5, min_cells = 5,
+                           min_jaccard = 0.7, max_share = 2 / 3) {
+  long = as.data.table(long)
+  nr = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible
+  flagged = "null_cell" %in% names(long) && any(long$null_cell %in% TRUE)
+  sel = NULL; share = NA_real_; caution = NULL
+  if (flagged && !select) {
+    src = "flagged"
+    nr = nr & long$null_cell %in% TRUE
+    if (!any(nr)) return(NULL)
+    note = sprintf("tumour input null (depth t, allelic rho): fitted on the %d flagged null cells", uniqueN(long$cell[nr]))
+  } else {
+    if (!any(nr)) return(NULL)
+    what = if (flagged) "null_cells = \"select\"" else "no flagged null cells"
+    sl = select_null_cells(long[nr], states = caller_states("tumour", params), params = params, n_iter = n_iter,
+                           exclude = exclude)
+    sel = sl$log
+    keep = intersect(sl$null_cells, sl$previous)
+    both = union(sl$null_cells, sl$previous)
+    jac = if (length(both)) length(keep) / length(both) else NA_real_
+    n_cand = nrow(sl$calls)                              # candidates: all cells minus exclude, guarded cells included
+    n_guard = sum(sl$calls$win_guard %in% TRUE)
+    share = if (n_cand) length(keep) / n_cand else NA_real_
+    why = sprintf("%d of %d cells without a call on the null rows in the last two iterations, Jaccard %.2f%s", length(keep),
+                  n_cand, jac, if (n_guard) sprintf("; %d cells kept out by the windowed allele term (null_win_guard)", n_guard) else "")
+    if (length(keep) >= min_cells && is.finite(jac) && jac >= min_jaccard) {
+      src = "selected"
+      nr = nr & long$cell %in% keep
+      note = sprintf("tumour input null (depth t, allelic rho): %s; fitted on the %d cells without a call on the null rows (%s)",
+                     what, length(keep), why)
+      if (share > max_share)
+        caution = sprintf(paste("the selection keeps %.0f %% of the cells (more than %.0f %%): a stable selection does not show",
+                                "that they are copy-number neutral (cells that share clonal events on the null rows pass it too)"),
+                          100 * share, 100 * max_share)
+    } else {
+      src = "all"
+      note = sprintf(paste("tumour input null (depth t, allelic rho): %s; no stable set of at least %d cells without a call on",
+                           "the null rows (%s), so fitted on all cells: rho and the depth tails absorb the tumour's events on the",
+                           "null rows"), what, min_cells, why)
+    }
+  }
+  tpar = complete_tpar(long, fit_depth_null(long[nr]))
+  arm = nr & long$class == "arm" & long$n_hap > 0
+  rho = if (any(arm, na.rm = TRUE)) fit_allelic_null(long$nA[arm %in% TRUE], long$n_hap[arm %in% TRUE]) else NA_real_
+  note = paste0(note, sprintf("; rho %s", signif(rho, 3)))
+  if (src == "selected") {
+    a0 = !is.na(long$null_region) & long$null_region & !is.na(long$eligible) & long$eligible & long$class == "arm" & long$n_hap > 0
+    note = paste0(note, sprintf(" (all cells: %s)", signif(fit_allelic_null(long$nA[a0 %in% TRUE], long$n_hap[a0 %in% TRUE]), 3)))
+  }
+  if (!is.null(caution)) note = paste0(note, "; caution: ", caution)
+  list(tpar = tpar, rho = rho, source = src, null_cells = unique(long$cell[nr]), selection = sel, share = share,
+       caution = caution, note = note)
+}
+
 # per-cell call scores on a set of regions for cells of clone k (depth + allele under clone k's state)
 cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_cells = NULL) {
   # rows: data.table cell, region, cn, ploidy, f_state, c, a, oclone (orientation clone)
@@ -248,8 +366,21 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
   }
   d = merge(rows, d, by = c("cell", "region"))
   tp = cl_match_tpar(d, tpar)
-  d[, mu := c * log2(pmax(cn, 0.2) / if (length(ref_cells) >= 10) ploidy else 2) / pmax(sd_null, params$sd_floor)]
+  # copy number of the cell's log2 = 0 (base_): the clone baseline B (base_b; 2 = diploid), scaled by the reference
+  # ploidy / 2 when relative to a reference pool. The neutral state (1:1; 1:0 on a haploid chromosome) sits at
+  # shift0_ = c log2(n0 / base_), n0 = its copy number: c log2(2 / B) on every row relative to a pool (0 for B = 2), and
+  # without a pool c log2(2 / B) on diploid rows but c log2(1 / B) on haploid ones (the cell's depth is relative to its
+  # autosomal median, so one chrX copy of a male cell at B = 2 is at log2 1/2). A null row scored under another clone's
+  # hypothesis carries its own clone's contrast (c_own): its neutral sits at c_own log2(n0 / base_)
+  if (!"base_b" %in% names(d)) d[, base_b := 2]
+  d[is.na(base_b), base_b := 2]
+  d[, base_ := base_b * (if (length(ref_cells) >= 10) ploidy / 2 else 1)]
+  d[, c0_ := if ("c_own" %in% names(d)) fifelse(is.na(c_own), c, c_own) else c]
+  d[, shift0_ := c0_ * log2(fifelse(ploidy == 1L, 1, 2) / base_)]
+  d[, c0_ := NULL]
+  d[, mu := c * log2(pmax(cn, 0.2) / base_) / pmax(sd_null, params$sd_floor)]
   d[, s_depth := ll_depth_shift(z, mu, tp)]
+  if (any(d$shift0_ != 0)) d[, s_depth := s_depth - ll_depth_shift(z, shift0_ / pmax(sd_null, params$sd_floor), tp)]
   cells = inp$cells$cell
   d[, s_allele := 0]
   rr = regs[region %in% d$region]
@@ -266,13 +397,27 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
   }
   if (!"nA_o" %in% names(d)) d[, `:=`(nA_o = 0, n_o = 0)]
   d[is.na(nA_o), `:=`(nA_o = 0, n_o = 0)]
-  d[, base_ := if (length(ref_cells) >= 10) ploidy else 2L]
   d[, score := s_depth + s_allele]
   d[]
 }
 utils::globalVariables(c("s_depth", "s_allele", "i.oA", "i.oN", "oclone"))
 
 b_fun = function(f) get(f, envir = asNamespace("scphasedcn"))
+
+# run note on clones whose fitted depth contrast `c` sits at the lower bound of its grid (`floor`, fit_clone_states()
+# `contrast`): the depth scale of such a clone is not determined by the data (typically a baseline the fit could not
+# reach or a mixed clone), so its states, and its baseline with ploidy "fit", can be off by one copy. The fixed normal
+# clone (`normal`, c = the median of the fitted clones) is not named.
+contrast_floor_note = function(par, floor, normal = "N0") {
+  par = as.data.table(par)
+  if (!length(floor) || !is.finite(floor) || !nrow(par) || !"c" %in% names(par)) return(character())
+  at = par[as.character(clone) != normal & is.finite(c) & c <= floor + 1e-9]
+  if (!nrow(at)) return(character())
+  b = clone_baseline(at, at$clone)
+  sprintf(paste("clone depth contrast at the lower bound of its grid (c = %g): %s; the depth scale of these clones is not",
+                "determined by the data, so their states (and fitted baselines) can be off by one copy"),
+          floor, paste(sprintf("%s (baseline %g)", at$clone, b), collapse = ", "))
+}
 
 # same-state groups of the caller's merge_same(): clones of one trunk whose segment states differ on < same_dist bp
 # ([clone_state_distance()] with min_df = 0.01, min_dcn = 1; single linkage). Returns the representative clone (the
@@ -303,19 +448,84 @@ split_test_note = function(n_tests, q, n_perm, perm_decision) {
 # score rows (cell_state_scores output) with the scorer: one non-neutral state per row (the clone state, shift
 # c * log2(cn / base), major fraction 0.5 + a (f_state - 0.5)) or, for null rows, a given state set (B's tumour set)
 b_score = function(rows, tpar, rho, params, states = NULL, sided = "two") {
-  r = copy(rows)
+  r = centre_neutral(rows, params)
   r[, `:=`(class = sd_class, nA = nA_o, n_hap = n_o)]
   tp = if (is.null(tpar)) NULL else b_fun("complete_tpar")(r, tpar)
   dm = if (is.null(tp)) "gauss" else "t"
   if (!is.null(states)) return(b_fun("score_cells")(r, states, tpar = tp, rho = rho, depth_model = dm, params = params, sided = sided))
-  r[, `:=`(shift_ = c * log2(pmax(cn, 0.2) / base_), f_ = 0.5 + a * (f_state - 0.5))]
+  r[, `:=`(shift_ = c * log2(pmax(cn, 0.2) / base_) - shift0_, f_ = 0.5 + a * (f_state - 0.5))]
   r[, grp_ := .GRP, by = .(label, shift_, f_)]
   out = rbindlist(lapply(split(r, by = "grp_"), function(x) {
     b_score_hyp(x, x$label[1], x$shift_[1], x$f_[1], tp, rho, params, sided = sided)[, .(cell, region, s_comb)]
   }))
   out
 }
-utils::globalVariables(c("nA_o", "n_o", "shift_", "f_", "grp_", "base_", "s_comb", "thr_s_comb"))
+utils::globalVariables(c("nA_o", "n_o", "shift_", "f_", "grp_", "base_", "s_comb", "thr_s_comb", "shift0_", "base_b"))
+
+# rows of a clone with baseline B != 2: the neutral state (1:1) is not at the cell's median depth but at
+# shift0_ = c log2(2 / B); the scorer's neutral sits at shift 0, so z is centred on it (z - shift0_ / sd) and each
+# hypothesis shift is taken relative to it (exact for the Gaussian and the t depth model). No-op for B = 2.
+centre_neutral = function(rows, params) {
+  r = copy(rows)
+  if (!"shift0_" %in% names(r)) r[, shift0_ := 0]
+  r[is.na(shift0_), shift0_ := 0]
+  if (any(r$shift0_ != 0)) r[, z := z - shift0_ / pmax(fifelse(is.na(sd_null), 1, sd_null), params$sd_floor)]
+  r
+}
+
+# null rows of the per-cell confirmation (caller_tumour()): cells `cc` x regions `regs` (haploid chromosomes left out),
+# each with its own clone (`asg`; cells whose clone has no members are dropped). Matched null (`matched`): one row per
+# event clone k (cn 3, f 2/3 at k's c and a; oclone = k, whose pseudobulk orients the votes); generic null: one row
+# per generic state at the median c / a of `par`. Every row also carries the baseline (base_b) and the depth contrast
+# (c_own) of the cell's own clone: the cell's depth is relative to its own median, so its neutral state, on which
+# cell_state_scores() centres the row, sits at c_own log2(2 / base_b), whatever the hypothesis clone.
+confirm_null_rows = function(cc, regs, asg, members, par, ev_clones, matched, haploid = character()) {
+  if (!length(cc) || !nrow(regs)) return(NULL)
+  regs = regs[!chrom %in% haploid]
+  if (!nrow(regs)) return(NULL)
+  par = as.data.table(par)
+  cmed = stats::median(par$c); amed = stats::median(par$a)
+  base = CJ(cell = cc, region = regs$region)
+  base[asg, oclone := i.clone, on = "cell"]
+  base = base[!is.na(oclone) & oclone %in% members$clone]
+  base[, `:=`(base_b = clone_baseline(par, oclone), c_own = as.numeric(par$c)[match(oclone, par$clone)])]
+  if (matched) {
+    if (!nrow(base)) return(NULL)
+    base[, oclone := NULL]
+    return(rbindlist(lapply(ev_clones, function(k) {
+      pk = par[clone == k]
+      copy(base)[, `:=`(oclone = k, cn = 3L, ploidy = 2L, f_state = 2 / 3, c = if (nrow(pk)) pk$c[1] else cmed,
+                        a = if (nrow(pk)) pk$a[1] else amed)]
+    })))
+  }
+  gen = data.table(cn = c(1L, 3L, 2L, 4L), f_state = c(1, 2 / 3, 1, 0.75))
+  rbindlist(lapply(seq_len(nrow(gen)), function(j) {
+    r = copy(base)[, `:=`(cn = gen$cn[j], ploidy = 2L, f_state = gen$f_state[j], c = cmed, a = amed)]
+    r[, ploidy := fifelse(regs$chrom[match(region, regs$region)] %in% haploid, 1L, 2L)]
+    r
+  }))
+}
+utils::globalVariables(c("c_own", "c0_"))
+
+# candidate baselines of the next fit_clone_states(baseline = "fit") of a run: once a fit had at least one clone with
+# allelic information on the scale (`baseline_informative`), 2 and that fit's sample baseline +- 0.25 (>= 1.5);
+# otherwise, after a provisional fit (median-centred profiles before the first depth reference), or once narrowed, the
+# candidates stay as they are (a sample baseline of 2 by default must not lock a triploid run out of 3)
+next_baselines = function(cand, fit, provisional = FALSE) {
+  bs = fit$baseline_sample
+  if (provisional || !isTRUE(fit$baseline_informative) || length(bs) != 1 || !is.finite(bs) || length(cand) <= 4)
+    return(cand)
+  nb = c(2, bs + c(-0.25, 0, 0.25))
+  sort(unique(nb[nb >= 1.5]))
+}
+
+# baseline B of clones (`par` of fit_clone_states(): column base; 2 without it, for N0 and for unknown clones)
+clone_baseline = function(par, clones) {
+  b = if ("base" %in% names(par)) as.numeric(par$base)[match(as.character(clones), as.character(par$clone))] else
+    rep(2, length(clones))
+  b[is.na(b)] = 2
+  b
+}
 
 # one clone hypothesis scored with the scorer's score_cells under the two-state set {neutral, label at depth shift
 # `shift` and major fraction `f`}; x carries class (= sd_class), stratum, z, sd_null, nA, n_hap (oriented votes);
@@ -336,9 +546,10 @@ hyp_key = function(clone, label, shift, f) paste(clone, label, sprintf("%.6g", s
 # `kind` pool / control) scored per hypothesis of the cell rows `sc` (clone, label, cn, c, a, f_state, base_) under
 # the same two-state set; returns list(sc = sc with hyp, nb = null rows cell, region, stratum, kind, hyp, s_comb)
 b_matched_null = function(sc, nrows, tpar, rho, params, sided = "two") {
-  sc[, hyp := hyp_key(clone, label, c * log2(pmax(cn, 0.2) / base_), 0.5 + a * (f_state - 0.5))]
-  hy = unique(sc[, .(hyp, clone, label, cn, shift = c * log2(pmax(cn, 0.2) / base_), f = 0.5 + a * (f_state - 0.5))], by = "hyp")
-  r = copy(nrows)
+  if (!"shift0_" %in% names(sc)) sc[, shift0_ := 0]
+  sc[, hyp := hyp_key(clone, label, c * log2(pmax(cn, 0.2) / base_) - shift0_, 0.5 + a * (f_state - 0.5))]
+  hy = unique(sc[, .(hyp, clone, label, cn, shift = c * log2(pmax(cn, 0.2) / base_) - shift0_, f = 0.5 + a * (f_state - 0.5))], by = "hyp")
+  r = centre_neutral(nrows, params)
   r[, `:=`(class = sd_class, nA = nA_o, n_hap = n_o)]
   tp = if (is.null(tpar)) NULL else b_fun("complete_tpar")(r, tpar)
   by_k = split(r, by = "oclone")
@@ -363,7 +574,8 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' [clean_reference()] -> optional depth re-pass relative to the clean pool -> per-cell calls. Each cell
 #' inherits its clone's non-neutral segments (`source = "inherited"`) and is `confirmed` when its own
 #' score under the clone state (depth + allele LLR vs neutral; allele term two-sided, or one-sided on the clone-oriented
-#' votes with `opts$confirm_sided = "one"`) is above the threshold of the tumour null:
+#' votes with `opts$confirm_sided = "one"`) is above the threshold of the tumour null and above 0 (`score > max(thr,
+#' 0)`: a negative null threshold never confirms a row on which neutral is at least as likely):
 #' reference-pool cells x all pieces + all cells x control pieces, scored as the best of the loss / gain /
 #' CN-LOH / amp states (type-7 `null_q` quantile per stratum, strict `>`; pooled over strata below
 #' `min_null_rows`).
@@ -371,7 +583,8 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' Input `feat` (the feature step's `scn_features`, or an equivalent list): `features` (long table),
 #' `regions`, `votes`, `atoms`, `cells` (data.table with `cell`, in vote index order; `n_frag` / `stratum`),
 #' `win` (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
-#' start, end, x, e) and `null_fit` (list with `tpar` = [fit_depth_null()] table and `rho`).
+#' start, end, x, e) and `null_fit` (list with `tpar` = [fit_depth_null()] table and `rho`; without it, or without its
+#' `rho`, the input null is [tumour_null_fit()] of the features, as in [call_scn()]).
 #' @param feat scn_features list
 #' @param params [caller_defaults()]
 #' @param multiplets optional data.table cell, prob ([multiplet_table()]); cells above `opts$multiplet_prob` are excluded from
@@ -460,7 +673,16 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   rm(X); invisible(gc(verbose = FALSE))
 
   grid = cn_grid()
-  fit_states = function(profile, grid) fit_clone_states(profile, grid, p_switch = opts$p_switch, min_win = opts$min_win)
+  # ploidy "fit": fits scan every candidate baseline until one fit has an informative clone (next_baselines()); later
+  # fits (the EM rounds re-fit the clone states several times) scan only 2 and that fit's sample baseline +- 0.25. The
+  # provisional median-centred fit before the first depth reference never narrows the candidates
+  b_cand = c(1.5, 2, 2.5, 3, 3.25, 3.5, 4, 4.5, 5)
+  fit_states = function(profile, grid, provisional = FALSE) {
+    f = fit_clone_states(profile, grid, p_switch = opts$p_switch, min_win = opts$min_win, baseline = opts$ploidy,
+                         ploidy_tol = opts$ploidy_tol, baselines = b_cand)
+    b_cand <<- next_baselines(b_cand, f, provisional)
+    f
+  }
   ref_pool = character()
   run_states = function(members, ref_cells) {
     sz = members[, .N, by = clone]
@@ -474,7 +696,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       ref_cells = character()
       p0 = clone_profiles(inp$win, inp$votes, inp$atoms, members, size = size, seed = params$seed, cells = cells,
                           rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid)
-      f0 = fit_states(p0, grid)
+      f0 = fit_states(p0, grid, provisional = TRUE)
       s0 = segment_clone(f0, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
                         opts$max_contra, opts$gain_support)
       dirty = s0[label != "neutral" & nA_of(state) != nB_of(state) & (end - start) >= 1e7, unique(clone)]
@@ -701,35 +923,13 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     rows = asg[, .(cell, clone)][ev[, .(clone, region, cn, ploidy, f_state = fifelse(cn > 0, nA_of(state) / cn, 0.5), label)],
                                  on = "clone", allow.cartesian = TRUE, nomatch = NULL]
     rows[par, `:=`(c = i.c, a = i.a), on = "clone"]
+    rows[, base_b := clone_baseline(par, clone)]
     rows[, oclone := clone]
     # null: reference-pool cells x all pieces + all cells x control pieces, best of the generic states (generic) or one
     # copy per event clone, oriented by that clone's pseudobulk (matched)
     pieces = segment_pieces(sg, inp$regions)
-    gen = data.table(cn = c(1L, 3L, 2L, 4L), f_state = c(1, 2 / 3, 1, 0.75))
-    cmed = stats::median(par$c); amed = stats::median(par$a)
     ev_clones = intersect(unique(ev$clone), unique(members$clone))
-    mk_null = function(cc, regs) {
-      if (!length(cc) || !nrow(regs)) return(NULL)
-      regs = regs[!chrom %in% inp$haploid]
-      if (!nrow(regs)) return(NULL)
-      base = CJ(cell = cc, region = regs$region)
-      base[asg, oclone := i.clone, on = "cell"]
-      base = base[!is.na(oclone) & oclone %in% members$clone]
-      if (matched) {
-        if (!nrow(base)) return(NULL)
-        base[, oclone := NULL]
-        return(rbindlist(lapply(ev_clones, function(k) {
-          pk = par[clone == k]
-          copy(base)[, `:=`(oclone = k, cn = 3L, ploidy = 2L, f_state = 2 / 3, c = if (nrow(pk)) pk$c[1] else cmed,
-                            a = if (nrow(pk)) pk$a[1] else amed)]
-        })))
-      }
-      rbindlist(lapply(seq_len(nrow(gen)), function(j) {
-        r = copy(base)[, `:=`(cn = gen$cn[j], ploidy = 2L, f_state = gen$f_state[j], c = cmed, a = amed)]
-        r[, ploidy := fifelse(regs$chrom[match(region, regs$region)] %in% inp$haploid, 1L, 2L)]
-        r
-      }))
-    }
+    mk_null = function(cc, regs) confirm_null_rows(cc, regs, asg, members, par, ev_clones, matched, inp$haploid)
     nr = rbindlist(list(mk_null(ref_pool, pieces), mk_null(asg[multiplet == FALSE, cell], ctl)), fill = TRUE)
     nx = NULL; nsc_rows = data.table()
     if (!is.null(nr) && nrow(nr)) {
@@ -829,8 +1029,8 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     notes = c(notes, confirm_null_notes(n_null = n_null_h, q = params$null_q))
     sc[is.na(thr), thr := Inf]
     calls = sc[, .(cell, region, class = "segment", chrom, start = ev$start[match(region, ev$region)],
-                   end = ev$end[match(region, ev$region)], state = label, score, thr, called = score > thr, level = "cell",
-                   source = fifelse(score > thr, "confirmed", "inherited"),
+                   end = ev$end[match(region, ev$region)], state = label, score, thr, called = above_thr(score, thr), level = "cell",
+                   source = fifelse(above_thr(score, thr), "confirmed", "inherited"),
                    reportable = ev$confident[match(region, ev$region)])]
     # every cell has calls from its likelihood-best clone; `confident` = the cell's clone membership is confident
     calls[, confident := asg$confident[match(cell, asg$cell)] %in% TRUE]
@@ -841,9 +1041,23 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   } else all_regions = rbind(inp$regions, segment_pieces(sg, inp$regions), fill = TRUE)
   all_regions = unique(all_regions, by = "region")
   all_regions[is.na(sd_class), sd_class := class]
+  notes = c(notes, contrast_floor_note(st$fit$par, st$fit$contrast_floor))
+  if (identical(opts$ploidy, "fit") && "base" %in% names(st$fit$par)) {
+    bp = as.data.table(st$fit$par)[clone != "N0"]
+    if (nrow(bp)) notes = c(notes, sprintf(paste("clone baselines (ploidy \"fit\"; copy number of the clone's median depth): %s; sample",
+                                   "baseline %s"), paste(sprintf("%s %.3g", bp$clone, bp$base), collapse = ", "),
+                             format(st$fit$baseline_sample %||% NA)))
+  }
   clone_tab = members[, .(n_members = .N), by = clone]
   clone_tab = merge(asg[, .(n_cells = .N, n_assigned = sum(assigned)), by = clone], clone_tab, by = "clone", all = TRUE)
   clone_tab = merge(clone_tab, st$fit$par[, .(clone, c, a, rho, s_sys)], by = "clone", all.x = TRUE)
+  # baseline: the copy number of the clone's median depth (fitted with opts$ploidy = "fit"); ploidy: the clone's
+  # genome-weighted mean copy number over its autosomal segments
+  bpar = as.data.table(st$fit$par)
+  clone_tab[, baseline := if ("base" %in% names(bpar)) bpar$base[match(clone, bpar$clone)] else 2]
+  clone_tab[clone == "N0", baseline := 2]
+  pmean = sg[ploidy == 2 & !chrom %in% c("chrX", "chrY"), .(ploidy = sum(cn * (end - start)) / sum(end - start)), by = clone]
+  clone_tab[, ploidy := pmean$ploidy[match(clone, pmean$clone)]]
   clone_tab[, normal := clone %in% cr$normal]
   clone_tab[, trunk := r$trunks[clone]]
   clone_tab = rbind(clone_tab, data.table(clone = doublet_clones, doublet = TRUE), fill = TRUE)
@@ -868,5 +1082,5 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                                             split_tests = split_tests, assignments_pre_split = asg_pre_split)),
               params = c(params, list(tumour = opts)), notes = notes)
 }
-utils::globalVariables(c("pool_cells", "imb", "prob", "N", "i.c", "i.a", "i.clone", "i.thr", "n_null", "n_members", "normal",
+utils::globalVariables(c("pool_cells", "imb", "prob", "N", "i.c", "i.a", "i.clone", "i.thr", "n_null", "n_members", "normal", "baseline",
                          "trunk", "p_trunk", "clones", "mix_prior"))

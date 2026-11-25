@@ -22,7 +22,8 @@ scphasedcn run --bam sample.bam --barcodes barcodes.tsv.gz --fasta GRCh38.fa \
 heterozygous SNVs of a phased VCF (Clair3 + longphase) for `--snps`. `scphasedcn hybrid-phase` orients those
 read-backed phase blocks with a population-phased VCF of the same sample and writes one phase set per chromosome
 (recommended for the normal-tissue mode of the caller; see below). `scphasedcn index-check` checks the BAM index
-and can write a fresh one to a separate path (`--reindex`, then `--index` in `extract` / `run`).
+(exit status 1 when it is missing or older than the BAM) and can write a fresh one to a separate path (`--reindex`,
+then `--index` in `extract` / `run`).
 See `scphasedcn <command> --help` and the scphasedcn documentation for the input requirements and the phasing recipe.
 
 Options worth knowing:

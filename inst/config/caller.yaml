@@ -9,6 +9,7 @@ eps: 0.02                   # allele error floor of the beta-binomial (1:0 state
 mol_gap: 2000               # fragments of one cell closer than this (bp) are one molecule (one vote)
 mol_split_ps: false         # one vote per molecule x phase set (a molecule across a phase-block junction votes in each of its phase sets)
 votes_clean: false          # only clean fragments vote (no blacklist bit in `flags`, as in the depth layers)
+gc_method: "lowess"         # per-cell GC trend of the tumour (model) depth normalisation: "lowess" or "ratio" (opt-in: ratio of sums over GC groups, unbiased at low depth); used when features are built
 sd_floor: 0.05              # floor of the per-cell null SD of the window log2 ratio
 strata_breaks: [20000, 50000]                 # depth strata on clean fragments per cell
 strata_labels: ["<20k", "20-50k", ">=50k"]    # stratum labels (length(strata_breaks) + 1)
@@ -17,6 +18,8 @@ shifts:                     # log2 depth shift of one-copy states (calibrated on
   gain: 0.57
 k_amp: 0.975                # depth shift of cn >= 4 is k_amp * log2(cn / 2) (uncalibrated)
 f_att: [0.85, 0.90, 0.95, 0.98]   # attenuated major-haplotype fractions of 1:0 / 2:0 states (tumour)
+states_normal: "normal"     # normal-mode state set: "normal", "normal_att" (opt-in: loss / CN-LOH over f_att_normal) or "auto" (normal_att on chromosome-scale phasing)
+f_att_normal: [0.70, 0.80, 0.90, 0.98]   # major-haplotype fractions of the loss / CN-LOH rows of normal_att (attenuated by switch errors of merged phase sets); 1 - eps is always added
 tile_sizes:                 # tile region classes (bp)
   5Mb: 5000000
   10Mb: 10000000
@@ -78,3 +81,5 @@ tumour:                     # tumour mode: clone_defaults() options (CLI --confi
   bal_frac: 0.75            # clone segments: a balanced non-neutral run (2:2) needs this share of its expected log2 shift (0 = off) ...
   min_bal_len: 20000000     # ... and at least this length (bp), else 1:1
   gain_support: 0.3         # clone segments: an imbalanced gain needs this share of its expected log2 shift against the region's depth offset (other clones' 1:1 windows), else CN-LOH or label "imbalance" with depth_ok FALSE (0 = off)
+  ploidy: "fit"             # clone baseline (copy number of the median depth): "fit" (per clone, from depth and alleles; absolute states) or a number in [1, 8] for every clone (2 = the diploid baseline of 0.1.x)
+  ploidy_tol: 0.01          # log-likelihood per window within which half the best baseline (a whole-genome doubling of the same profile) is preferred

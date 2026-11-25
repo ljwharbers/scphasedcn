@@ -36,8 +36,9 @@ def test_cells_and_bins(adata):
 def test_record_filter_and_qc(adata):
     q = adata.obs
     a = q.loc[CELL_A]; b = q.loc[CELL_B]
-    # CELL_A chr1: 21 records listed (a..u + supplementary), chr2: 3 -> records = 24
-    assert a["n_records"] == 24 and a["n_secondary"] == 1 and a["n_supplementary"] == 1 and a["n_duplicate"] == 1
+    # CELL_A chr1: 22 records listed (a..u + supplementary + QC-fail y), chr2: 3 -> records = 25
+    assert a["n_records"] == 25 and a["n_secondary"] == 1 and a["n_supplementary"] == 1 and a["n_duplicate"] == 1
+    assert a["n_qcfail"] == 1 and b["n_qcfail"] == 0      # y is skipped: not primary, not a fragment
     assert a["n_primary"] == 21 and a["n_mapq_fail"] == 1 and a["n_pass"] == 20
     assert a["mapq0"] == 1 and a["mapq30_59"] == 1 and a["mapq60"] == 19
     assert a["n_blacklist"] == 1 and a["n_clean"] == 19 and a["n_trf"] == 1 and a["n_has_SA"] == 1
@@ -106,6 +107,7 @@ def test_alleles(extracted):
 def test_summary_and_params(extracted):
     s = json.load(open(extracted / "summary.json"))
     assert s["n_cells"] == 2 and s["chroms"] == ["chr1", "chr2", "chrM", "chrX"]
+    assert s["n_qcfail"] == 1
     p = json.load(open(extracted / "partials" / "chr1" / "params.json"))
     assert p["dash"]["n_records"] == 2 and p["dash"]["n_pass"] == 1 and p["unlisted"]["n_pass"] == 2
     assert p["assign"] == "start"
@@ -146,6 +148,16 @@ def test_alleles_only_rerun(genome, bam, vcf, tmp_path):
     f = pd.read_csv(tmp_path / "fragments.tsv.gz", sep="\t"); assert (f["hap"] > 0).sum() == 2
 
 
+def test_qcfail_reads_are_skipped(bam):
+    """A QC-fail (0x200) primary record is counted in n_qcfail and is not a fragment; other counters unchanged."""
+    from scphasedcn.bam import scan_chrom, LOOP_COUNTERS
+    fr, ctr = scan_chrom(str(bam), "chr1", [CELL_A, CELL_B])
+    assert not ((fr.start == 330000) & (fr.cell == 0)).any()
+    a = dict(zip(LOOP_COUNTERS, ctr.per_cell[0].tolist()))
+    assert a["n_qcfail"] == 1 and a["n_records"] == 22 and a["n_primary"] == 18 and a["n_pass"] == 17
+    assert int(ctr.mapq_hist[0].sum()) == a["n_primary"]
+
+
 def test_index_check(bam, tmp_path):
     from scphasedcn.cli import main
     from scphasedcn.bam import check_index
@@ -156,6 +168,31 @@ def test_index_check(bam, tmp_path):
     assert out.exists()
     with pysam.AlignmentFile(str(bam), "rb", index_filename=str(out)) as f:
         assert len(list(f.fetch("chr2"))) == 5
+
+
+def test_index_check_exit_status(bam, tmp_path, capsys):
+    """index-check exits 0 on a fresh index, 1 on a stale or missing one (unless --reindex rebuilds it)."""
+    import os
+    import shutil
+    from scphasedcn.cli import main
+    b = tmp_path / "s.bam"
+    shutil.copy(bam, b)
+    bai = tmp_path / "s.bam.bai"
+    shutil.copy(str(bam) + ".bai", bai)
+    t = os.path.getmtime(b)
+    os.utime(bai, (t + 10, t + 10))
+    assert main(["index-check", "--bam", str(b)]) == 0
+    os.utime(bai, (t - 10, t - 10))                                  # index older than its BAM
+    capsys.readouterr()
+    assert main(["index-check", "--bam", str(b)]) == 1
+    assert "older than the BAM" in capsys.readouterr().err
+    assert main(["index-check", "--bam", str(b), "--index", str(bai)]) == 1
+    out = tmp_path / "idx" / "fresh.bai"
+    assert main(["index-check", "--bam", str(b), "--index", str(bai), "--reindex", str(out), "--threads", "1"]) == 0
+    assert out.exists()
+    assert main(["index-check", "--bam", str(b), "--index", str(out)]) == 0
+    os.remove(bai)
+    assert main(["index-check", "--bam", str(b)]) == 1                # no index
 
 
 def test_outputs_and_layers(extracted, adata):

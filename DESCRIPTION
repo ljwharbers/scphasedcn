@@ -1,7 +1,7 @@
 Package: scphasedcn
 Type: Package
 Title: Single-Cell Copy-Number Calling from Long-Read Single-Cell DNA Data
-Version: 0.1.1
+Version: 0.1.1.9000
 Authors@R: c(person("Luuk", "Harbers", email = "luuk.harbers@vib.be", role = c("aut", "cre")))
 Description: Calls copy-number alterations in single cells from SPLONGGET
     data (single-cell long-read DNA sequencing with 10x Multiome barcodes and
@@ -16,7 +16,7 @@ Description: Calls copy-number alterations in single cells from SPLONGGET
     written by the companion Python extractor (also named 'scphasedcn'); outputs are flat
     tables, a result object and an export for MEDICC2 trees.
 License: MIT + file LICENSE
-URL: https://github.com/ljwharbers/scphasedcn
+URL: https://github.com/ljwharbers/scphasedcn, https://ljwharbers.github.io/scphasedcn/
 BugReports: https://github.com/ljwharbers/scphasedcn/issues
 Encoding: UTF-8
 Depends: R (>= 4.2)
@@ -48,4 +48,6 @@ biocViews: Software, SingleCell, CopyNumberVariation, Sequencing
 RoxygenNote: 7.3.3
 Roxygen: list(markdown = TRUE)
 Config/testthat/edition: 3
+Config/testthat/parallel: true
+Config/testthat/start-first: call-scn, caller, clones, window-allelic
 LazyData: false

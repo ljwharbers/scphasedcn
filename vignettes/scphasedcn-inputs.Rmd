@@ -26,7 +26,8 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 The genome is hg38 only: the bundled chromosome sizes, ENCODE blacklist v2 and centromere coordinates are hg38, and
 so are the chrX centromere and acrocentric arm defaults of the caller.
 
-Reads: the extractor keeps primary, non-duplicate records with MAPQ >= 30 whose `CB` is in the whitelist; each record
+Reads: the extractor keeps primary, non-duplicate records that are not flagged QC-fail (0x200; counted per cell in
+`n_qcfail`) with MAPQ >= 30 whose `CB` is in the whitelist; each record
 is one fragment. SPLONGGET read names of the form `<CB>_#<uuid>_<sign><piece>of<npieces>` let it recognise pieces of
 one raw read; other read names are accepted (each record is then its own read).
 
@@ -115,8 +116,18 @@ Limits:
   simulated genomes. Copy-neutral LOH, which has no depth signal, fell further (0.53 and 0.00 at 20 and 10 Mb):
   losses with a clear depth shift (whole chromosomes, large losses) are less affected than copy-neutral events, but
   not immune. Per-cell recall of losses and copy-neutral LOH on hybrid phasing therefore depends on the switch-error
-  rate of the population phase and has not been validated on real data. An attenuation-aware state set for normal
-  mode is planned. The `--chrom-tsv` report gives, per chromosome, how often the population phase disagrees with the
+  rate of the population phase and has not been validated on real data. An attenuation-aware state set exists as an
+  opt-in (caller parameter `states_normal: "normal_att"`, or `"auto"` to use it whenever the phasing regime is
+  chromosome-scale; the grid `f_att_normal`, by default 0.70, 0.80, 0.90 and 0.98): it scores losses and copy-neutral
+  LOH also at attenuated fractions, so that attenuated events keep their label. It trades recall of attenuated
+  losses and copy-neutral LOH against more false loss / copy-neutral LOH labels on cells without events and some
+  recall of gains (its lower fractions overlap the 2:1 and 3:1 gain fractions, so weak gains can be labelled
+  copy-neutral LOH); the total number of calls stays at the null budget. It is not the default: the right grid
+  depends on the switch-error rate of the population phase and has not been benchmarked on real data. The two
+  combine with the windowed allele term that normal mode uses by default on chromosome-scale phasing (caller
+  parameter `win_score`): it trusts the phase only inside 1 Mb windows, so it is not attenuated, but it is scored
+  only at near-complete LOH (0.98); under `normal_att` the 0.98 loss / copy-neutral LOH rows take the better of the
+  oriented and the windowed evidence and the attenuated rows stay oriented. The `--chrom-tsv` report gives, per chromosome, how often the population phase disagrees with the
   reads inside blocks (`switch_rate`, `minority_frac`).
 - With blocks alone, only events shared by several percent of the cells are visible in the allele channel. The depth
   channel does not depend on phasing.
@@ -189,8 +200,10 @@ extractor's `cells_qc.tsv` and your labels:
   without cell types, all cells form one reference.
 - `flat`: cells known to be copy-number neutral (e.g. from a matched assay). Normal-tissue mode uses them as its null
   cells with `null_cells = "features"`; without them use `null_cells = "select"` (the caller selects null cells from
-  the data). Tumour mode fits its input depth and allelic null on them; its normal reference pool is the normal clone
-  the caller finds and cleans itself, not these cells.
+  the data). Tumour mode fits its input depth and allelic null on them; without them it fits on the cells without a
+  call on the null rows (`tumour_null_fit()`, with a warning; all cells when no stable set is found), which is the
+  weaker null. Its
+  normal reference pool is the normal clone the caller finds and cleans itself, not these cells.
 - `group`: tumour mode, groups whose pseudobulk orients the phase blocks (`groups = "group"`), e.g. spatial regions
   or RNA clusters.
 

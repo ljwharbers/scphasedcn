@@ -29,8 +29,8 @@ test_that("caller_states defines the base, attenuation and tumour state sets", {
   expect_equal(st$row_id, c("neutral_1", "loss_1", "gain_1", "gain_2", "cnloh_1"))
   expect_identical(caller_states("e4"), st)                     # older name, accepted
   att = caller_states("normal_att")
-  expect_equal(att[state == "loss", f], caller_defaults()$f_att)
-  expect_equal(att[state == "cnloh", f], caller_defaults()$f_att)
+  expect_equal(att[state == "loss", f], caller_defaults()$f_att_normal)
+  expect_equal(att[state == "cnloh", f], caller_defaults()$f_att_normal)
   tu = caller_states("tumour")
   expect_setequal(unique(tu$state), c("neutral", "loss", "cnloh", "gain", "gain_as", "amp"))
   expect_equal(tu[state == "loss", f], c(0.80, caller_defaults()$f_att))
@@ -45,7 +45,9 @@ test_that("score_cells equals the reference scorer column by column (t, Gaussian
   cols = c("dl_loss", "dl_gain", "al_loss", "al_gain", "al_cnloh", "cl_loss", "cl_gain", "cl_cnloh", "s_comb", "s_depth", "s_allelic")
   for (v in list(list("t", FALSE, "normal"), list("gauss", FALSE, "normal"), list("t", TRUE, "normal_att"))) {
     ref = par_ref(v[[1]], v[[2]])
-    me = score_cells(par_feat, caller_states(v[[3]]), if (v[[1]] == "t") par_tpar else NULL, par_rho, depth_model = v[[1]])
+    # the attenuation grid of the reference: f_att_normal = REF_F_ATT
+    me = score_cells(par_feat, caller_states(v[[3]], modifyList(caller_defaults(), list(f_att_normal = REF_F_ATT))),
+                     if (v[[1]] == "t") par_tpar else NULL, par_rho, depth_model = v[[1]])
     for (cn in cols) expect_lte(max(abs(me[[cn]] - ref[[cn]])), 1e-12, label = paste(v[[1]], v[[3]], cn))
     expect_identical(me$state_comb, ref$state_comb)
     expect_identical(me$state_depth, ref$state_depth)
@@ -187,6 +189,14 @@ test_that("select_null_cells drops >= 90 % of sim_norm_f's private-event carrier
   # the empirical variant cannot clean a set this contaminated (> 0.1 % event rows): documented limitation
   emp = select_null_cells(sf, exclude = mult, threshold = "empirical", n_iter = 1, chroms = NULL)
   expect_lt(mean(!sc %in% emp$null_cells), 0.5)
+  # `previous` is the set the last iteration started from
+  expect_identical(length(sel$previous), sel$log$n_in[2])
+  # every candidate called (here forced by max_calls = -1, as in a sample without neutral cells): an empty set after
+  # one iteration, not an error in the next one
+  none = select_null_cells(sf, exclude = mult, max_calls = -1, chroms = NULL)
+  expect_length(none$null_cells, 0)
+  expect_equal(nrow(none$log), 1)
+  expect_false(any(none$calls$null))
 })
 
 test_that("assign_folds is balanced and copies follow their origin", {
@@ -229,6 +239,44 @@ test_that("call_policy, call_table and consolidate_calls follow the normal-tissu
   expect_equal(ct2[called == TRUE, region], "chr1")
 })
 
+test_that("calls need a positive score: score > max(thr, 0) per cell, pooled and in the null accounting", {
+  # a vote-rich class can have a negative null quantile; a row between it and 0 (every state less likely than
+  # neutral) and a row without votes scoring exactly 0 (CN-LOH by tie) are not called, a row above 0 is
+  thr = data.table(score = "s_comb", class = "arm", stratum = "<20k", fold = 0L, q = 0.999, thr = -3, n_null = 1000L,
+                   pooled_fallback = FALSE)
+  d = data.table(cell = c("c1", "c2", "c3", "c4", "c5"), region = "chr2q", class = "arm", stratum = "<20k",
+                 s_comb = c(-4, -1, 0, 0.5, NA), state_comb = c("loss", "loss", "cnloh", "loss", "loss"),
+                 n_hap = c(50, 50, 0, 50, 50), is_null = TRUE)
+  a = apply_thresholds(d, thr, "s_comb")
+  expect_identical(a$thr_s_comb, rep(-3, 5))                     # the reported threshold is the null quantile
+  expect_identical(a$call_s_comb, c(FALSE, FALSE, FALSE, TRUE, NA))
+  # the null accounting counts the same rows as calling
+  rf = realised_false_calls(a)
+  expect_equal(rf$rates$n_called, 1L)
+  expect_equal(rf$rates$n_null, 4L)
+  ct = call_table(d, thr, fake_regions(), call_policy("normal"))
+  expect_identical(ct[order(cell), called], c(FALSE, FALSE, FALSE, TRUE, FALSE))
+  expect_identical(ct[order(cell), thr], rep(-3, 5))
+  ct0 = call_table(d[, !"is_null"][, thr_s_comb := -3], NULL, fake_regions(), call_policy("normal"))
+  expect_identical(ct0[order(cell), called], c(FALSE, FALSE, FALSE, TRUE, FALSE))
+  # positive thresholds: unchanged strict ">"
+  a2 = apply_thresholds(d, copy(thr)[, thr := 0.25], "s_comb")
+  expect_identical(a2$call_s_comb, c(FALSE, FALSE, FALSE, TRUE, NA))
+  # pooled calls: a negative pooled threshold calls exactly the pools with a positive score
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(200, rg, events = data.table(cell = 1:20, region = "10Mb|chr2:10000000", state = "loss"), seed = 11)
+  sc = score_cells(ff, caller_states("normal"), fit_depth_null(ff[null_cell == TRUE]), 0.002, keep_rows = TRUE)
+  pl = rbind(data.table(pool = "carriers", cell = sprintf("cell_%04d", 1:20)), make_pools(sprintf("cell_%04d", 21:200), NULL, 20, 3),
+             fill = TRUE)
+  pt = data.table(score = "s_comb", class = unique(sc$class), stratum = "all", fold = 0L, q = 0.999, thr = -1e6,
+                  n_null = 1000L, pooled_fallback = FALSE)
+  cp = call_pools(sc, pl, pt, call_policy("normal"), caller_states("normal"), rg, score = "s_comb")
+  expect_gt(sum(cp$score <= 0), 0)
+  expect_gt(sum(cp$score > 0), 0)
+  expect_identical(cp$called, cp$score > 0)
+  expect_true(all(cp$thr == -1e6))
+})
+
 test_that("pools: random partitions within type, kNN neighbourhoods, pooled thresholds and calls", {
   cells = sprintf("c%03d", 1:130); type = rep(c("a", "b", "c"), c(60, 61, 9))
   p = make_pools(cells, type, n_pool = 20, seed = 2)
@@ -258,6 +306,28 @@ test_that("pools: random partitions within type, kNN neighbourhoods, pooled thre
   expect_silent(check_calls(cp))
   expect_true(cp[cell == "carriers" & region == "10Mb|chr2:10000000", called & state == "loss"])
   expect_lt(cp[cell != "carriers", mean(called)], 0.01)
+})
+
+test_that("pooled thresholds: fold 0 does not depend on cv; caller_normal computes the pooled fold 0 only", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))
+  ff = fake_features(300, rg, seed = 7)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  sc = score_cells(ff, caller_states("normal"), fit_depth_null(ff[null_cell == TRUE]), 0.002, keep_rows = TRUE)
+  ct = setNames(ff[, cell_type[1], by = cell]$V1, ff[, cell_type[1], by = cell]$cell)
+  fun = function(cc, seed) make_pools(cc, ct[cc], 20, seed)
+  pt = function(cv) pooled_thresholds(sc[null_cell == TRUE], fun, n_draws = 600, cv = cv, loo = TRUE, standardize = TRUE,
+                                      min_region_pools = 150)
+  p1 = pt(TRUE); p0 = pt(FALSE)
+  expect_setequal(unique(p1$fold), 0:4)
+  expect_identical(unique(p0$fold), 0L)
+  expect_identical(attr(p0, "pool_scale"), attr(p1, "pool_scale"))
+  strip = function(x) { x = copy(x); setattr(x, "pool_scale", NULL); x }
+  expect_equal(strip(p0), strip(p1[fold == 0L]), tolerance = 0)
+  # caller_normal: per-cell thresholds per fold, pooled thresholds fold 0 only (call_pools uses fold 0)
+  res = caller_normal(ff, regions = rg, null_cells = "features", n_draws = 600)
+  expect_setequal(unique(res$thresholds[level == "cell", fold]), 0:4)
+  expect_true(all(res$thresholds[level != "cell", fold] == 0L))
+  expect_gt(nrow(res$thresholds[level == "pool_type"]), 0)
 })
 
 test_that("tumour states score attenuated losses, allele-specific gains and amplifications", {
@@ -752,7 +822,10 @@ test_that("budget_thresholds: hstratum keys the thresholds, falls back to class 
   expect_gt(r0[region <= "r05", sum(n_called) / sum(n_null)] * 1000, 3)
   expect_lt(r0[region > "r05", sum(n_called) / sum(n_null)] * 1000, 0.3)
   expect_lt(abs(r1[region <= "r05", sum(n_called) / sum(n_null)] * 1000 - 1), 0.6)
-  expect_lt(abs(r1[region > "r05", sum(n_called) / sum(n_null)] * 1000 - 1), 0.6)
+  # vote-rich regions: their vote strata have negative null quantiles, and calls need a positive score
+  # (score > max(thr, 0)), so their realised rate is at or below the budget rather than at it
+  expect_lt(r1[region > "r05", sum(n_called) / sum(n_null)] * 1000, 1.6)
+  expect_gt(r1[region > "r05", sum(n_called) / sum(n_null)] * 1000, 0.3)
   expect_error(apply_thresholds(sc, t1, "s_comb"), "hstratum")
   # fallback: a small vote stratum takes its class x stratum; if that is small too, the class
   fb = copy(sh)[region == "r01" & fold == 1, hstratum := "hx"]
@@ -1322,4 +1395,288 @@ test_that("without any allele votes caller_normal runs depth-only with one warni
   f2 = copy(ff)[, null_cell := cell != "cell_0001"]
   f2[cell == "cell_0001", `:=`(nA = 3, nB = 1, n_hap = 4)]
   expect_error(caller_normal(f2, regions = rg, null_cells = "features", n_draws = 500), "null rows have no allele votes")
+})
+
+# ---- attenuation-aware state set of normal mode (params$states_normal, f_att_normal) ---------------------------------
+
+# fake features with weak per-cell depth (sd_null x depth_k: a one-copy loss shifts z by about -0.7, as in sparse
+# single-cell data, so the allele term decides the state) and a switch error: a share `w` of the votes of the event
+# regions is flipped in every cell (A <-> B), so the carriers' oriented fraction falls from 0.98 to 0.98 - w x 0.96
+att_features = function(n_cells, rg, ev, w, depth_k = 8, seed = 1) {
+  ff = fake_features(n_cells, rg, events = ev, seed = seed)
+  sh = caller_defaults()$shifts
+  set.seed(seed + 100)
+  ff[, sd_null := sd_null * depth_k]
+  delta = fifelse(ff$truth == "loss", sh[["loss"]], fifelse(ff$truth == "gain", sh[["gain"]], 0))
+  ff[, z := rt(.N, 7) + delta / pmax(sd_null, 0.05)]
+  ff[, log2ratio := z * pmax(sd_null, 0.05)]
+  ff[, x := (e + 0.5) * 2^log2ratio - 0.5]
+  i = which(ff$region %in% unique(ev$region))
+  xa = rbinom(length(i), ff$nA[i], w); xb = rbinom(length(i), ff$nB[i], w)
+  ff[i, nA := nA - xa + xb]
+  ff[i, `:=`(nB = n_hap - nA, f = fifelse(n_hap > 0, nA / n_hap, NA_real_))]
+  ff[]
+}
+
+test_that("normal_att takes its grid from f_att_normal (tumour keeps f_att); normal_state_set resolves 'auto' from the regime", {
+  p = modifyList(caller_defaults(), list(f_att_normal = c(0.98, 0.6, 0.75)))
+  att = caller_states("normal_att", p)
+  expect_equal(att[state == "loss", f], c(0.6, 0.75, 0.98))
+  expect_equal(att[state == "cnloh", f], c(0.6, 0.75, 0.98))
+  expect_equal(att[state == "loss", row_id], paste0("loss_", 1:3))
+  expect_equal(att[state == "gain", f], c(2 / 3, 3 / 4))
+  expect_identical(caller_states("tumour", p), caller_states("tumour"))
+  expect_identical(caller_states("normal", p), caller_states("normal"))
+  expect_equal(caller_states("normal_att")[state == "loss", f], caller_defaults()$f_att_normal)
+  expect_lt(min(caller_defaults()$f_att_normal), 0.85)
+  p0 = caller_defaults(); p0$f_att_normal = NULL                  # parameter lists without the key: f_att, as before
+  expect_equal(caller_states("normal_att", p0)[state == "loss", f], caller_defaults()$f_att)
+  # loss and CN-LOH share one allelic row set: one allelic class
+  expect_equal(unname(scphasedcn:::allelic_classes(att[state != "neutral"])$label), c("loss_or_cnloh", "gain"))
+  for (bad in list(0.4, c(0.7, 1), "0.7", NA_real_, numeric()))
+    expect_error(caller_states("normal_att", modifyList(caller_defaults(), list(f_att_normal = bad))), "f_att_normal")
+  # normal_state_set
+  chr = c(detected = "chromosome", orientation = "chromosome")
+  blk = c(detected = "block", orientation = "loo")
+  st = function(v, ph = NULL, votes = TRUE) normal_state_set(modifyList(caller_defaults(), list(states_normal = v)), ph, votes)$set
+  expect_equal(normal_state_set()$set, "normal")
+  expect_equal(st("normal", chr), "normal")
+  expect_equal(st("normal_att", blk), "normal_att")
+  expect_equal(st("auto", chr), "normal_att")
+  expect_equal(st("auto", c(detected = "chromosome", orientation = "loo")), "normal_att")   # the merged phase sets decide
+  expect_equal(st("auto", blk), "normal")
+  expect_equal(st("auto", NULL), "normal")
+  expect_equal(st("auto", chr, votes = FALSE), "normal")
+  expect_match(normal_state_set(modifyList(caller_defaults(), list(states_normal = "auto")), chr)$reason, "phasing regime chromosome")
+  for (bad in list("x", NA_character_, c("normal", "auto"), 1, character()))
+    expect_error(normal_state_set(modifyList(caller_defaults(), list(states_normal = bad))), "states_normal")
+  p0 = caller_defaults(); p0$states_normal = NULL
+  expect_equal(normal_state_set(p0)$set, "normal")
+  # no parameter name may start with a block name: `params$normal` (split_params) would partially match it
+  expect_false(any(startsWith(names(caller_defaults()), "normal") | startsWith(names(caller_defaults()), "tumour")))
+})
+
+test_that("caller_normal: states_normal unset and 'normal' give identical results; invalid values stop", {
+  rg = fake_regions(tiles = c("5Mb" = 5e6, "20Mb" = 2e7))
+  ev = data.table(cell = c(1:10, 11:20), region = rep(c("chr1p", "chr8"), each = 10), state = rep(c("loss", "gain"), each = 10))
+  ff = fake_features(240, rg, events = ev, seed = 3)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  ff[, null_cell := NA]                                                  # null cells selected
+  set.seed(2)
+  emb = matrix(rnorm(240 * 5), 240, 5, dimnames = list(unique(ff$cell), NULL))
+  p0 = caller_defaults(); p0$states_normal = NULL; p0$f_att_normal = NULL
+  run = function(p, ...) caller_normal(ff, regions = rg, embedding = emb, n_draws = 1000, params = p, ...)
+  r0 = run(p0)
+  r1 = run(modifyList(caller_defaults(), list(states_normal = "normal")))
+  for (k in setdiff(names(r0), "params")) expect_identical(r1[[k]], r0[[k]], label = k)
+  expect_equal(r1$null_fit$state_set, "normal")
+  expect_false("f_state" %in% names(r1$scores))
+  expect_false("f_state" %in% names(r1$calls))
+  expect_length(grep("^state set normal \\(states_normal = \"normal\"\\)$", r1$notes), 1)
+  # "auto" on block phasing is the normal set: same results
+  r2 = run(modifyList(caller_defaults(), list(states_normal = "auto")), phasing = c(detected = "block", orientation = "loo"))
+  for (k in setdiff(names(r0), c("params", "notes"))) expect_identical(r2[[k]], r0[[k]], label = k)
+  expect_true(any(grepl("states_normal = \"auto\": phasing regime block", r2$notes, fixed = TRUE)))
+  for (bad in list(list(states_normal = "att"), list(states_normal = NA_character_), list(f_att_normal = c(0.3, 0.9))))
+    expect_error(caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character(), params = modifyList(caller_defaults(), bad)),
+                 names(bad))
+})
+
+test_that("normal_att calls attenuated losses as losses where the normal set labels them gains; 'auto' follows the regime", {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ev = data.table(cell = c(1:20, 21:40), region = rep(c("chr1p", "chr2q"), each = 20), state = rep(c("loss", "cnloh"), each = 20))
+  ff = att_features(300, rg, ev, w = 0.3)                                # carriers' fraction about 0.69
+  car = ev[, .(cell = sprintf("cell_%04d", cell), region, state)]
+  run = function(set, ...) caller_normal(ff, regions = rg, null_cells = "features", n_draws = 500, pool_classes = character(),
+                                         params = modifyList(caller_defaults(), list(states_normal = set)), ...)
+  ok = function(r, reg) {
+    x = r$calls[level == "cell" & region == reg & cell %in% car[region == reg, cell]]
+    c(state = sum(x$called & x$reportable & x$state == car[region == reg, state][1]), gain = sum(x$called & x$state == "gain"))
+  }
+  rn = run("normal")
+  ra = run("normal_att")
+  # the normal set: the attenuated 1p loss is a (non-reportable arm) gain, never a loss
+  expect_lte(ok(rn, "chr1p")[["state"]], 1)
+  expect_gte(ok(rn, "chr1p")[["gain"]], 8)
+  # normal_att: most carriers are reportable losses, few labelled gains
+  expect_gte(ok(ra, "chr1p")[["state"]], 7)
+  expect_lt(ok(ra, "chr1p")[["gain"]], ok(rn, "chr1p")[["gain"]] - 5)
+  expect_gte(ok(ra, "chr2q")[["state"]], ok(rn, "chr2q")[["state"]])
+  # the scores carry one allelic row per grid point and the best-fitting fraction of the called state
+  expect_true(all(paste0("ar_loss_", 1:4) %in% names(ra$scores)))
+  fl = ra$calls[level == "cell" & called & state == "loss" & region == "chr1p" & cell %in% car$cell]
+  expect_true(all(fl$f_state %in% c(0.70, 0.80)))
+  sc = ra$scores
+  i = which(sc$state_comb == "loss" & sc$n_hap > 0)
+  best = caller_defaults()$f_att_normal[max.col(as.matrix(sc[i, paste0("ar_loss_", 1:4), with = FALSE]), ties.method = "first")]
+  expect_equal(sc$f_state[i], best)
+  expect_true(all(is.na(sc$f_state[sc$n_hap %in% 0])))
+  expect_equal(ra$null_fit$state_set, "normal_att")
+  expect_true(any(grepl("^state set normal_att \\(states_normal = \"normal_att\"\\); loss and CN-LOH rows over f 0.7, 0.8, 0.9, 0.98$", ra$notes)))
+  # auto: chromosome-scale phase sets -> normal_att (identical results), block phasing -> normal
+  rc = run("auto", phasing = c(detected = "chromosome", orientation = "chromosome"))
+  expect_equal(rc$null_fit$state_set, "normal_att")
+  expect_identical(rc$calls, ra$calls)
+  expect_identical(rc$thresholds, ra$thresholds)
+  expect_true(any(grepl("state set normal_att (states_normal = \"auto\": phasing regime chromosome)", rc$notes, fixed = TRUE)))
+  rb = run("auto", phasing = c(detected = "block", orientation = "loo"))
+  expect_equal(rb$null_fit$state_set, "normal")
+  expect_identical(rb$calls, rn$calls)
+})
+
+test_that("normal_att is used by the null-cell selection, the pools and the named events", {
+  rg0 = fake_regions(tiles = c("20Mb" = 2e7))
+  ev_row = copy(rg0[region == "chr8"])[, `:=`(region = "chr8_event", class = "event", sd_class = "chrom", null_region = FALSE)]
+  rg = rbind(rg0, ev_row)
+  ev = data.table(cell = c(1:15, 16:30), region = rep(c("chr1p", "chr8_event"), each = 15), state = "loss")
+  ff = att_features(300, rg, ev, w = 0.3, seed = 4)
+  ff[, cell_type := rep(c("epi", "fib"), length.out = .N)[match(cell, unique(cell))]]
+  ff[, null_cell := NA]
+  set.seed(5)
+  emb = matrix(rnorm(300 * 5), 300, 5, dimnames = list(unique(ff$cell), NULL))
+  pa = modifyList(caller_defaults(), list(states_normal = "normal_att"))
+  r = caller_normal(ff, regions = rg, embedding = emb, n_draws = 1000, params = pa)
+  # null-cell selection under the normal_att set
+  sa = select_null_cells(ff, caller_states("normal_att", pa), pa)
+  sn = select_null_cells(ff, caller_states("normal", pa), pa)
+  expect_identical(r$null_fit$selection$thresholds, sa$thresholds)
+  expect_identical(r$null_fit$selection$null_cells, sa$null_cells)
+  expect_false(identical(sa$thresholds$thr, sn$thresholds$thr))
+  # select_args can still pass their own states
+  r_s = caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character(), params = pa,
+                      select_args = list(states = caller_states("normal", pa)))
+  expect_identical(r_s$null_fit$selection$thresholds, sn$thresholds)
+  # pooled scores of the cell-type pools: the normal_att states with the run's region scale
+  sca = r$null_fit$pool_scale[kind == "type"][, kind := NULL]
+  sp = r$scores[class %in% c("chrom", "arm", "50Mb", "20Mb", "10Mb", "5Mb", "event") & eligible %in% TRUE]
+  ps = pool_scores(sp, r$pools[kind == "type", .(pool, cell)], caller_states("normal_att", pa), by = c("region", "class"),
+                   loo = TRUE, scale = sca)
+  pc = r$calls[level == "pool" & grepl("^(epi|fib)\\|pool", cell)]
+  k = match(paste(pc$cell, pc$region), paste(ps$pool, ps$region))
+  expect_false(anyNA(k))
+  expect_equal(pc$s_comb, ps$s_comb[k])
+  expect_equal(pc$state, ps$state_rob[k])
+  expect_true(all(c("pool_type", "pool_knn") %in% r$thresholds$level))
+  # every scoring step of the run receives the normal_att state table (the pooled scores of null pools hardly differ
+  # between the sets, so the states passed are recorded instead)
+  seen = list()
+  rec = function(nm, f) function(...) {
+    a = as.list(match.call(f, sys.call()))[-1]
+    seen[[nm]] <<- c(seen[[nm]], list(eval(a$states, parent.frame())))
+    f(...)
+  }
+  ns = asNamespace("scphasedcn")
+  fns = c("select_null_cells", "score_cells", "pooled_thresholds", "call_pools")
+  orig = mget(fns, envir = ns)
+  do.call(local_mocked_bindings, c(lapply(setNames(fns, fns), function(nm) rec(nm, orig[[nm]])), list(.package = "scphasedcn", .env = environment())))
+  invisible(caller_normal(ff, regions = rg, embedding = emb, n_draws = 500, params = pa))
+  want = caller_states("normal_att", pa)
+  expect_setequal(names(seen), fns)
+  for (nm in fns) for (x in seen[[nm]]) expect_identical(x, want, label = nm)
+  expect_gte(length(seen$pooled_thresholds), 2)                         # cell-type and kNN pools
+  expect_gte(length(seen$call_pools), 2)
+  # the named event borrows the per-cell thresholds of its sd_class (computed under normal_att); its attenuated
+  # carriers are reportable losses, more of them than under the normal set
+  th = r$thresholds[level == "cell"]
+  te = th[class == "event"]; tc = th[class == "chrom"]
+  expect_gt(nrow(te), 0)
+  expect_identical(te$thr, tc$thr[match(paste(te$score, te$stratum, te$fold), paste(tc$score, tc$stratum, tc$fold))])
+  ce = r$calls[level == "cell" & region == "chr8_event" & called & reportable & state == "loss"]
+  expect_gte(sum(sprintf("cell_%04d", 16:30) %in% ce$cell), 5)
+  rn = caller_normal(ff, regions = rg, n_draws = 500, pool_classes = character())
+  cn = rn$calls[level == "cell" & region == "chr8_event" & called & reportable & state == "loss"]
+  expect_gt(sum(sprintf("cell_%04d", 16:30) %in% ce$cell), sum(sprintf("cell_%04d", 16:30) %in% cn$cell))
+})
+
+# att_features plus window columns (window_allelic_features()): null-level windowed LLRs everywhere and a private
+# CN-LOH of chr21 (chromosome and arms) in five cells whose oriented votes stay balanced (cancelled at population-phase
+# switches) and whose depth is flat, so that only the windowed term sees it
+att_win_features = function(seed = 6) {
+  rg = fake_regions(tiles = c("20Mb" = 2e7))
+  ev = data.table(cell = 1:20, region = "chr1p", state = "loss")
+  ff = att_features(300, rg, ev, w = 0.3, seed = seed)
+  set.seed(seed + 1)
+  ff[, n_win := 10]
+  ff[, wal_f980 := -abs(rnorm(.N, 40, 10))]
+  priv = sprintf("cell_%04d", 101:105)
+  ff[cell %in% priv & region %in% c("chr21", "chr21p", "chr21q"), `:=`(wal_f980 = 80, z = 0)]
+  ff[, null_cell := NA]                                                  # null cells selected (with the windowed guard)
+  list(ff = ff, rg = rg, priv = priv)
+}
+
+test_that("normal_att with the windowed allele term: the 0.98 loss / CN-LOH rows take the window, f_state follows it", {
+  aw = att_win_features()
+  run = function(p) caller_normal(aw$ff, regions = aw$rg, n_draws = 500, pool_classes = character(), params = p)
+  pa = modifyList(caller_defaults(), list(states_normal = "normal_att"))
+  expect_equal(pa$win_score, "max")
+  ra = run(pa)
+  expect_true(any(grepl("per-cell allele term: the better of the oriented and the windowed LLR", ra$notes, fixed = TRUE)))
+  expect_true(any(grepl("(rows at f 0.98)", ra$notes, fixed = TRUE)))
+  expect_false(any(ra$cells[cell %in% aw$priv, null_cell]))              # guarded out of the null set
+  s = ra$scores[cell %in% aw$priv & region == "chr21"]
+  ar = as.matrix(s[, paste0("ar_cnloh_", 1:4), with = FALSE])
+  expect_equal(caller_states("normal_att", pa)[state == "cnloh", f], c(0.70, 0.80, 0.90, 0.98))
+  expect_true(all(s$state_comb == "cnloh"))
+  expect_equal(s$al_cnloh, rep(80, 5))                                  # the windowed LLR at the 0.98 row
+  expect_true(all(s$al_cnloh > apply(ar, 1, max)))                     # above every oriented row of the grid
+  expect_true(all(ar[, 1] >= ar[, 4]))                                 # balanced votes: oriented, 0.70 fits best
+  expect_equal(s$f_state, rep(0.98, 5))                                 # the row that won as scored
+  cl = ra$calls[level == "cell" & cell %in% aw$priv & region == "chr21"]
+  expect_equal(nrow(cl), 5L)
+  expect_true(all(cl$called & cl$reportable & cl$state == "cnloh"))
+  expect_equal(cl$f_state, rep(0.98, 5))
+  # rows without a window above win_min: f_state is the oriented argmax over the grid, as without window columns
+  i = which(ra$scores$state_comb == "loss" & ra$scores$n_hap > 0 & !(ra$scores$wal_f980 > 15))
+  expect_gt(length(i), 0)
+  best = c(0.70, 0.80, 0.90, 0.98)[max.col(as.matrix(ra$scores[i, paste0("ar_loss_", 1:4), with = FALSE]), ties.method = "first")]
+  expect_equal(ra$scores$f_state[i], best)
+  # a grid without 1 - eps still holds the 0.98 rows, so the windowed term keeps its row (no "match no allelic row"
+  # fallback to the oriented term)
+  pg = modifyList(pa, list(f_att_normal = c(0.7, 0.8, 0.9)))
+  expect_equal(caller_states("normal_att", pg)[state == "loss", f], c(0.7, 0.8, 0.9, 0.98))
+  rg_ = withCallingHandlers(run(pg), warning = function(w) if (grepl("match no allelic row fraction", conditionMessage(w)))
+    stop("window fallback: ", conditionMessage(w)))
+  expect_equal(rg_$scores[cell %in% aw$priv & region == "chr21", al_cnloh], rep(80, 5))
+  expect_true(any(grepl("loss and CN-LOH rows over f 0.7, 0.8, 0.9, 0.98$", rg_$notes)))
+  # the default set with the window term: unset and "normal" give identical results, the window acts on the normal
+  # rows alike, and there is no f_state
+  p0 = caller_defaults(); p0$states_normal = NULL; p0$f_att_normal = NULL
+  r0 = run(p0)
+  r1 = run(modifyList(caller_defaults(), list(states_normal = "normal")))
+  for (k in setdiff(names(r0), "params")) expect_identical(r1[[k]], r0[[k]], label = k)
+  expect_equal(r1$scores[cell %in% aw$priv & region == "chr21", al_cnloh], rep(80, 5))
+  expect_false("f_state" %in% names(r1$scores))
+  expect_false(any(r1$cells[cell %in% aw$priv, null_cell]))
+})
+
+test_that("null_selection_check selects and scores under the run's state set (states_normal, phasing)", {
+  aw = att_win_features()
+  ff = aw$ff[, -c("wal_f980", "n_win")]
+  seen = list()
+  rec = function(nm, f) function(...) {
+    a = as.list(match.call(f, sys.call()))[-1]
+    seen[[nm]] <<- c(seen[[nm]], list(eval(a$states, parent.frame())))
+    f(...)
+  }
+  ns = asNamespace("scphasedcn")
+  fns = c("select_null_cells", "score_cells")
+  orig = mget(fns, envir = ns)
+  do.call(local_mocked_bindings, c(lapply(setNames(fns, fns), function(nm) rec(nm, orig[[nm]])), list(.package = "scphasedcn", .env = environment())))
+  chk = function(p, phasing = NULL) {
+    seen <<- list()
+    invisible(null_selection_check(ff, params = p, regions = aw$rg, select_args = list(n_sim = 2e4), phasing = phasing))
+    seen
+  }
+  pa = modifyList(caller_defaults(), list(states_normal = "normal_att"))
+  s = chk(pa)
+  for (nm in fns) {
+    expect_gte(length(s[[nm]]), 2)
+    for (st in s[[nm]]) expect_identical(st, caller_states("normal_att", pa), label = nm)
+  }
+  pu = modifyList(caller_defaults(), list(states_normal = "auto"))
+  s = chk(pu, phasing = c(detected = "chromosome", orientation = "chromosome"))
+  expect_gte(length(s$score_cells), 2)
+  for (nm in fns) for (st in s[[nm]]) expect_identical(st, caller_states("normal_att", pu), label = nm)
+  s = chk(caller_defaults())
+  for (nm in fns) for (st in s[[nm]]) expect_identical(st, caller_states("normal"), label = nm)
 })

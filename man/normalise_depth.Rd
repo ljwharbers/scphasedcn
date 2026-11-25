@@ -12,6 +12,7 @@ normalise_depth(
   ref_cells = NULL,
   min_cells_type = 20,
   per_cell_gc = TRUE,
+  gc_method = "lowess",
   ...
 )
 }
@@ -30,6 +31,14 @@ normalise_depth(
 
 \item{per_cell_gc}{model: subtract a per-cell robust GC trend after the shared GLM}
 
+\item{gc_method}{model with \code{per_cell_gc}: estimator of the per-cell GC trend. \code{"lowess"} (default): a robust
+lowess of the bin log2 ratio \code{log2((x + 0.5) / (e + 0.5))} on bin GC. At low depth (most bins with 0 or 1
+fragments) the mean of that log ratio depends nonlinearly on \code{e}, so this fit finds a GC trend that depends on
+the cell's depth even in a cell without one. \code{"ratio"}: the ratio of summed observed to summed expected counts
+in 20 GC quantile groups of the bins, smoothed across the groups (weighted local-linear loess, span 0.75) and
+evaluated at each bin's GC; unbiased at every depth. Bins without GC keep the shared model; a cell
+without fragments gets no trend. (\code{\link[=caller_defaults]{caller_defaults()}} \code{gc_method})}
+
 \item{...}{unused}
 }
 \value{
@@ -45,6 +54,7 @@ reference of a cell leaves that cell out.
 types with fewer than \code{min_cells_type} reference cells, use \code{loo}. The normal-tissue reference: it removes
 the cell-type-specific chromatin signal in the depth.
 \item \code{model}: a robust Poisson GLM of the bin counts on GC content, mappability proxies and peak coverage,
-plus a per-cell GC trend. The tumour reference: it needs no copy-number-normal cells.
+plus a per-cell GC trend (\code{per_cell_gc}, estimated as \code{gc_method} says). The tumour reference: it needs no
+copy-number-normal cells.
 }
 }

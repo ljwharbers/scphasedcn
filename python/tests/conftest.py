@@ -119,6 +119,7 @@ def bam(genome):
       blacklist  n=[900100,901000)+ (dropped from depth, flagged)
       trf start  o=[700050,700300)+ ; MAPQ0 p=[300000,300500) ; dup q (flag 1024) ; secondary r (256) ;
       supplementary s (2048) of t=[400000,400800)+ which carries SA ; u=[120000,121000) mapq 45 (not 60)
+      QC-fail y=[330000,330500)+ (flag 512: counted in n_qcfail and n_records, not a fragment)
     CELL_B chr1: v=[10000,12000)+ (same position as a, other cell), w=[800000,800500)-; chrM: 2 reads; chrX: 1 read.
     CELL_C (unlisted) and "-" barcodes: 2 reads each on chr1.
     chr2 SNP reads (VCF: 1001 A>G 0|1 PS1000; 1501 C>T 1|0 PS1000; 2001 G>A 0/1 unphased):
@@ -155,6 +156,7 @@ def bam(genome):
     mk(name(A, "t"), "chr1", 400000, "800M", "+", tags=[("SA", "chr1,450000,+,800S200M,60,0;")])
     mk(name(A, "t"), "chr1", 450000, "800S200M", "+", flag_extra=2048, tags=[("SA", "chr1,400000,+,800M,60,0;")])
     mk(name(A, "u"), "chr1", 120000, "1000M", "+", mapq=45)
+    mk(name(A, "y"), "chr1", 330000, "500M", "+", flag_extra=512)    # QC-fail (0x200): counted, skipped
     # CELL_B
     mk(name(B, "v"), "chr1", 10000, "2000M", "+")
     mk(name(B, "w"), "chr1", 800000, "500M", "-")

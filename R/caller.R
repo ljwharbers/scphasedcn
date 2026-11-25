@@ -3,7 +3,7 @@
 #       log-likelihood ratios (depth location shift under a Student-t / Gaussian null + oriented
 #       beta-binomial allele term, max over each state's allelic rows), null thresholds at the
 #       false-call budget per class x depth stratum (fold-cross-validated, type-7 quantile, strict
-#       `>`), per-cell calls under a calling policy, consolidation of nested calls into events,
+#       `>`, floored at 0), per-cell calls under a calling policy, consolidation of nested calls into events,
 #       pooled scores and pooled thresholds (random pools within a cell type, or chromatin kNN
 #       pools), self-calibration of the null cell set in normal tissue, and the normal-tissue
 #       wrapper caller_normal().
@@ -33,8 +33,11 @@ utils::globalVariables(c("row_id", "shift", "fold", "is_null", "null_cell", "nul
 #'   * `normal`: neutral 1:1; loss 1:0 at f = 1 - eps (shift loss);
 #'     gain 2:1 (2/3) and 3:1 (3/4), both at the gain shift; cnloh 2:0 at
 #'     1 - eps (shift 0). The normal-tissue state set.
-#'   * `normal_att`: as `normal` with the loss and cnloh rows over `f_att` (an
-#'     attenuation-aware sensitivity variant).
+#'   * `normal_att`: as `normal` with the loss and cnloh rows over `f_att_normal` (the attenuation-aware opt-in of
+#'     normal mode, `params$states_normal`; `f_att` when the parameters have no `f_att_normal`), always together with
+#'     `1 - eps`, the fraction of the `normal` rows (so the set contains the `normal` loss / cnloh rows, and the
+#'     windowed allele term of [score_cells()] always finds its row). Loss and cnloh keep one shared row set, so their
+#'     allelic class stays `loss_or_cnloh`.
 #'   * `tumour` (per-cell detection and assignment): loss 1:0 at f in
 #'     c(0.80, f_att); cnloh 2:0 over f_att; gain 2:1 (2/3); gain_as 3:0 over
 #'     f_att (gain shift); amp 3:1 (0.75), 2:2 (0.5), 4:1 (0.80) with shift
@@ -48,6 +51,7 @@ caller_states = function(set = c("normal", "normal_att", "tumour"), params = cal
   if (length(set) == 1 && set %in% c("e4", "e4_att")) set = sub("e4", "normal", set, fixed = TRUE)   # older names
   set = match.arg(set)
   eps = params$eps; sh = params$shifts; fa = params$f_att
+  if (set == "normal_att") fa = normal_att_grid(params)
   mk = function(state, a, b, shift, f) data.table(state = state, nA = as.integer(a), nB = as.integer(b),
                                                   cn = as.integer(a + b), shift = shift, f = f)
   amp = function(a, b, f) mk("amp", a, b, params$k_amp * log2((a + b) / 2), f)
@@ -63,6 +67,80 @@ caller_states = function(set = c("normal", "normal_att", "tumour"), params = cal
   st[, row_id := paste0(state, "_", seq_len(.N)), by = state]
   setcolorder(st, c("state", "row_id", "nA", "nB", "cn", "shift", "f"))
   st[]
+}
+
+# a grid of major-haplotype fractions: numeric, finite, in (0.5, 1), sorted and unique
+check_f_grid = function(f, what = "f_att_normal") {
+  if (!is.numeric(f) || !length(f) || anyNA(f) || any(f <= 0.5 | f >= 1))
+    stop("params$", what, " must be major-haplotype fractions in (0.5, 1), not '",
+         paste(format(f), collapse = ", "), "'", call. = FALSE)
+  sort(unique(f))
+}
+
+# loss / CN-LOH fractions of the normal_att set: f_att_normal (f_att without that key) plus 1 - eps, the fraction of
+# the normal set's rows and of the windowed term's column (win_f_grid() rounds alike)
+normal_att_grid = function(params = caller_defaults()) {
+  sort(unique(round(c(check_f_grid(params$f_att_normal %||% params$f_att, "f_att_normal"), 1 - params$eps), 6)))
+}
+
+#' State set of normal mode
+#'
+#' Resolves `params$states_normal` ([caller_defaults()]) to a [caller_states()] set: `"normal"`, `"normal_att"`
+#' (opt-in: loss and CN-LOH over `f_att_normal`) or `"auto"`: `normal_att` when the features' phasing regime
+#' (`phasing["detected"]`, the run-level rule of [detect_phasing()] that [cell_features()] records in
+#' `features$phasing`) is `chromosome`, i.e. merged chromosome-scale phase sets, whose switch errors attenuate the
+#' oriented fraction of a real event under any orientation; `normal` on block phasing, without a phasing record
+#' and without allele votes (the allelic terms are 0, so both sets score alike). Mixed regimes (some chromosomes in
+#' blocks, [phasing_by_chrom()]) follow the run-level regime: the state set is one per run, not per chromosome.
+#' @param params [caller_defaults()] (`states_normal`, `f_att_normal`)
+#' @param phasing the features' phasing record (`features$phasing`: named `detected`, `orientation`) or NULL
+#' @param votes FALSE when the run has no allele votes
+#' @return list(set = "normal" or "normal_att", requested, reason): `reason` is the text of the run note
+#' @export
+normal_state_set = function(params = caller_defaults(), phasing = NULL, votes = TRUE) {
+  req = params$states_normal %||% "normal"
+  if (!is.character(req) || length(req) != 1L || is.na(req) || !req %in% c("normal", "normal_att", "auto"))
+    stop("caller_normal: params$states_normal must be 'normal', 'normal_att' or 'auto', not '",
+         paste(format(req), collapse = ", "), "'", call. = FALSE)
+  if (!is.null(params$f_att_normal)) check_f_grid(params$f_att_normal, "f_att_normal")
+  if (req != "auto") return(list(set = req, requested = req, reason = sprintf("states_normal = \"%s\"", req)))
+  det = if (!is.null(phasing) && "detected" %in% names(phasing)) unname(as.character(phasing[["detected"]])) else NA_character_
+  set = if (isTRUE(votes) && identical(det, "chromosome")) "normal_att" else "normal"
+  why = if (!isTRUE(votes)) "no allele votes" else if (is.na(det)) "no phasing record" else sprintf("phasing regime %s", det)
+  list(set = set, requested = req, reason = sprintf("states_normal = \"auto\": %s", why))
+}
+
+# run note of the normal-mode state set
+normal_states_note = function(ss, params) {
+  sprintf("state set %s (%s)%s", ss$set, ss$reason,
+          if (ss$set == "normal_att") sprintf("; loss and CN-LOH rows over f %s",
+                                              paste(sprintf("%g", normal_att_grid(params)), collapse = ", ")) else "")
+}
+
+# best-fitting major-haplotype fraction of the called state (state_comb) of each scored row: the f of the best
+# allelic row of that state as scored, i.e. the oriented per-row LLR (ar_<row_id>, score_cells(keep_rows = TRUE))
+# with the windowed term substituted as score_cells(window = ) does (a loss carried by the windowed LLR at 0.98 has
+# f_state 0.98, not the attenuated grid point its oriented votes fit best); NA for neutral / depth-only rows
+state_f = function(sc, states, window = "none", params = caller_defaults()) {
+  ns = as.data.table(states)[state != "neutral"]
+  out = rep(NA_real_, nrow(sc))
+  wmin = params$win_min %||% 0
+  arow = function(x, f, i) {
+    a = sc[[paste0("ar_", x)]][i]
+    wc = win_col(f)
+    if (window == "none" || !wc %in% names(sc)) a else win_substitute(a, as.numeric(sc[[wc]][i]), window, wmin)
+  }
+  for (s in unique(ns$state)) {
+    r = which(ns$state == s)
+    i = which(sc$state_comb == s)
+    if (!length(i)) next
+    A = do.call(cbind, lapply(r, function(k) arow(ns$row_id[k], ns$f[k], i)))
+    b = max.col(A, ties.method = "first")
+    out[i] = ns$f[r][b]
+  }
+  noal = if ("n_hap" %in% names(sc)) which(is.na(sc$n_hap) | sc$n_hap <= 0) else integer()
+  out[noal] = NA_real_
+  out
 }
 
 # states without any depth shift (CN-LOH): purely allelic, undefined on depth-only (allelic_ok FALSE) rows
@@ -167,10 +245,7 @@ score_cells = function(d, states = caller_states("normal"), tpar = NULL, rho, ep
     for (f in unique(ns$f)) {
       wc = win_col(f)
       if (!wc %in% names(d)) next
-      w = as.numeric(d[[wc]]); a = acache[[fk(f)]]
-      ok = if (window == "max") !is.na(w) & w > wmin else !is.na(w)
-      a[ok] = if (window == "max") pmax(a[ok], w[ok]) else w[ok]
-      wcache[[fk(f)]] = a
+      wcache[[fk(f)]] = win_substitute(acache[[fk(f)]], as.numeric(d[[wc]]), window, wmin)
     }
     if (length(wcache)) for (i in seq_len(nrow(ns))) if (!is.null(wcache[[fk(ns$f[i])]])) ar[[i]] = wcache[[fk(ns$f[i])]]
   }
@@ -263,6 +338,14 @@ q7 = function(x, q) {
   x = x[is.finite(x)]
   if (length(x) == 0) NA_real_ else unname(quantile(x, q, type = 7))
 }
+
+# The calling rule, used by every comparison of a score with its null threshold (per-cell, pooled and tumour
+# confirmation calls, and the false-call accounting on the null rows): called when the score exceeds the threshold
+# and 0, `score > max(thr, 0)`. A score is a log-likelihood ratio against neutral; in a vote-rich class the null
+# quantile can be negative (the allele terms are negative under the null in proportion to the votes), and without
+# the floor a row would be called while every state is less likely than neutral (or, scoring exactly 0 without
+# votes, as CN-LOH). The thresholds tables keep the null quantile itself. NA score or threshold: NA.
+above_thr = function(score, thr) score > pmax(thr, 0)
 
 group_key = function(d, by) {
   if (length(by) == 0) return(rep("all", nrow(d)))
@@ -373,7 +456,8 @@ budget_thresholds = function(d, scores = c("s_depth", "s_allelic", "s_comb"), by
 
 #' Apply null thresholds to scored rows
 #'
-#' Adds `thr_<score>` and `call_<score>` (`score > thr`, strict). A row
+#' Adds `thr_<score>` and `call_<score>` (`score > max(thr, 0)`, strict: a call also needs a positive
+#' log-likelihood ratio; `thr_<score>` is the threshold itself, which can be negative). A row
 #' whose `fold` has a threshold in the table gets that fold's (cross-validated)
 #' threshold; other rows (no `fold` column, fold 0, or a fold the table does
 #' not have) get fold 0. A thresholds table whose `stratum` is all "all"
@@ -411,7 +495,7 @@ apply_thresholds = function(d, thr, scores = unique(thr$score)) {
     k = fifelse(fold != 0L & !is.na(k1), k1, k0)
     th = tt$thr[k]
     set(d, j = paste0("thr_", s), value = th)
-    set(d, j = paste0("call_", s), value = d[[s]] > th)
+    set(d, j = paste0("call_", s), value = above_thr(d[[s]], th))
   }
   d[]
 }
@@ -764,7 +848,8 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' allelic rho on the null rows of the current set, scores every candidate
 #' cell on the `classes` regions (chromosomes and arms) with `s_comb`,
 #' thresholds at the selection quantile `q` and keeps the cells with at most
-#' `max_calls` calls. Every iteration re-evaluates all candidates (a cell
+#' `max_calls` calls (it stops early, with no null cell, when no candidate is
+#' left: every candidate guarded, or with more calls). Every iteration re-evaluates all candidates (a cell
 #' dropped earlier can come back), so the set does not ratchet.
 #'
 #' Thresholds (`threshold`): "parametric" (default) re-draws the null rows
@@ -805,8 +890,8 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' cell out of the null set, which costs little (6 of 4,105 cells of a normal thyroid sample). It sees only chromosome
 #' and arm rows, so a null cell can still carry a windowed call on a smaller tile. The selection's scores themselves
 #' stay oriented, so that they match what the parametric thresholds simulate.
-#' @return list(null_cells, log (per iteration), calls (per candidate cell: n_calls, win_guard, null), tpar, rho,
-#'   thresholds)
+#' @return list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
+#'   candidate cell: n_calls, win_guard, null), tpar, rho, thresholds)
 #' @export
 select_null_cells = function(feat_long, states = caller_states("normal", params), params = caller_defaults(), n_iter = 2,
                              max_calls = 0, exclude = NULL, classes = c("chrom", "arm"), depth_model = "t",
@@ -838,8 +923,9 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
               call. = FALSE)
   }
   cur = setdiff(cand, guard_win)                       # guarded cells are out from the first fit on (also with n_iter = 1)
-  log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL
+  log = list(); nc = NULL; tpar = NULL; rho = NA_real_; thr = NULL; prev = cur
   for (it in seq_len(n_iter)) {
+    if (!length(cur)) break   # no cell left (every candidate guarded, or called in the last iteration): nothing to fit on
     isn = ok_row & d$cell %in% cur
     tpar = if (depth_model == "t") complete_tpar(d, fit_depth_null(d[isn])) else NULL
     arm = isn & d$class == "arm"
@@ -856,11 +942,13 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
     log[[it]] = data.table(iter = it, n_in = length(cur), n_out = length(new), n_dropped = length(setdiff(cur, new)),
                            n_added = length(setdiff(new, cur)), rho = rho, call_rate_per_1000 = fr,
                            n_win_guard = length(guard_win))
+    prev = cur
     cur = new
   }
+  if (is.null(nc)) nc = data.table(cell = cand, n_calls = NA_integer_)   # no iteration ran: every candidate guarded
   nc[, win_guard := cell %in% guard_win]
   nc[, null := cell %in% cur]
-  list(null_cells = cur, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)
+  list(null_cells = cur, previous = prev, log = rbindlist(log), calls = nc[], tpar = tpar, rho = rho, thresholds = thr)
 }
 
 # ---- calling policy, calls, events -------------------------------------------------------------------
@@ -972,7 +1060,8 @@ add_coords = function(x, regions) {
 #' Per-cell calls table
 #'
 #' One row per scored cell x region whose class and best state (`state_comb`)
-#' the policy lists at `level`; `called = score > thr`. Rows with
+#' the policy lists at `level`; `called = score > max(thr, 0)` (the threshold, and a positive log-likelihood
+#' ratio: a negative null threshold never lets a row be called while neutral is at least as likely). Rows with
 #' `eligible = FALSE` (regions that are not scored) are left out.
 #' @param d_scored scored rows ([score_cells()]); with `thr_<score>` columns
 #'   when `thr_applied` is NULL
@@ -1001,7 +1090,7 @@ call_table = function(d_scored, thr_applied = NULL, regions = NULL, policy = cal
                  state = d[[sc]][keep], score = d[[score]][keep], thr = d[[tc]][keep])
   for (e in extra) set(x, j = e, value = d[[e]][keep])
   x = add_coords(x, regions)
-  x[, called := !is.na(score) & !is.na(thr) & score > thr]
+  x[, called := !is.na(score) & !is.na(thr) & above_thr(score, thr)]
   x[, `:=`(level = level, source = "cell")]
   x[, reportable := policy_reportable(x, pol)]
   setcolorder(x, c("cell", "region", "class", "chrom", "start", "end", "state", "score", "thr", "called", "level", "source", "reportable"))
@@ -1514,7 +1603,9 @@ utils::globalVariables("borrowed_from")
 #' (seed + draw) until every class has at least `n_draws` null pool-regions;
 #' a deterministic construction (same pools twice, e.g. kNN) is used once.
 #' With `cv` one threshold per fold from the null cells of the other folds,
-#' plus fold 0 from all null cells. With `loo` the leave-one-out scores (`s_rob`) are computed and can be
+#' plus fold 0 from all null cells; the fold-0 rows and scale do not depend on `cv`. [call_pools()] applies
+#' fold 0 only (pools have no fold), so [caller_normal()] computes fold 0 only (`cv = FALSE`). With `loo` the
+#' leave-one-out scores (`s_rob`) are computed and can be
 #' thresholded, exactly as [call_pools()] scores the test pools.
 #' @param d_null null rows scored with `keep_rows = TRUE` (cell, region, class, fold)
 #' @param pools_fun function(cells, seed) returning a pools table (pool, cell)
@@ -1626,7 +1717,8 @@ pooled_thresholds = function(d_null, pools_fun, n_draws = 20000, by = "class", q
 #' Pooled calls
 #'
 #' Scores the pools ([pool_scores()] per pool x region), applies the fold-0
-#' pooled thresholds per class and returns the policy's pool-level rows. With
+#' pooled thresholds per class and returns the policy's pool-level rows (`called = score > max(thr, 0)`, as
+#' [apply_thresholds()]). With
 #' `loo` the pools are scored as [pool_scores()] describes; use
 #' `score = "s_rob"` (thresholded by [pooled_thresholds()] with `loo = TRUE`) so
 #' a call must survive dropping its most influential cell.
@@ -1666,7 +1758,7 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
   if (!is.null(scale)) x[, s_comb_llr := ps$s_comb_llr[keep]]
   if ("chrom" %in% names(d)) x[, chrom := d$chrom[match(region, d$region)]]
   x = add_coords(x, regions)
-  x[, called := !is.na(score) & !is.na(thr) & score > thr]
+  x[, called := !is.na(score) & !is.na(thr) & above_thr(score, thr)]
   x[, `:=`(level = "pool", source = "cell")]
   x[, reportable := policy_reportable(x, pol)]
   setcolorder(x, c("cell", "region", "class", "chrom", "start", "end", "state", "score", "thr", "called", "level", "source", "reportable"))
@@ -1681,8 +1773,8 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' 1. null cells: the features' `null_cell` column, or [select_null_cells()]
 #'    (`null_cells = "auto"` selects when the column is missing, all NA or all
 #'    TRUE), never `multiplets`; 2. Student-t depth null per class x stratum
-#'    and allelic rho on the null arm rows; 3. [score_cells()] with the normal
-#'    state set; 4. fold-CV budget thresholds ([budget_thresholds()]); 5.
+#'    and allelic rho on the null arm rows; 3. [score_cells()] with the normal-mode
+#'    state set (`params$states_normal`, [normal_state_set()]); 4. fold-CV budget thresholds ([budget_thresholds()]); 5.
 #'    per-cell calls by [call_policy()]; 6. pools within cell type
 #'    ([make_pools()]) and, with an `embedding`, kNN pools ([knn_pools()]),
 #'    pooled null thresholds ([pooled_thresholds()]) and pooled calls; 7.
@@ -1707,6 +1799,17 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #' thresholds of their `sd_class` ([budget_thresholds()]); their pools are called only with `params$pool_events`
 #' (experimental, off by default: [caller_defaults()]). Removed options stop with
 #' an error: `calib` "region" / "region_votes" / "votes_cont", `calib_rho` "cell" / "chrom_cell".
+#'
+#' State set (`params$states_normal`, [caller_defaults()]): `"normal"` (default), `"normal_att"` (opt-in: loss and
+#' CN-LOH rows over `params$f_att_normal`, for merged chromosome-scale phase sets whose switch errors attenuate the
+#' allelic imbalance of real events) or `"auto"` (`normal_att` when `phasing` says the regime is `chromosome`). The
+#' one set is used everywhere the run scores states: the null-cell selection (unless `select_args` has `states`),
+#' the per-cell scores and thresholds, the pooled scores, scales and thresholds, and the named events (which borrow
+#' thresholds computed under the same set). With a set other than `normal` the scores and the per-cell calls carry
+#' `f_state`, the best-fitting fraction of the called state's allelic rows. The run notes name the set and why.
+#' The windowed allele term (`params$win_score`) applies to the allelic rows whose fraction has a window column
+#' (`1 - eps`, always in the `normal_att` grid), so under `normal_att` the 0.98 loss / CN-LOH rows take the better of
+#' the oriented and the windowed LLR and the attenuated rows stay oriented; `f_state` is taken after that substitution.
 #' @param feat features long table (`vignette("scphasedcn-outputs", package = "scphasedcn")`)
 #' @param params [caller_defaults()]
 #' @param cell_meta optional table `cell` (+ `cell_type`) overriding the features' cell types
@@ -1733,9 +1836,12 @@ call_pools = function(d, pools, thr, policy = call_policy("normal"), states = ca
 #'   same construction) before the per-class pooled thresholds
 #' @param null_chroms chromosomes whose rows can be null rows (default the autosomes, the chromosomes
 #'   [select_null_cells()] checks); NULL = every `null_region`
+#' @param phasing the features' phasing record (`features$phasing` of [cell_features()], named `detected`,
+#'   `orientation`; [call_scn()] passes it) or NULL; used by `params$states_normal = "auto"` only
 #' @return `scphasedcn` (mode normal) with `scores`, `thresholds` (column `level`:
-#'   cell, pool_type, pool_knn), `calls` (cell and pool level; `resolved` for gains changed by
-#'   [resolve_nested()]; with `gain_gate = "z"` also its `gate_z`, `gate_thr`), `events`, `pools`, `null_fit = list(tpar, rho, null_cells, selection, pool_scale, sex,
+#'   cell (folds 0 to `n_folds`), pool_type, pool_knn (fold 0 only)), `calls` (cell and pool level; `resolved`
+#'   for gains changed by [resolve_nested()]; with `gain_gate = "z"` also its `gate_z`, `gate_thr`), `events`,
+#'   `pools`, `null_fit = list(tpar, rho, null_cells, selection, state_set, pool_scale, sex,
 #'   vote_bins, rho_chrom)` (`vote_bins`: the [vote_bins()] table with `params$calib = "votes"`; `rho_chrom`: the
 #'   [rho_by_chrom()] table with `params$calib_rho = "chrom"`)
 #' @export
@@ -1743,7 +1849,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                          null_cells = c("auto", "features", "select"), depth_model = c("t", "gauss"), n_draws = 20000,
                          pool_classes = c("chrom", "arm", "50Mb", "20Mb", "10Mb", "5Mb", "event"), select_args = list(),
                          sex = NULL, resolve_gains = TRUE, gain_min_dl = 0, gain_gate = "dl", gain_gate_q = 0.95,
-                         pool_loo = TRUE, pool_standardize = TRUE, null_chroms = paste0("chr", 1:22)) {
+                         pool_loo = TRUE, pool_standardize = TRUE, null_chroms = paste0("chr", 1:22), phasing = NULL) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   null_cells = match.arg(null_cells); depth_model = match.arg(depth_model)
   sex = check_sex(sex, "caller_normal")
@@ -1751,6 +1857,9 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     stop("caller_normal: gain_gate must be 'dl' or 'z', not '", paste(gain_gate, collapse = ", "), "'", call. = FALSE)
   if (gain_gate == "z" && (!is.numeric(gain_gate_q) || length(gain_gate_q) != 1 || is.na(gain_gate_q) || gain_gate_q <= 0 || gain_gate_q >= 1))
     stop("caller_normal: gain_gate_q must be one number in (0, 1)", call. = FALSE)
+  # state set (params$states_normal): validated before any work; "auto" needs to know whether there are votes
+  ss = normal_state_set(params, phasing, votes = any(as.data.table(feat)$n_hap > 0, na.rm = TRUE))
+  states = caller_states(ss$set, params)
   d = copy(as.data.table(feat))
   need = c("cell", "region", "class", "stratum", "z", "sd_null", "nA", "n_hap")
   miss = setdiff(need, names(d))
@@ -1776,6 +1885,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   sel = NULL
   if (use_sel) {
     sa = c(list(feat_long = d, params = params, exclude = multiplets, depth_model = depth_model), select_args)
+    if (!"states" %in% names(sa)) sa$states = states          # the null cells are selected under the run's state set
     if (!"chroms" %in% names(sa) && !is.null(null_chroms)) sa$chroms = null_chroms
     sel = do.call(select_null_cells, sa)
     d[, null_cell := cell %in% sel$null_cells]
@@ -1823,7 +1933,6 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     rho_sc = rho_rows(d, rho_tab, rho)
   }
   # 3-5. scores, thresholds, per-cell calls
-  states = caller_states("normal", params)
   scores = c("s_depth", "s_allelic", "s_comb")
   win_score = params$win_score %||% "none"
   if (!identical(length(win_score), 1L) || !win_score %in% c("none", "max", "only"))
@@ -1845,11 +1954,13 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   } else if (win_score != "none") win_note = "per-cell allele term: oriented only (no window columns in the features; they need chromosome-scale phasing)"
   sc = score_cells(d, states, tpar, rho_sc, depth_model = depth_model, params = params, keep_rows = TRUE,
                    window = if (has_win) win_score else "none")
+  # normal_att: the best-fitting grid fraction of the called state, kept in the scores and the per-cell calls
+  if (ss$set != "normal") sc[, f_state := state_f(sc, states, if (has_win) win_score else "none", params)]
   thr = budget_thresholds(sc, scores, q = params$null_q, cv = TRUE, min_null = params$min_null_rows, params = params)
   sc = apply_thresholds(sc, thr, scores)
   if (is.null(sex)) sex = infer_sex(d)
   policy = call_policy("normal", sex)
-  calls = call_table(sc, NULL, regions, policy)
+  calls = call_table(sc, NULL, regions, policy, keep_cols = c("z", "f", "n_hap", if (ss$set != "normal") "f_state"))
   if (resolve_gains) calls = resolve_nested(calls, sc, min_dl_gain = gain_min_dl, gate = gain_gate, gate_q = gain_gate_q,
                                             tpar = tpar, params = params)
   thr[, level := "cell"]
@@ -1879,11 +1990,13 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   pborrow = function(th) if (pool_events) borrow_thresholds(th, sp) else th
   preg = unique(sp[, .(region, class)])
   pscore = if (pool_loo) "s_rob" else "s_comb"
+  # pooled thresholds without cross-validation folds (cv = FALSE): pools have no fold, so call_pools() applies the
+  # fold-0 thresholds and fold-0 scale only, and per-fold pooled thresholds would never be used
   pools$type = make_pools(pc, ct[pc], params$n_pool, params$seed)
   if (nrow(pools$type) && nrow(pnull)) {
     fun = function(cells, seed) make_pools(cells, ct[cells], params$n_pool, seed)
-    th_ = pooled_thresholds(pnull, fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
-                                  loo = pool_loo, standardize = pool_standardize)
+    th_ = pooled_thresholds(pnull, fun, n_draws = n_draws, by = pby, q = params$null_q, cv = FALSE, states = states,
+                            params = params, loo = pool_loo, standardize = pool_standardize)
     pscale$type = attr(th_, "pool_scale")
     pthr$type = pborrow(th_)[, level := "pool_type"]
     pcalls$type = call_pools(sp, pools$type, pthr$type, policy, states, regions, score = pscore, loo = pool_loo,
@@ -1896,8 +2009,8 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
     nk = intersect(unique(pnull$cell), rownames(emb))
     if (length(nk) > params$n_pool) {
       fun = function(cells, seed) knn_pools(emb[intersect(cells, rownames(emb)), , drop = FALSE], params$n_pool)
-      th_ = pooled_thresholds(pnull[cell %in% nk], fun, n_draws = n_draws, by = pby, q = params$null_q, states = states, params = params,
-                                   loo = pool_loo, standardize = pool_standardize)
+      th_ = pooled_thresholds(pnull[cell %in% nk], fun, n_draws = n_draws, by = pby, q = params$null_q, cv = FALSE,
+                              states = states, params = params, loo = pool_loo, standardize = pool_standardize)
       pscale$knn = attr(th_, "pool_scale")
       pthr$knn = pborrow(th_)[, level := "pool_knn"]
       pcalls$knn = call_pools(sp, pools$knn, pthr$knn, policy, states, regions, score = pscore, loo = pool_loo,
@@ -1928,7 +2041,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
   new_scphasedcn("normal", cells = cells, regions = regions, scores = sc,
               thresholds = rbindlist(c(list(thr), pthr), fill = TRUE), calls = all_calls, events = events,
               pools = rbindlist(lapply(names(pools), function(k) pools[[k]][, kind := k]), fill = TRUE),
-              null_fit = list(tpar = tpar, rho = rho, null_cells = cells[null_cell == TRUE, cell], selection = sel,
+              null_fit = list(tpar = tpar, rho = rho, null_cells = cells[null_cell == TRUE, cell], selection = sel, state_set = ss$set,
                               pool_scale = if (length(pscale)) rbindlist(lapply(names(pscale), function(k) copy(pscale[[k]])[, kind := k])) else NULL, sex = sex,
                               vote_bins = vbins, rho_chrom = rho_tab),
               params = params,
@@ -1936,7 +2049,7 @@ caller_normal = function(feat, params = caller_defaults(), cell_meta = NULL, mul
                                 if (!is.null(sel) && "win_guard" %in% names(sel$calls))
                                   sprintf("; %d cells kept out by the windowed allele term (null_win_guard)", sum(sel$calls$win_guard)) else ""),
                         win_note,
-                        sprintf("rho %.5g", rho), novotes_note,
+                        sprintf("rho %.5g", rho), novotes_note, normal_states_note(ss, params),
                         if (!is.null(rho_tab)) sprintf("allelic rho per chromosome (rho_chrom_k %g): %.3g-%.3g (global %.3g)", params$rho_chrom_k %||% 100,
                                                        min(rho_tab$rho), max(rho_tab$rho), rho),
                         if (!is.null(vbins)) sprintf("cell thresholds per class x stratum x vote stratum (n_hap bins, up to %d per class x stratum; %d bins)",
@@ -1960,4 +2073,4 @@ infer_sex = function(d) {
   if ("allelic_ok" %in% names(x) && !all(is.na(x$allelic_ok))) return(if (any(x$allelic_ok %in% TRUE)) "female" else "male")
   if (mean(x$n_hap > 0, na.rm = TRUE) > 0.5) "female" else "male"
 }
-utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_", "win_guard"))
+utils::globalVariables(c("kind", "multiplet", "cc_", "s_loo", "nothr_", "f_state", "win_guard"))

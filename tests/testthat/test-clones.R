@@ -1691,3 +1691,28 @@ test_that("caller_tumour: a doublet clone flagged before the split pass renumber
   expect_true(all(ct[doublet == FALSE, clone] %in% res$segments$clone))
   expect_identical(res$null_fit$clones$doublet_clones, ct[doublet == TRUE, clone])
 })
+
+test_that("gain_support_pass at a half-integer baseline: a gain is above the integer baseline, never replaced by itself", {
+  g = baseline_grid(2.5)
+  st = g$state
+  W = 10L
+  item = function(state, nA, E_best) {
+    wn = data.table(window = paste0("w", seq_len(W)), start = (seq_len(W) - 1) * 1e6, end = seq_len(W) * 1e6, ploidy = 2L)
+    E = matrix(-10, W, length(st)); E[, match(state, st)] = -2; E[, match(E_best, st)] = -1
+    list(k = "K", ch = "chr1", wn = wn, E = E, path = rep(match(state, st), W),
+         wk = data.table(window = wn$window, log2 = 0, n_cells = 100, base = 2.5, n_hap = 100, nA = nA),
+         pk = data.table(clone = "K", c = 1, a = 1, base = 2.5), nodepth = logical(W), st = st, g = g, nb = 3L)
+  }
+  gsp = scphasedcn:::gain_support_pass
+  # B = 2.5, nb = 3: a 2:1 run without depth support is copy-neutral (3 copies), not swapped for 3:0 (same depth)
+  o1 = gsp(list(item("2:1", 90, "3:0")), 0.3, 0.5)[[1]]
+  expect_true(all(st[o1$path] == "2:1"))
+  expect_false(any(o1$nodepth))
+  # a 3:1 run (4 copies) without depth support: replaced by a supported copy-neutral imbalanced state ...
+  o2 = gsp(list(item("3:1", 90, "3:0")), 0.3, 0.5)[[1]]
+  expect_true(all(st[o2$path] == "3:0"))
+  # ... or, without allelic support for one, flagged (label "imbalance", depth_ok FALSE)
+  o3 = gsp(list(item("3:1", 50, "3:0")), 0.3, 0.5)[[1]]
+  expect_true(all(st[o3$path] == "3:1"))
+  expect_true(all(o3$nodepth))
+})

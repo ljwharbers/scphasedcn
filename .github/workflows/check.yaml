@@ -1,10 +1,17 @@
 name: check
 
+# Pull requests run the jobs whose inputs changed (paths filter in `changes`), with R CMD check on Ubuntu only; pushes
+# to main and manual runs add macOS (manual runs: every job). A skipped job passes; `ci-ok` sums up all jobs and is the
+# one status check to require for merging.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   versions:
@@ -14,7 +21,43 @@ jobs:
       - name: R and Python versions match the ref (release tag = X.Y.Z, else a development version)
         run: bash tools/check_versions.sh
 
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      r: ${{ steps.filter.outputs.r }}
+      python: ${{ steps.filter.outputs.python }}
+      io: ${{ steps.filter.outputs.io }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            r:
+              - 'R/**'
+              - 'tests/**'
+              - 'vignettes/**'
+              - 'inst/**'
+              - 'man/**'
+              - 'DESCRIPTION'
+              - 'NAMESPACE'
+              - 'NEWS.md'
+              - '.Rbuildignore'
+              - '.github/workflows/check.yaml'
+            python:
+              - 'python/**'
+              - '.github/workflows/check.yaml'
+            io:
+              - 'tools/tiny_extraction.py'
+              - 'tools/check_extraction_io.R'
+
   python:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -37,6 +80,10 @@ jobs:
 
   extraction-io:
     # the R readers on real extractor output: the Python test suite's synthetic sample, read by the installed R package
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' || needs.changes.outputs.r == 'true' ||
+      needs.changes.outputs.python == 'true' || needs.changes.outputs.io == 'true'
     runs-on: ubuntu-latest
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
@@ -61,11 +108,14 @@ jobs:
         run: Rscript tools/check_extraction_io.R "$RUNNER_TEMP/extract"
 
   r-cmd-check:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.r == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS only on pushes to main and manual runs
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest"]') }}
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
@@ -86,3 +136,18 @@ jobs:
         with:
           args: 'c("--no-manual", "--as-cran")'
           error-on: '"warning"'
+
+  ci-ok:
+    # one status check for branch protection: fails when a job failed or was cancelled; skipped jobs count as passed
+    if: always()
+    needs: [versions, changes, python, extraction-io, r-cmd-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: all jobs passed or were skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "a job ended with: $r"; exit 1;; esac
+          done

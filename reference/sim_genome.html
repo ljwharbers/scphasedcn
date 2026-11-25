@@ -71,7 +71,9 @@
 
 
 <dt id="arg-seed">seed<a class="anchor" aria-label="anchor" href="#arg-seed"></a></dt>
-<dd><p>RNG seed for the bin covariates</p></dd>
+<dd><p>RNG seed for the bin covariates: the genome depends on <code>seed</code> only (not on the caller's random
+stream), and the caller's random stream is left as it was (the RNG state is saved and restored), also when
+<code>sim_genome()</code> is evaluated as the <code>genome</code> argument of <code><a href="simulate_scn.html">simulate_scn()</a></code></p></dd>
 
 </dl></div>
     <div class="section level2">

@@ -138,7 +138,8 @@ uniform placement within a bin)</p></dd>
 
 
 <dt id="arg-snp-density">snp_density<a class="anchor" aria-label="anchor" href="#arg-snp-density"></a></dt>
-<dd><p>het SNPs per bp</p></dd>
+<dd><p>het SNPs per bp (uniform positions, one SNP per position: a draw that falls on an
+occupied position is moved to the next free one)</p></dd>
 
 
 <dt id="arg-phase-block-mean">phase_block_mean<a class="anchor" aria-label="anchor" href="#arg-phase-block-mean"></a></dt>
@@ -161,7 +162,11 @@ relative to the true haplotypes (0 = anchored blocks)</p></dd>
 
 
 <dt id="arg-seed">seed<a class="anchor" aria-label="anchor" href="#arg-seed"></a></dt>
-<dd><p>RNG seed</p></dd>
+<dd><p>RNG seed of the simulation (cells, nuclei, copy numbers, fragments, SNPs, alleles). It does not
+change the genome: <code>genome</code> is evaluated before seeding, and <code><a href="sim_genome.html">sim_genome()</a></code> uses its own <code>seed</code>. After
+<code>set.seed(seed)</code> the simulator first makes (and discards) the random draws of <code><a href="sim_genome.html">sim_genome()</a></code> for
+<code>nrow(genome)</code> bins, then draws the data; the result depends only on the genome table, <code>seed</code> and the other
+parameters, not on how <code>genome</code> was given. The caller's random stream is saved and restored.</p></dd>
 
 </dl></div>
     <div class="section level2">

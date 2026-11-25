@@ -30,7 +30,11 @@ sim_genome(
 
 - seed:
 
-  RNG seed for the bin covariates
+  RNG seed for the bin covariates: the genome depends on `seed` only
+  (not on the caller's random stream), and the caller's random stream is
+  left as it was (the RNG state is saved and restored), also when
+  `sim_genome()` is evaluated as the `genome` argument of
+  [`simulate_scn()`](https://ljwharbers.github.io/scphasedcn/reference/simulate_scn.md)
 
 ## Value
 

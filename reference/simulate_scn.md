@@ -100,7 +100,8 @@ simulate_scn(
 
 - snp_density:
 
-  het SNPs per bp
+  het SNPs per bp (uniform positions, one SNP per position: a draw that
+  falls on an occupied position is moved to the next free one)
 
 - phase_block_mean:
 
@@ -124,7 +125,16 @@ simulate_scn(
 
 - seed:
 
-  RNG seed
+  RNG seed of the simulation (cells, nuclei, copy numbers, fragments,
+  SNPs, alleles). It does not change the genome: `genome` is evaluated
+  before seeding, and
+  [`sim_genome()`](https://ljwharbers.github.io/scphasedcn/reference/sim_genome.md)
+  uses its own `seed`. After `set.seed(seed)` the simulator first makes
+  (and discards) the random draws of
+  [`sim_genome()`](https://ljwharbers.github.io/scphasedcn/reference/sim_genome.md)
+  for `nrow(genome)` bins, then draws the data; the result depends only
+  on the genome table, `seed` and the other parameters, not on how
+  `genome` was given. The caller's random stream is saved and restored.
 
 ## Value
 

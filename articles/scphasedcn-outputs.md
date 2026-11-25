@@ -254,7 +254,7 @@ library(scphasedcn)
 library(data.table)
 sim = simulate_scn(n_cells = 60, sex = "female", cell_types = c(a = 0.5, b = 0.5), events = NULL,
                    multiplet_rate = 0, depth = c(meanlog = log(12000), sdlog = 0.3), phase_block_mean = 1e9,
-                   switch_rate = 2e-6, seed = 3)
+                   switch_rate = 2e-6, seed = 1)
 d = file.path(tempdir(), "out_extract")
 invisible(write_sim_dataset(sim, d))
 cen = sim$scn$bins[, .(chrom, cstart = 1, len = max(end)), by = chrom][, .(chrom, cstart, cen_left = 0.4 * len,

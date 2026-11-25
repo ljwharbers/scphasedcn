@@ -70,7 +70,7 @@ ev = data.table(chrom = c("chr1", "chr8"), start = c(0, 0), end = c(24e6, NA),
                 cnA = c(1L, 2L), cnB = c(0L, 1L), type = "private")
 sim = simulate_scn(n_cells = 120, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
                    depth = c(meanlog = log(15000), sdlog = 0.3), events = ev, private_frac = 0.08,
-                   multiplet_rate = 0, phase_block_mean = 1e9, switch_rate = 2e-6, seed = 7)
+                   multiplet_rate = 0, phase_block_mean = 1e9, switch_rate = 2e-6, seed = 1)
 dir = file.path(tempdir(), "extract")
 invisible(write_sim_dataset(sim, dir))
 list.files(dir)

@@ -282,9 +282,10 @@ depend on phasing.</li>
 merges. On a cluster, run
 <code>scphasedcn extract --chrom &lt;chrom&gt;</code> as one job per
 chromosome and <code>scphasedcn merge</code> after them, with the same
-options. A sample yaml keeps the paths in one place
-(<code>--config sample.yaml --sample &lt;key&gt;</code>, also read by
-the caller’s command line):</p>
+options (without <code>--chroms</code>, <code>merge</code> merges the
+chromosomes that have a finished partial). A sample yaml keeps the paths
+in one place (<code>--config sample.yaml --sample &lt;key&gt;</code>,
+also read by the caller’s command line):</p>
 <div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">readLines</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_template.yaml"</span>, <span class="at">package =</span> <span class="st">"scphasedcn"</span>)), <span class="at">sep =</span> <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
 <span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a><span class="co"># Sample yaml shared by the extractor (`scphasedcn ... --config &lt;yaml&gt; --sample &lt;key&gt;`) and the caller</span></span>
 <span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a><span class="co"># (`call_scn.R --config &lt;yaml&gt; --sample &lt;key&gt;`). Copy it, fill in your paths, delete what you do not use.</span></span>

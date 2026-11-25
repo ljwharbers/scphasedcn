@@ -264,3 +264,15 @@ def extracted(genome, bam, vcf, tmp_path_factory):
         assert main(["extract", "--chrom", c] + common) == 0
     assert main(["merge", "--out", str(out), "--chroms", "chr1,chr2,chrM,chrX"]) == 0
     return out
+
+
+def write_bam(path, specs, chroms=CHROMS):
+    """A sorted, indexed BAM of `specs`: (args, kwargs) of make_record without the header. Returns the path."""
+    header = pysam.AlignmentHeader.from_references([c for c, _ in chroms], [n for _, n in chroms])
+    recs = [make_record(header, *a, **k) for a, k in specs]
+    recs.sort(key=lambda r: (r.reference_id, r.reference_start))
+    with pysam.AlignmentFile(str(path), "wb", header=header) as fh:
+        for r in recs:
+            fh.write(r)
+    pysam.index(str(path))
+    return Path(path)

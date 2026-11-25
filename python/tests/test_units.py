@@ -110,6 +110,38 @@ def test_vote_ps_cli(genome, bam, vcf, tmp_path):
     assert sorted(lf) == sorted(lm) and all((lf[k] != lm[k]).nnz == 0 for k in lf)
 
 
+def test_vote_ps_cli_across_a_phase_set_junction(genome, tmp_path):
+    """End to end: fragments across a phase-set junction get another haplotype (read 1) or phase set (read 2) with
+    --vote-ps majority than with first. SNPs C>G, alt on hapA: PS 10000 at 10001, 10101, 10201; PS 20000 at 10301,
+    10401. Read 1 (10000-10500): alt, alt, ref | ref, ref -> first: B (2 A vs 3 B) under PS 10000; majority: PS 10000
+    (3 observations) votes A. Read 2 (10150-10500): ref | ref, ref -> first: B under PS 10000; majority: B under 20000."""
+    import json
+    import pandas as pd
+    from conftest import CELL_A, name, write_bam, write_vcf
+    from scphasedcn.cli import main
+    from scphasedcn.writers import load_csr_dict
+    snps = [(10001, 10000), (10101, 10000), (10201, 10000), (10301, 20000), (10401, 20000)]
+    v = write_vcf(tmp_path / "junction.vcf", [("chr2", p, "C", "G", "PASS", [f"1|0:{ps}"]) for p, ps in snps])
+    r1 = {p - 1 - 10000: b for (p, _), b in zip(snps, "GGCCC")}
+    r2 = {p - 1 - 10150: b for (p, _), b in zip(snps[2:], "CCC")}
+    b = write_bam(tmp_path / "junction.bam", [((name(CELL_A, "j1"), "chr2", 10000, "500M", "+"), {"bases": r1}),
+                                              ((name(CELL_A, "j2"), "chr2", 10150, "350M", "+"), {"bases": r2})])
+    common = ["--bam", str(b), "--barcodes", str(genome / "whitelist.tsv"), "--chrom-sizes", str(genome / "chrom.sizes"),
+              "--no-gc", "--no-masks", "--chrom", "chr2", "--snps", str(v), "--phased"]
+    out = {}
+    for mode in ("first", "majority"):
+        assert main(["extract", "--out", str(tmp_path / mode), "--vote-ps", mode] + common) == 0
+        p = tmp_path / mode / "partials" / "chr2"
+        f = pd.read_csv(p / "fragments.tsv.gz", sep="\t", header=None)
+        out[mode] = (f[1].tolist(), f[10].tolist(), f[11].tolist(), f[12].tolist(), load_csr_dict(p / "alleles.npz"))
+        assert json.load(open(p / "DONE"))["layers"]["fragments"]["inputs"]["vote_ps"] == mode
+    assert out["first"][:4] == ([10000, 10150], [2, 2], [5, 3], [10000, 10000])
+    assert out["majority"][:4] == ([10000, 10150], [1, 2], [5, 3], [10000, 20000])
+    hf, hm = out["first"][4], out["majority"][4]
+    assert (hf["hapA"].sum(), hf["hapB"].sum()) == (0, 2) and (hm["hapA"].sum(), hm["hapB"].sum()) == (1, 1)
+    assert (hf["DP"] != hm["DP"]).nnz == 0 and (hf["AD"] != hm["AD"]).nnz == 0     # allele counts do not depend on it
+
+
 def _accumulate_dense(cell, bin_idx, n_cells, n_bins, weights=None):
     """The dense reference implementation of depth.accumulate (before it was made sparse)."""
     import scipy.sparse as sp

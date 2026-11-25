@@ -5,7 +5,8 @@ with a missing allele are skipped; `phased=True` reads the `|` phase and the PS 
 phased genotypes without a PS value form one phase set per contig, as in the VCF specification, and get PS
 `CONTIG_PS`). A VCF without sample columns (e.g. a het-site list) yields unphased sites; a VCF with several sample
 columns needs the sample named (`check_vcf`, `--vcf-sample`). Per read, the CIGAR is converted to cumulative reference/query offsets with numpy and only the
-SNPs inside the aligned span are looked up (I/D/S/H/N handled; deletions at a SNP count as `other`). Bases with
+SNPs inside the aligned span are looked up (I/D/S/H/N handled; deletions at a SNP count as `other`, a SNP inside a
+reference skip N is not covered by the read and not observed). Bases with
 quality < min_bq are ignored. The per-read haplotype is a majority vote over phased SNPs (ambiguous on ties).
 """
 from __future__ import annotations
@@ -177,12 +178,15 @@ class AlleleAccumulator:
         k = np.searchsorted(rend, p, side="right")
         k = np.minimum(k, len(ops) - 1)
         ism = MATCH_OPS[ops[k]] & (p < rend[k])
+        skip = ops[k] == 3                      # N: the read does not cover the position
         qpos = qend[k] - qlen[k] + (p - (rend[k] - rlen[k]))
         seq = r.query_sequence
         quals = r.query_qualities
         out = []
         for t in range(hi - lo):
             s = lo + t
+            if skip[t]:
+                continue
             if not ism[t]:
                 self.n_other[s] += 1
                 out.append((s, 2))

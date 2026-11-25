@@ -99,7 +99,8 @@ sim_events_tumour = function() {
 #' @param wave_sd log-sd of the cell-type chromatin wave (2-5 Mb scale)
 #' @param noise_phi cell-private multiplicative noise (log-sd), autocorrelated over ~5 bins
 #' @param frag_len lognormal parameters of fragment length (bp)
-#' @param snp_density het SNPs per bp
+#' @param snp_density het SNPs per bp (uniform positions, one SNP per position: a draw that falls on an
+#'   occupied position is moved to the next free one)
 #' @param phase_block_mean mean phase-block length (bp)
 #' @param switch_rate per-SNP switch-error probability inside a block (1e-4
 #'   keeps a 750-SNP block mostly in one parity, attenuation ~0.93 by
@@ -215,7 +216,7 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
   # ---- SNPs, phase blocks, switch errors ----------------------------------------
   snps = rbindlist(lapply(names(chrom_sizes), function(ch) {
     n = rpois(1, chrom_sizes[[ch]] * snp_density)
-    data.table(chrom = ch, pos = sort(floor(runif(n) * chrom_sizes[[ch]])))
+    data.table(chrom = ch, pos = unique_positions(sort(floor(runif(n) * chrom_sizes[[ch]])), chrom_sizes[[ch]]))
   }))
   snps[, hap_of_alt_true := sample(c("A", "B"), .N, replace = TRUE)]
   snps[, block := cumsum(c(TRUE, runif(.N - 1) < 1 / (phase_block_mean * snp_density))), by = chrom]
@@ -291,6 +292,19 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
                      multiplet_rate = multiplet_rate, peak_frac = peak_frac, frag_len = frag_len,
                      snp_density = snp_density, switch_rate = switch_rate, allele_error = allele_error,
                      block_flip_prob = block_flip_prob, seed = seed))
+}
+
+# Unique SNP positions (a het list has one entry per site) from sorted draws in [0, size): every position that
+# collides with an earlier one is moved up to the next free position (a run of k draws at p becomes p, p + 1, ...,
+# p + k - 1, pushing a later draw up only when it is reached), and the last ones down when that passes size - 1.
+# Draws without collisions are returned unchanged, and no random numbers are used, so the rest of the simulation's
+# random stream is the same as without the step (moving a duplicate by redrawing it would shift it).
+unique_positions = function(pos, size) {
+  n = length(pos)
+  if (n < 2) return(pos)
+  if (n > size) stop(sprintf("unique_positions: %d positions do not fit in %s bp", n, format(size)), call. = FALSE)
+  k = seq_len(n) - 1
+  k + pmin(cummax(pos - k), size - n)
 }
 
 # Drop fragments that overlap an earlier-accepted fragment of the same molecule (same group, sorted by

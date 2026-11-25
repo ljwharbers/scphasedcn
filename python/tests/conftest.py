@@ -250,16 +250,21 @@ def bam_dash1(bam, tmp_path_factory):
     return rewrite_bam(bam, tmp_path_factory.mktemp("dash1") / "dash1.bam", edit)
 
 
+def sample_args(genome, bam, vcf, out, binsize=100_000):
+    """extract / run options of the synthetic sample (fixture `extracted`; tools/tiny_extraction.py)."""
+    return ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(out), "--binsize", str(binsize),
+            "--chrom-sizes", str(genome / "chrom.sizes"), "--fasta", str(genome / "genome.fa"),
+            "--blacklist", str(genome / "blacklist.bed"), "--trf", str(genome / "trf.bed"),
+            "--centromeres", str(genome / "centromeres.tsv"), "--peaks", str(genome / "peaks.bed"),
+            "--snps", str(vcf), "--phased"]
+
+
 @pytest.fixture(scope="session")
 def extracted(genome, bam, vcf, tmp_path_factory):
     """Run extract (default layers) on chr1, chr2, chrM, chrX and merge; return the output directory."""
     from scphasedcn.cli import main
     out = tmp_path_factory.mktemp("out")
-    common = ["--bam", str(bam), "--barcodes", str(genome / "whitelist.tsv"), "--out", str(out), "--binsize", "100000",
-              "--chrom-sizes", str(genome / "chrom.sizes"), "--fasta", str(genome / "genome.fa"),
-              "--blacklist", str(genome / "blacklist.bed"), "--trf", str(genome / "trf.bed"),
-              "--centromeres", str(genome / "centromeres.tsv"), "--peaks", str(genome / "peaks.bed"),
-              "--snps", str(vcf), "--phased"]
+    common = sample_args(genome, bam, vcf, out)
     for c in ("chr1", "chr2", "chrM", "chrX"):
         assert main(["extract", "--chrom", c] + common) == 0
     assert main(["merge", "--out", str(out), "--chroms", "chr1,chr2,chrM,chrX"]) == 0

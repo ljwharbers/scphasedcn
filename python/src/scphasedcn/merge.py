@@ -45,18 +45,83 @@ def _fill_snp_defaults(meta: dict | None) -> None:
                 inp[k] = v if inp["snps"] is not None else None
 
 
-def _partial_binsize(d: Path) -> int | None:
-    """Bin size of a partial's depth layer: the inputs of its depth layer in DONE (the top-level DONE `binsize` is that
-    of the latest extract run, which may have rewritten other layers only), else (partials of scphasedcn <= 0.1.1) its
-    params.json."""
-    m = read_done(d)
-    if m:
-        inp = ((m.get("layers") or {}).get("depth") or {}).get("inputs") or {}
-        bs = inp.get("binsize") or m.get("binsize")
+def _bins_binsize(d: Path) -> int | None:
+    """Bin size of a partial's depth layer from its own bins.tsv: the first bin's width, when the partial has two or
+    more bins and the layer's shape fits (bins.tsv rows = layers.npz columns = chromosome end / size, rounded up);
+    else None (a single bin is no shorter than the chromosome, not the bin size)."""
+    if not (d / "bins.tsv").exists():
+        return None
+    b = pd.read_csv(d / "bins.tsv", sep="\t", index_col=0)
+    if len(b) < 2:
+        return None
+    bs = int(b["end"].iloc[0] - b["start"].iloc[0])
+    ncol = _npz_shapes(d / "layers.npz")["counts"][1] if (d / "layers.npz").exists() else len(b)
+    return bs if bs > 0 and len(b) == ncol == -(-int(b["end"].iloc[-1]) // bs) else None
+
+
+def _partial_binsize(dirs: list[Path]) -> int | None:
+    """Bin size of the partials' depth layers: the inputs of a depth layer in DONE (the top-level DONE `binsize` is
+    that of the latest extract run, which may have rewritten other layers only); for depth layers without per-layer
+    inputs (written, or kept from a partial written, by scphasedcn <= 0.1.1), the partials' own bins.tsv; only when
+    every partial has a single bin, the recorded bin size (DONE, else params.json)."""
+    metas = [read_done(d) for d in dirs]
+    for m in metas:
+        bs = ((((m or {}).get("layers") or {}).get("depth") or {}).get("inputs") or {}).get("binsize")
         if bs:
             return int(bs)
-    bs = json.load(open(d / "params.json")).get("binsize") if (d / "params.json").exists() else None
-    return int(bs) if bs else None
+    for d in dirs:
+        bs = _bins_binsize(d)
+        if bs:
+            return bs
+    for d, m in zip(dirs, metas):
+        bs = (m or {}).get("binsize")
+        if not bs and (d / "params.json").exists():
+            bs = json.load(open(d / "params.json")).get("binsize")
+        if bs:
+            return int(bs)
+    return None
+
+
+def _recorded_bam(P: Path) -> tuple[str | None, dict | None]:
+    """The BAM the partials under `P` were extracted from (params.json; finished partials first) and its fingerprint
+    in their DONE (None when not recorded)."""
+    dirs = sorted((d for d in P.iterdir() if d.is_dir() and not d.name.startswith("region_")),
+                  key=lambda d: (not (d / "DONE").exists(), d.name)) if P.is_dir() else []
+    for d in dirs:
+        try:
+            bam = json.load(open(d / "params.json")).get("bam")
+        except (OSError, ValueError):
+            continue
+        if bam:
+            fp = next((lm["inputs"]["bam"] for lm in ((read_done(d) or {}).get("layers") or {}).values()
+                       if (lm or {}).get("inputs") and lm["inputs"].get("bam")), None)
+            return str(bam), fp
+    return None, None
+
+
+def default_chroms(out, bam: str | None = None) -> tuple[list[str], str]:
+    """Chromosomes `merge` merges when none are named (the set `run` extracts): the main chromosomes (chr1-22, X, Y, M)
+    in the header of the BAM the partials were extracted from (recorded in their params.json; `bam` when none is
+    recorded). When that BAM cannot be read (moved, or another file at that path), the main chromosomes that have a
+    partial directory, finished or not. Returns (chromosomes, how they were chosen)."""
+    from .config import MAIN_CHROMS
+    from .writers import file_fingerprint
+    P = Path(out) / "partials"
+    rec, fp = _recorded_bam(P)
+    path = rec or bam
+    why = "no BAM recorded in the partials"
+    if path:
+        try:
+            if fp is not None and file_fingerprint(path) != fp:
+                raise ValueError("not the file the partials were extracted from")
+            with pysam.AlignmentFile(path, "rb", check_sq=False) as bf:
+                refs = set(bf.references)
+            chroms = [c for c in MAIN_CHROMS if c in refs]
+            return chroms, f"the main chromosomes of the BAM {path}"
+        except (OSError, ValueError) as e:
+            why = f"the BAM {path} cannot be read ({e})"
+    chroms = [c for c in MAIN_CHROMS if (P / c).is_dir()]
+    return chroms, f"the main chromosomes with a partial directory, finished or not ({why})"
 
 
 def _fmt(v) -> str:
@@ -259,7 +324,8 @@ def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_parti
     """Merge the finished partials of `chroms`. A chromosome without a finished partial (partials/<chrom>/DONE) is an
     error unless `allow_missing` (then it is listed as `missing` in summary.json). Partials are checked with
     check_partials() first. The bins are written to bins_<tag>.h5ad; `tag` None: default_tag() of the partials' bin
-    size (100kb for 100000). Every output is written to a temporary file and moved into place; summary.json is removed
+    size (100kb for 100000); other bins_*.h5ad files of `out` (an earlier merge with another bin size or tag) are
+    removed, so that the directory has one bins file. Every output is written to a temporary file and moved into place; summary.json is removed
     at the start and written last, so it is present only after a complete merge."""
     t0 = time.time()
     log = log or (lambda *a: print(*a, file=sys.stderr, flush=True))
@@ -270,21 +336,26 @@ def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_parti
         raise SystemExit(f"no finished partials under {P}")
     if missing and not allow_missing:
         raise SystemExit(f"merge: no finished partial (partials/<chrom>/DONE) for {', '.join(missing)}; extract them, "
-                         f"or merge without them with --allow-missing (or leave them out of --chroms)")
+                         f"merge without them with --allow-missing, or name the chromosomes to merge with --chroms")
     if missing:
         log(f"warning: merging without {', '.join(missing)} (--allow-missing)")
+    unfinished = sorted(d.name for d in P.iterdir() if d.is_dir() and d.name not in chroms
+                        and not (d / "DONE").exists())
+    if unfinished:
+        log(f"warning: unfinished partials (no DONE; not merged): {', '.join(unfinished)}")
     check_partials(dirs, log)
     if tag is None:
-        bs = _partial_binsize(dirs[0])
+        bs = _partial_binsize(dirs)
         tag = default_tag(bs) if bs else "100kb"
     (out / "summary.json").unlink(missing_ok=True)
     first = dirs[0]
     cells = _read_cells(first)
     params = json.load(open(first / "params.json"))
     summary = {"chroms": [d.name for d in dirs], "missing": missing, "n_cells": len(cells), "params": params}
-    # primary records without SEQ or CIGAR, skipped (key absent in partials of older versions)
-    summary["n_no_seq_cigar"] = sum(int(json.load(open(d / "params.json")).get("n_no_seq_cigar", 0))
-                                    for d in dirs if (d / "params.json").exists())
+    # primary records without CIGAR (skipped) and passing records without SEQ (no SNP observation); keys absent in
+    # partials of older versions
+    for k in ("n_no_cigar", "n_no_seq"):
+        summary[k] = sum(int(json.load(open(d / "params.json")).get(k, 0)) for d in dirs if (d / "params.json").exists())
     # --- bins (depth layers) ---
     if (dirs[0] / "layers.npz").exists():
         ldirs = [d for d in dirs if (d / "layers.npz").exists()]
@@ -307,7 +378,12 @@ def merge_sample(out: str, chroms: list[str], tag: str | None = None, keep_parti
         a = ad.AnnData(X=X, obs=qc, var=bins, layers=layers, obsm={k: v.astype(np.int32) for k, v in obsm.items()})
         a.uns["params"] = _uns_safe(params)
         a.uns["obsm_layout"] = _uns_safe(obsm_layout())
-        _write_via_tmp(out / f"bins_{tag}.h5ad", lambda p: a.write_h5ad(p, compression="gzip"))
+        bins_path = out / f"bins_{tag}.h5ad"
+        _write_via_tmp(bins_path, lambda p: a.write_h5ad(p, compression="gzip"))
+        for old in sorted(out.glob("bins_*.h5ad")):   # one bins file per directory (the R caller finds it by name)
+            if old.name != bins_path.name:
+                old.unlink()
+                log(f"removed {old.name}: an earlier bins file of this directory (now {bins_path.name})")
         _write_via_tmp(out / "cells_qc.tsv", lambda p: qc.to_csv(p, sep="\t"))
         summary["bins"] = {"n_bins": int(a.n_vars), "total_counts": int(X.sum()), "layers": list(layers.keys())}
         for k in ("n_pass", "n_clean"):

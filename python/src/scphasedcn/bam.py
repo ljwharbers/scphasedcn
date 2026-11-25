@@ -1,11 +1,13 @@
 """One pass over a chromosome of a SPLONGGET DNA BAM: record filter, fragment arrays, per-cell record counters.
 
 Filter (see vignette("scphasedcn-inputs", package = "scphasedcn")): primary, not duplicate, not QC-fail (0x200; counted in
-`n_qcfail`), with SEQ and CIGAR (else skipped and counted in `n_no_seq_cigar`, a key of params.json and summary.json;
-not in n_primary), MAPQ >= min_mapq, CB in the whitelist (a CB that is not listed but whose form without a trailing "-1" is
+`n_qcfail`), with a CIGAR (a primary record without one has no reference span: skipped before the per-record counters,
+like an unmapped record, and counted in `n_no_cigar`, a key of params.json and summary.json), MAPQ >= min_mapq, CB in the whitelist (a CB that is not listed but whose form without a trailing "-1" is
 listed counts for that cell); "-" (unassigned) is counted and dropped; secondaries are counted and skipped;
 supplementaries are counted and skipped but the primary's SA tag sets `has_SA`. Blacklist / TRF / centromere / peak
-membership is flagged after the loop (bins.py). Fragments
+membership is flagged after the loop (bins.py). A passing record without SEQ (`*`) is a fragment like any other (depth
+layers, fragments table) but carries no SNP observation (hap 0, nsnp 0, ps -1); such fragments are counted in
+`n_no_seq` (params.json, summary.json). Fragments
 whose start is in the blacklist are not "clean" (cli.py: `clean = (flags & F_BLACKLIST) == 0`): they are left out of the
 depth layers, the fragment-length histogram and the per-bin hapA / hapB / hap_ambig layers, and kept in the fragments
 table with the flag bit set. The allele pass runs inside the loop, before the flags are set, so their SNP observations
@@ -80,7 +82,8 @@ class LoopCounters:
     dash: dict = field(default_factory=lambda: {k: 0 for k in LOOP_COUNTERS})
     unlisted: dict = field(default_factory=lambda: {k: 0 for k in LOOP_COUNTERS})
     n_no_cb: int = 0
-    n_no_seq_cigar: int = 0   # primary, non-dup, non-QC-fail records of listed cells without SEQ or CIGAR: skipped
+    n_no_cigar: int = 0   # primary, non-dup, non-QC-fail records (CB set, any barcode) without CIGAR: skipped, uncounted
+    n_no_seq: int = 0     # passing fragments of listed cells without SEQ: used, but no SNP observation
     n_unmapped: int = 0
     seconds: float = 0.0
     unlisted_examples: list = field(default_factory=list)   # a few unlisted CB values (for the mismatch message)
@@ -143,6 +146,9 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
             except KeyError:
                 ctr.n_no_cb += 1
                 continue
+            if not (flag & 0xF00) and r.reference_end is None:   # primary without CIGAR: no reference span
+                ctr.n_no_cigar += 1
+                continue
             mq = r.mapping_quality
             if cb == "-":
                 _count(ctr.dash, flag, mq, min_mapq)
@@ -169,9 +175,6 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
             if flag & 0x200:
                 row[I_QCF] += 1
                 continue
-            if r.query_length == 0 or r.reference_end is None:   # SEQ `*` or no CIGAR: no span / bases to use
-                ctr.n_no_seq_cigar += 1
-                continue
             row[I_PRI] += 1
             mqh[ci, mapq_bucket(mq)] += 1
             if mq < min_mapq:
@@ -188,7 +191,10 @@ def scan_chrom(bam_path: str, chrom: str, cells: list[str], min_mapq: int = 30, 
                 fl |= F_MAPQ60
             if npieces > 1:
                 fl |= F_PIECE_MULTI
-            if alleles is not None:
+            if r.query_length == 0:   # SEQ `*`: depth and fragment only, no bases to observe SNPs in
+                ctr.n_no_seq += 1
+                hap, nsnp, ps = 0, 0, -1
+            elif alleles is not None:
                 hap, nsnp, ps = alleles.process(r, ci, start, end)
             else:
                 hap, nsnp, ps = 0, 0, -1

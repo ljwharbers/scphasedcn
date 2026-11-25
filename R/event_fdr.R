@@ -452,16 +452,21 @@ utils::globalVariables(c("fin_", "top_null", "N", "score", "called", "thr"))
 #' Confidence intervals are exact binomial (Clopper-Pearson) over rows; rows of one cell overlap (a chromosome and its
 #' arms), so they are somewhat too narrow. Costs about one more [caller_normal()] scoring pass (two half passes
 #' without pools). With `calib_rho = "chrom"` the measured half has no null rows and takes the global rho.
+#' The selection and the scoring of both halves use the run's normal-mode state set (`params$states_normal`,
+#' [normal_state_set()] with `phasing`), as [caller_normal()] does.
 #' @param feat features long table (as for [caller_normal()])
 #' @param params [caller_defaults()]
 #' @param multiplets cells never selected as null cells
 #' @param regions regions table (default [regions_from_features()])
 #' @param depth_model "t" or "gauss"
-#' @param select_args extra arguments for [select_null_cells()] (its `chroms` is set per half)
+#' @param select_args extra arguments for [select_null_cells()] (its `chroms` is set per half; without `states` the
+#'   run's state set)
 #' @param null_chroms the chromosomes whose rows can be null rows in the run; their numbered autosomes are split
 #' @param false_calls optional [null_false_calls()] `rates` of the run, added as `cv_per_1000` (the run's in-sample
 #'   cross-validated rate on all null rows)
 #' @param conf confidence level of the intervals
+#' @param phasing the features' phasing record (`features$phasing`; [call_scn()] passes it) or NULL; used by
+#'   `params$states_normal = "auto"` only
 #' @return data.table class, stratum (`all` = over the strata), n_rows (measured rows), n_exceed, per_1000 (null and
 #'   real-event exceedances per 1,000 measured rows: an upper bound of the null rate),
 #'   lo_per_1000, hi_per_1000, nominal_per_1000, insample_rows, insample_exceed, insample_per_1000 (the
@@ -469,7 +474,8 @@ utils::globalVariables(c("fin_", "top_null", "N", "score", "called", "thr"))
 #'   attribute `halves` (half, select_chroms, measure_chroms, n_cells, n_null_cells)
 #' @export
 null_selection_check = function(feat, params = caller_defaults(), multiplets = NULL, regions = NULL, depth_model = c("t", "gauss"),
-                                select_args = list(), null_chroms = paste0("chr", 1:22), false_calls = NULL, conf = 0.95) {
+                                select_args = list(), null_chroms = paste0("chr", 1:22), false_calls = NULL, conf = 0.95,
+                                phasing = NULL) {
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   depth_model = match.arg(depth_model)
   d = copy(as.data.table(feat))
@@ -486,6 +492,9 @@ null_selection_check = function(feat, params = caller_defaults(), multiplets = N
   halves = list(odd = auto[num %% 2L == 1L], even = auto[num %% 2L == 0L])
   if (min(lengths(halves)) == 0) stop("null_selection_check: needs autosomes with odd and even numbers")
   sa0 = select_args[setdiff(names(select_args), "chroms")]
+  # the run's state set (params$states_normal), for the selection as in caller_normal()
+  if (!"states" %in% names(sa0))
+    sa0$states = caller_states(normal_state_set(params, phasing, votes = any(d$n_hap > 0, na.rm = TRUE))$set, params)
   meas = list(); ins = list(); hv = list()
   for (h in names(halves)) {
     sel_ch = halves[[h]]; oth = setdiff(auto, sel_ch)
@@ -496,7 +505,8 @@ null_selection_check = function(feat, params = caller_defaults(), multiplets = N
     # pass: its rows are not measured here (call_s_comb NA), so caller_normal's "no threshold" warning is expected
     r = withCallingHandlers(
       caller_normal(d, params = params, multiplets = multiplets, regions = regions, null_cells = "features",
-                    depth_model = depth_model, pool_classes = character(), resolve_gains = FALSE, null_chroms = sel_ch),
+                    depth_model = depth_model, pool_classes = character(), resolve_gains = FALSE, null_chroms = sel_ch,
+                    phasing = phasing),
       warning = function(w) if (grepl("^caller_normal: no threshold for", conditionMessage(w))) invokeRestart("muffleWarning"))
     sc = r$scores
     k = !is.na(sc$call_s_comb)

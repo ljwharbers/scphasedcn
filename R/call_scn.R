@@ -193,6 +193,10 @@ multiplet_table = function(x) {
   data.table(cell = as.character(d$cell), prob = p)
 }
 
+# cells of a multiplet table ([multiplet_table()]) kept out of a null fit: prob > 0.5 (normal mode's null cells and pools,
+# the tumour input null of call_scn() / caller_tumour()); NULL without multiplets
+null_multiplets = function(mult) if (is.null(mult)) NULL else mult[prob > 0.5, cell]
+
 #' Chromatin embedding of the cells of a sample
 #'
 #' [chromatin_embedding()] (high-pass filtered log ratios to the all-cell leave-one-out reference, top principal
@@ -335,9 +339,11 @@ utils::globalVariables(c("st", "k", "region"))
 #'   cells share clonal events on the null rows passes it too); the run notes say which null was used. Flagged
 #'   copy-number-normal cells give the better null
 #' @param multiplets NULL or multiplet flags ([multiplet_table()] forms); normal mode: cells with prob > 0.5
-#'   are never null cells and never pooled; tumour mode: passed to `caller_tumour()`, which sets aside the cells
-#'   above its `multiplet_prob` option (default 0.9). The `multiplet` column of the cells table flags the cells each
-#'   mode set aside
+#'   are never null cells and never pooled; tumour mode: cells with prob > 0.5 are left out of the input null fit
+#'   ([tumour_null_fit()]), and `caller_tumour()` sets aside the cells above its `multiplet_prob` option (default 0.9)
+#'   from clone discovery and the clone pseudobulks (a higher cut: a cell set aside there no longer shapes the clone
+#'   states, while the null fit only needs enough clean cells) and uses every cell's prob as its doublet prior. The
+#'   `multiplet` column of the cells table flags the cells each mode set aside (tumour mode: above `multiplet_prob`)
 #' @param control_regions tumour mode: control regions for the null (regions table)
 #' @param groups tumour mode: pseudobulk groups of the block orientation (a column of `cell_meta`, a vector named
 #'   by cell, or one label per cell); ignored with a warning in normal mode
@@ -595,7 +601,7 @@ call_scn = function(dir, mode = c("normal", "tumour"), cell_meta = NULL, cells =
     if (!own_nf) {
       # depth t null and allelic rho on the null rows of the flagged null cells; without any (or with
       # null_cells = "select"), of the cells without a call on the null rows (all cells when no stable set exists)
-      nf = tumour_null_fit(long, params = params, exclude = if (is.null(mult)) NULL else mult[prob > 0.5, cell],
+      nf = tumour_null_fit(long, params = params, exclude = null_multiplets(mult),
                            select = nc_mode == "select")
       if (!is.null(nf)) {
         features$null_fit = list(tpar = nf$tpar, rho = nf$rho)

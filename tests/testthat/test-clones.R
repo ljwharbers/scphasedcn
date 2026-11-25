@@ -1630,3 +1630,13 @@ test_that("caller_tumour stops with a clear error when allelic_exclude removes e
   expect_error(caller_tumour(inp, opts = list(allelic_exclude = ex), verbose = FALSE),
                "caller_tumour: no allele votes outside opts\\$allelic_exclude")
 })
+
+test_that("caller_tumour reads every multiplet_table() form", {
+  inp = tum2_input()
+  mc = inp$cells$cell[1:3]
+  # a vector of cells is a multiplet table (prob 1): flagged and left out of discovery and the pseudobulks
+  res = caller_tumour(inp, multiplets = mc, verbose = FALSE)
+  a = res$assignments
+  expect_true(all(a[cell %in% mc, multiplet]))
+  expect_false(any(a[!cell %in% mc, multiplet]))
+})

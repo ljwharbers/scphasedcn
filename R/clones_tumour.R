@@ -603,8 +603,12 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' `rho`, the input null is [tumour_null_fit()] of the features, as in [call_scn()]).
 #' @param feat scn_features list
 #' @param params [caller_defaults()]
-#' @param multiplets optional data.table cell, prob ([multiplet_table()]); cells above `opts$multiplet_prob` are excluded from
-#'   discovery and pseudobulks but assigned and flagged
+#' @param multiplets optional multiplet flags in any form of [multiplet_table()] (a vector or file of cells, a table with
+#'   `prob`, or with a logical `multiplet` / `clean_singlet` column). Each cell's probability (clipped to \[0, 1\]) raises
+#'   its prior of the mixture (doublet) hypotheses of the assignment (capped at `opts$max_mix_prior`); cells above
+#'   `opts$multiplet_prob` (default 0.9) are excluded from discovery and the pseudobulks but assigned and flagged
+#'   (`multiplet` in the assignments). When `feat` carries no input null, the cells with prob > 0.5 are also left out of
+#'   the input null fit ([tumour_null_fit()] `exclude`), as [call_scn()] does
 #' @param control_regions optional user control regions (regions table) replacing the automatic ones (of the
 #'   confirmation null and of the reference cleaning, [clean_reference()])
 #' @param opts tumour-mode options ([clone_defaults()])
@@ -617,6 +621,8 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   rng = rng_save(); on.exit(rng_restore(rng), add = TRUE)
   say = function(...) if (verbose) message(format(Sys.time(), "%H:%M:%S"), " [tumour] ", ...)
   opts = check_clone_opts(opts)
+  # multiplets in any form of multiplet_table() (cells, a file, a table with prob / multiplet / clean_singlet)
+  md = multiplet_table(multiplets)
   inp = clone_input(feat)
   if (!nrow(inp$votes) || length(inp$rho) != 1 || !is.finite(inp$rho))
     stop("caller_tumour: no allele votes (no molecule votes, or none on the null rows to fit rho); the tumour mode needs ",
@@ -634,8 +640,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
            "); the tumour mode needs read-phased allele votes", call. = FALSE)
   }
   mult_prob = NULL; mult = character()
-  if (!is.null(multiplets)) {
-    md = as.data.table(multiplets)
+  if (!is.null(md)) {
     mult_prob = stats::setNames(pmin(pmax(as.numeric(md$prob), 0), 1), as.character(md$cell))
     mult_prob[is.na(mult_prob)] = 0
     mult = names(mult_prob)[mult_prob > opts$multiplet_prob]

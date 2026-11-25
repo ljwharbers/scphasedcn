@@ -31,9 +31,10 @@
 #' @param flat NULL, cell barcodes of known copy-number-flat cells (vector, or a file with one cell per line, without a
 #'   header unless the first line is `cell`, or with a `cell` column)
 #' @param groups NULL, a path or table with `cell` and `group` (else the first two columns), or a vector named by cell
-#' @param qc_args named list of [cell_qc()] arguments for `qc_pass` (e.g. `list(min_frag = 10000)`)
-#' @return data.table `cell`, `cell_type`, `flat`, `group`, plus `qc_pass` ([cell_qc()] on `cells_qc`) when
-#'   `cells_qc` is given
+#' @param qc_args named list of [cell_qc()] arguments for `qc_pass` (e.g. `list(min_frag = 10000)`). Not applied
+#'   (with a warning) when `cells_qc` already has a `qc_pass` column, which is then used as it is
+#' @return data.table `cell`, `cell_type`, `flat`, `group`, plus `qc_pass` when `cells_qc` is given (its own
+#'   `qc_pass` column, else [cell_qc()] on `cells_qc` with `qc_args`)
 #' @export
 #' @examples
 #' qc = data.table::data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = c(40000, 25000, 900))
@@ -71,7 +72,12 @@ make_cell_meta = function(cells_qc = NULL, cell_types = NULL, flat = NULL, group
   cells = if (!is.null(qc)) qc$cell else unique(c(names(ct), names(gr), fl))
   if (!length(cells)) stop("make_cell_meta: no cells (give cells_qc or one of the tables)")
   out = data.table(cell = cells)
-  if (!is.null(qc)) out[, qc_pass := if ("qc_pass" %in% names(qc)) as.logical(qc$qc_pass) else do.call(cell_qc, c(list(qc), qc_args))$qc_pass]
+  if (!is.null(qc)) {
+    if ("qc_pass" %in% names(qc) && length(qc_args))
+      warning("make_cell_meta: `cells_qc` has a qc_pass column, which is used as it is; `qc_args` (",
+              paste(names(qc_args), collapse = ", "), ") are not applied", call. = FALSE)
+    out[, qc_pass := if ("qc_pass" %in% names(qc)) as.logical(qc$qc_pass) else do.call(cell_qc, c(list(qc), qc_args))$qc_pass]
+  }
   out[, cell_type := if (is.null(ct)) NA_character_ else unname(ct[cell])]
   out[, flat := if (is.null(fl)) NA else cell %in% fl]
   out[, group := if (is.null(gr)) NA_character_ else unname(gr[cell])]

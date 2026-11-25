@@ -173,3 +173,13 @@ test_that("call_scn.R --config --sample without an extraction directory gives th
   expect_false(any(grepl("missing value|argument is of length zero|invalid 'y' type", log)))
 })
 
+test_that("make_cell_meta: an existing qc_pass column is used as it is; qc_args are then not applied and warn", {
+  qc = data.table(cell = c("AAAC", "AAAG", "AAAT"), n_clean = c(40000, 25000, 900), qc_pass = c(FALSE, TRUE, TRUE))
+  expect_warning(make_cell_meta(qc, qc_args = list(min_frag = 10)), "qc_args")
+  m = suppressWarnings(make_cell_meta(qc, qc_args = list(min_frag = 10)))
+  expect_identical(m$qc_pass, c(FALSE, TRUE, TRUE))
+  expect_no_warning(make_cell_meta(qc))
+  expect_no_warning(make_cell_meta(qc[, !"qc_pass"], qc_args = list(min_frag = 30000)))
+  expect_identical(make_cell_meta(qc[, !"qc_pass"], qc_args = list(min_frag = 30000))$qc_pass, c(TRUE, FALSE, FALSE))
+})
+

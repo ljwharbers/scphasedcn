@@ -527,7 +527,9 @@ read_hap_fragments = function(frag_file, chrom, tabix = NULL, clean = FALSE) {
 
 #' Molecule votes per cell, atom and phase set
 #'
-#' Per chromosome: `tabix <file> <chrom> | cut -f2,3,4,7,11,13` read with `fread(cmd = )` (an awk filter keeps hap 1 / 2 with `ps > 0` before R sees the rows), or
+#' Per chromosome: `tabix <file> <chrom> | awk ... | cut -f2,3,4,7,11,13` (the awk filter keeps hap 1 / 2 with
+#' `ps > 0` before R sees the rows), run by `bash -c` under `set -o pipefail` ([system2()]) into a temporary file
+#' that is read with [data.table::fread()], or
 #' [read_fragments()] when the tabix binary or index is missing; fragments of `cells` with haplotype
 #' A / B and a phase set are collapsed into molecules ([collapse_molecules()]), each molecule is assigned
 #' to the atom containing its start and the votes are aggregated per cell x atom x phase set. Memory

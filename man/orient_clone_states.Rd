@@ -47,9 +47,10 @@ by chaining), \code{link} (\code{first}, \code{phase}, \code{parsimony}, \code{n
 \code{ref_votes}, \code{n_swapped}, \code{n_low_conf}.
 \item \code{blocks}: the reference orientation per block, reusable by a per-cell module: one row per piece x phase set
 with reference votes: \verb{piece, chrom, start, end} (the piece; a molecule belongs to it when its atom start is in
-\verb{[start, end)}), \code{ps} (phase set of the votes table), \code{ref} (reference clone), \verb{nA_ref, nB_ref} and \code{sign}
-(+1: phase-set haplotype A is cn_a; -1: haplotype B is cn_a; 0: tie, unoriented). Blocks absent from the table
-are unoriented. A cell's oriented votes on a piece are \code{a = sum(sign > 0 ? nA : nB)}, \code{b = sum(sign > 0 ? nB : nA)} over its blocks with \code{sign != 0}; \code{a / (a + b)} estimates \code{cn_a / (cn_a + cn_b)} (attenuated).
+\verb{[start, end)}), \code{ps} (phase set of the votes table), \code{ref} (reference clone), \verb{nA_ref, nB_ref} (the reference
+clone's pooled votes of phase-set haplotypes A and B), \code{sign} (+1: phase-set haplotype A is cn_a; -1: haplotype B
+is cn_a; 0: tie, unoriented) and \code{flipped} (the piece's labels were flipped by chaining: \code{sign} is then minus the
+sign of \code{nA_ref - nB_ref}). Blocks absent from the table are unoriented. A cell's oriented votes on a piece are \code{a = sum(sign > 0 ? nA : nB)}, \code{b = sum(sign > 0 ? nB : nA)} over its blocks with \code{sign != 0}; \code{a / (a + b)} estimates \code{cn_a / (cn_a + cn_b)} (attenuated).
 \item \code{params}: \code{use}, \code{near}, \code{chain}, \code{min_link}.
 }
 }

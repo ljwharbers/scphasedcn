@@ -601,8 +601,8 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' `regions`, `votes`, `atoms`, `cells` (data.table with `cell`, in vote index order; `n_frag` / `stratum`),
 #' `win` (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
 #' start, end, x, e) and `null_fit` (list with `tpar` = [fit_depth_null()] table and `rho`; without it, or without its
-#' `rho`, the input null is [tumour_null_fit()] of the features with `params` and without the cells with multiplet prob
-#' > 0.5, as in [call_scn()]; its note, and any caution, is the first run note).
+#' `rho`, the input null is [tumour_null_fit()] of the features with `params` and without the cells whose multiplet
+#' prob is above 0.5, as in [call_scn()]; its note, and any caution, is the first run note).
 #' @param feat scn_features list
 #' @param params [caller_defaults()]
 #' @param multiplets optional multiplet flags in any form of [multiplet_table()] (a vector or file of cells, a table with

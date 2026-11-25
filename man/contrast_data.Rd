@@ -30,5 +30,6 @@ list(L, regions, MA, MB, blk_region, N, cells)
 }
 \description{
 Pre-computes what the clone contrast (\code{contrast_stat}) needs for many splits: the per-cell log2 ratio matrix (cells x
-regions) and the molecule votes per cell x region x phase block as sparse cells x blocks matrices.
+regions) and the molecule votes per cell x region x phase block as sparse cells x blocks matrices. Without votes on
+the allelic regions the result has the depth part only (\code{MA}, \code{MB}, \code{blk_region}, \code{N}, \code{trip} absent).
 }

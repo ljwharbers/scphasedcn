@@ -57,5 +57,7 @@ tumour's major haplotype is "A") and scored with the one-sided \code{ll_allelic(
 event regions, and a call is event score > \code{thr}. Without \code{thr} (\code{null = "max"}), it is the type-7 \code{q} quantile over
 the candidate cells of the same maximum over the control regions (neutral in every clone; orientation by the same
 clones), so the multiplicity of the maximum is in the null as well; \code{null = "region"} is the quantile of the
-single-region control scores (the first build's rule, which flags too many cells when there are many events).
+single-region control scores (the first build's rule, which flags too many cells when there are many events). As
+every call of the caller, a flag needs a positive score as well (\code{score > max(thr, 0)}): a negative threshold does
+not remove cells without evidence of a tumour haplotype (score <= 0, e.g. cells without votes on the events).
 }

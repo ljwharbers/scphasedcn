@@ -102,7 +102,8 @@ Confirmation null (per-cell \code{confirmed} calls, after assignment; assignment
 \code{ref_null} = "none" (the input rho / depth t of \code{feat$null_fit}) or "rho" (opt-in: beta-binomial rho refitted on the
 clean reference pool's piece votes as the confirmation scores them, oriented leave-one-out by a clone pseudobulk;
 the \code{call_scn} recipe on the pool's feature votes is kept as \code{null_fit$rho_pool_features}); needs >= \code{min_ref}
-pool cells. \code{confirm_null} = "generic" (null rows scored as the best of the
+pool cells. The depth t of the confirmation is always the input one (\code{null_fit$tpar_confirm} = \code{null_fit$tpar};
+\code{depth_t_confirm} rows of \code{null_fit.tsv}); only rho can be refitted. \code{confirm_null} = "generic" (null rows scored as the best of the
 tumour state set, one threshold per stratum) or "matched" (each clone hypothesis clone | label | shift | f scored on
 the null rows oriented by that clone's pseudobulk under the same two-state set as the cells; one threshold per
 hypothesis x stratum, hypothesis-wide below \code{min_null_rows}; held-out fold-CV false-confirmation rates per

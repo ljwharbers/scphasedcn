@@ -41,7 +41,7 @@ mean log2 has the opposite sign of its expected shift by more than this takes th
 imbalanced state (nb copies: CN-LOH at baseline 2), or the balanced reference when none is supported (Inf = off)}
 
 \item{gain_support}{with a \code{\link[=fit_clone_states]{fit_clone_states()}} input: an imbalanced gain (diploid window, copy number above the
-window's base) needs a mean log2 of at least this share of its expected shift \code{c * log2(cn / base)}, measured
+clone's integer baseline nb) needs a mean log2 of at least this share of its expected shift \code{c * log2(cn / base)}, measured
 against the region's depth offset (per window, the median over the other clones that are 1:1 there, with at
 least 50 cells, of their log2 minus the 1:1 expectation). A run that fails takes the best copy-neutral imbalanced
 state (nb copies: CN-LOH at baseline 2) if its pooled oriented fraction supports one (as \code{min_excess}); otherwise

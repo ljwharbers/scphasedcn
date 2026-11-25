@@ -24,7 +24,7 @@ cell_piece_data(
 
 \item{pieces}{piece table (\verb{piece, chrom, start, end}, one row per piece or per clone x piece)}
 
-\item{blocks}{block orientation (\verb{piece, ps, sign} and, for \code{loo}, \verb{ref, nA_ref, nB_ref})}
+\item{blocks}{block orientation (\verb{piece, ps, sign} and, for \code{loo}, \verb{ref, nA_ref, nB_ref}; \code{flipped} optional)}
 
 \item{cells}{cells to score (default all cells of \code{features})}
 
@@ -67,7 +67,9 @@ Alleles: the cell's molecule votes on the piece (atom start in \verb{[start, end
 block table: \code{oA} = votes of the cn_a haplotype (\code{nA} when \code{sign > 0}, \code{nB} when \code{sign < 0}), \code{oN} = oriented votes.
 With \code{loo}, the reference clone's pooled votes are first reduced by the cell's own votes when the cell was one of
 the cells that oriented the block (\code{loo} maps cells to the clone whose pool they joined; only blocks whose \code{ref}
-is that clone are affected): the orientation is then the one the other cells give, and the cell's own votes cannot
-confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
+is that clone are affected): the orientation is then the one the other cells give, in the block table's current
+label convention (on a piece whose labels the chaining of \code{\link[=orient_clone_states]{orient_clone_states()}} flipped, \code{flipped}, the sign of
+the remaining votes is negated as \code{sign} is; a table without \code{flipped} takes the flip from the piece's non-tied
+blocks), and the cell's own votes cannot confirm themselves. This is the only use of a cell's clone membership, and it only removes the cell's own data
 from the orientation input.
 }

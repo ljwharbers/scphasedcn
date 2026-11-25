@@ -27,7 +27,7 @@ split_disagree(
 
 \item{segments}{segments table of the members' clones}
 
-\item{par}{data.table clone, c, a (\code{\link[=fit_clone_states]{fit_clone_states()}} \code{par})}
+\item{par}{data.table clone, c, a and optionally base (the clone baseline; 2 without it) (\code{\link[=fit_clone_states]{fit_clone_states()}} \code{par})}
 
 \item{inp}{scn_features list or \code{clone_input} (regions, atoms, cells, features for \code{sd_null}, tpar, rho)}
 
@@ -39,11 +39,14 @@ split_disagree(
 
 \item{ref_cells}{depth reference cells of the re-fit (used with >= \code{min_ref} cells)}
 
-\item{fit_states}{optional replacement of \code{\link[=fit_clone_states]{fit_clone_states()}} (\verb{function(profile, grid)})}
+\item{fit_states}{optional replacement of the re-fit's state fit (\verb{function(profile, grid)}); default
+\code{\link[=fit_clone_states]{fit_clone_states()}} with the \code{opts} of the run (\code{p_switch}, \code{min_win}, \code{ploidy}, \code{ploidy_tol}), as \code{\link[=caller_tumour]{caller_tumour()}}
+fits its clones (the caller passes its own fit, which also narrows the candidate baselines)}
 
 \item{opts}{\code{\link[=clone_defaults]{clone_defaults()}} (\code{min_size}, \code{split_sep}, \code{split_max}, \code{split_cand}, \code{split_min_len}, \code{split_min_df},
 \code{split_min_excess}, \code{q}, \code{n_perm}, \code{max_cells}, \code{depth_delta}, \code{same_dist}, \code{small_clone}, \code{size_small}, \code{min_ref}, \code{p_switch},
-\code{min_win}, \code{min_llr})}
+\code{min_win}, \code{ploidy}, \code{ploidy_tol}, \code{min_llr} and the \code{\link[=segment_clone]{segment_clone()}} rules \code{min_excess}, \code{bal_frac}, \code{min_bal_len},
+\code{max_contra}, \code{gain_support})}
 
 \item{params}{\code{\link[=caller_defaults]{caller_defaults()}} (\code{sd_floor}, \code{eps})}
 
@@ -66,7 +69,8 @@ a haplotype imbalance but differ by one copy in one clone (e.g. a chr21 loss sub
 a chr21 3:0 / 4:0 LOH-gain subclone inside a 2:1 clone, fitted 3:1). For each clone with >= 2 \code{min_size}
 members and each of its non-neutral segments (ploidy 2, >= \code{split_min_len}; the copy-neutral 2:0 included), every
 member is scored on the discovery halves (\code{win_disc}, \code{votes_disc}) under the clone state and under each alternative of
-\code{\link[=split_alt_states]{split_alt_states()}}. Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
+\code{\link[=split_alt_states]{split_alt_states()}} on the clone's state grid (the diploid \code{\link[=cn_grid]{cn_grid()}} at baseline 2, else the grid of its fitted
+baseline \code{par$base}, as \code{\link[=fit_clone_states]{fit_clone_states()}} uses it). Depth: the cell's segment log2 ratio, centred on the members' median (the clone state; clone
 profiles are relative to the clone baseline), in units of its \code{sd_null} scaled to the half depth and inflated by the
 members' own robust spread, t density at \code{c * log2(cn / cn_state)} (clone c from \code{par}). Alleles: the cell's votes
 oriented by the clone's leave-one-out pseudobulk, beta-binomial at \code{0.5 + a_eff (f - 0.5)}, a_eff = the attenuation of

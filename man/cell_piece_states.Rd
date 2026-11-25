@@ -27,7 +27,8 @@ cell_piece_states(
   haploid_sd = sqrt(2),
   data = NULL,
   keep_ll = FALSE,
-  rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25)
+  rho_grid = c(0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25),
+  baseline = NULL
 )
 }
 \arguments{
@@ -80,6 +81,9 @@ orientation a single cell's votes on a piece are far more dispersed (often by an
 \item{keep_ll}{return the per-candidate log-likelihoods}
 
 \item{rho_grid}{grid of \code{rho = "auto"}}
+
+\item{baseline}{per-cell baseline B (the copy number of the cell's median depth): NULL (default) = 2 for every cell
+(diploid), one number for every cell, or a numeric vector named by cell (cells without a value: 2)}
 }
 \value{
 list of class \code{cell_piece_states}: \code{states} (one row per cell x piece: cell, piece, chrom, start, end,
@@ -94,10 +98,11 @@ clone has on the piece; haploid pieces: one-copy states) are scored with the cel
 (\code{\link[=cell_piece_data]{cell_piece_data()}}); the cell's clone assignment is not used.
 \itemize{
 \item Depth: \code{ll_depth_shift(z, mu, tpar)} with \code{mu = c * log2(max(cn, 0.2) / base) / pmax(sd, sd_floor)} (the shift
-model of the clone states, \code{\link[=fit_clone_states]{fit_clone_states()}} / \code{\link[=assign_cells]{assign_cells()}}: \code{base} = the piece ploidy when the depth is
-centred on the reference pool, else 2), relative to the neutral state's shift (the neutral state's own depth
-term is \code{ll_depth_shift(z, 0) = 0}), Student-t null per sd_class x stratum (\code{\link[=fit_depth_null]{fit_depth_null()}} parameters,
-fallbacks as in \code{\link[=assign_cells]{assign_cells()}}) or Gaussian when \code{tpar} is NULL.
+model of the clone states, \code{\link[=fit_clone_states]{fit_clone_states()}} / \code{\link[=assign_cells]{assign_cells()}}: \code{base} = the cell's baseline B (\code{baseline}, 2
+by default) times the piece ploidy / 2 when the depth is centred on the reference pool, else B), relative to the
+neutral state's shift (at B = 2 the neutral state's own depth term is \code{ll_depth_shift(z, 0) = 0}), Student-t null
+per sd_class x stratum (\code{\link[=fit_depth_null]{fit_depth_null()}} parameters, fallbacks as in \code{\link[=assign_cells]{assign_cells()}}) or Gaussian when \code{tpar}
+is NULL.
 \item Alleles: one-sided beta-binomial LLR vs 1:1 of the oriented votes \verb{(oA, oN)} at the expected cn_a fraction
 \code{0.5 + a * (cn_a / cn - 0.5)} (\code{a} = orientation attenuation of the clone model; 0.5 for cn = 0), overdispersion
 \code{rho}; haploid pieces have no allele term.
@@ -108,5 +113,10 @@ fallbacks as in \code{\link[=assign_cells]{assign_cells()}}) or Gaussian when \c
 \details{
 \code{c}, \code{a} and \code{s_sys} are global (one value for every cell): by default the median over the tumour clones (kept clones
 of \code{pieces} except \code{normal}), weighted by their assigned cells, of the clones' fitted \code{c} / \code{a} / \code{s_sys} (\code{clones}
-table). A per-cell value would have to come from the cell's clone, which this function must not use.
+table). A per-cell value would have to come from the cell's clone, which this function must not use. For the same
+reason the depth scale of every cell is diploid by default: a cell's depth is centred on its own median, which is
+at B copies for a cell of a clone with baseline B (\code{clones$baseline}), so the states of cells of a clone with B != 2
+are scored on the wrong scale (off by \code{c * log2(B / 2)}) unless their baselines are given in \code{baseline}, e.g.
+\code{setNames(clones$baseline[match(assignments$clone, clones$clone)], assignments$cell)} (the clone membership then
+enters the depth scale).
 }

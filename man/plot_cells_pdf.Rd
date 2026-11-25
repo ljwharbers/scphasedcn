@@ -31,5 +31,7 @@ plot_cells_pdf(
 \code{file}, invisibly
 }
 \description{
-\code{per_page} cells per page (\code{\link[=plot_cell_tracks]{plot_cell_tracks()}}), with \code{grDevices::cairo_pdf(onefile = TRUE)}.
+\code{per_page} cells per page (\code{\link[=plot_cell_tracks]{plot_cell_tracks()}}), with \code{grDevices::cairo_pdf(onefile = TRUE)} (\code{grDevices::pdf()}
+when R has no cairo). The cells are checked before the file is opened; only \code{file} (and its directory) is written,
+and only the device opened here is closed.
 }

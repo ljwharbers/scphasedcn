@@ -37,7 +37,7 @@ Imports:
     utils,
     yaml
 Suggests:
-    ggplot2,
+    ggplot2 (>= 3.4.0),
     ggrastr,
     knitr,
     patchwork,

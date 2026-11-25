@@ -109,3 +109,215 @@ test_that("normal-mode tracks use the cell's events on a neutral baseline", {
   expect_true(all(tr$fit[cell != cells[1], label] == "neutral"))
   expect_identical(tr$fit[cell == cells[2] & chrom == "chrX", state], "1:0")
 })
+
+# ---- edge inputs and results of the current caller --------------------------------------------------
+
+# the sim_tum2 extraction directory of pc_features(), and features with cell-type matched depth (normal mode's)
+pc_dir = function() { pc_features(); file.path(tempdir(), "plotcells_sim_tum2") }
+pc_features_celltype = function() {
+  if (is.null(pc_cache$feat_ct)) {
+    s = sim_tum2
+    cs = s$scn$bins[, .(len = max(end)), by = chrom]
+    ce = cs[, .(chrom, cstart = 1, cen_left = 0.4 * len, cen_right = 0.4 * len, cend = len)]
+    pc_cache$feat_ct = suppressMessages(cell_features(pc_dir(), cells = s$scn$cells$cell, centromeres = ce, sex = "male",
+                                                      method = "celltype"))
+  }
+  pc_cache$feat_ct
+}
+# the colours of the segments of a plot's first (depth) panel
+pc_segment_colours = function(p) {
+  ld = ggplot2::layer_data(p[[1]], 5)   # shading, hline, 1 Mb points, agg points, segments
+  unique(ld$colour)
+}
+
+test_that("male chrX: the neutral segment follows the depth reference (cell-type matched depth sits at 0)", {
+  s = sim_tum2
+  n0 = s$scn$cells[cell_type == "normal", cell][1:20]
+  for (m in c("celltype", "model")) {
+    feat = if (m == "celltype") pc_features_celltype() else pc_features()
+    nres = new_scphasedcn("normal", cells = s$scn$cells[, .(cell, n_frag)], regions = feat$regions)
+    tr = cell_tracks(feat, nres, cells = n0, orient = "pseudobulk")
+    obs = tr$depth[size == 5e6 & chrom == "chrX", stats::median(log2)]
+    ex = unique(tr$fit[chrom == "chrX", log2_exp])
+    expect_length(ex, 1L)
+    expect_lt(abs(obs - ex), 0.25, label = sprintf("%s depth: chrX data %.2f vs fitted %.2f", m, obs, ex))
+  }
+})
+
+test_that("normal-mode events on a haploid chromosome get haploid states", {
+  feat = pc_features()
+  res = pc_result(feat)
+  cells = res$cells$cell[1:3]
+  cx = feat$win$windows[chrom == "chrX", .(start = min(start), end = max(end))]
+  ev = data.table(cell = cells[1:2], chrom = "chrX", start = cx$start, end = cx$end, state = c("loss", "gain"),
+                  top_region = "chrX", score = 5, level = "cell", top_class = "chrom", n_regions = 1L)
+  nres = new_scphasedcn("normal", cells = res$cells, regions = res$regions, events = ev)
+  tr = cell_tracks(feat, nres, cells = cells, orient = "pseudobulk")
+  f = tr$fit[chrom == "chrX" & source == "confirmed"]
+  expect_identical(f[cell == cells[1], state], "0:0")
+  expect_identical(f[cell == cells[2], state], "2:0")
+  expect_true(all(is.na(f$f_exp)))
+  expect_true(all(f$ploidy == 1L))
+  # an event without coordinates takes those of its top region
+  r21 = res$regions[region == "chr21"]
+  ev2 = data.table(cell = cells[3], chrom = "chr21", start = NA_real_, end = NA_real_, state = "loss",
+                   top_region = "chr21", score = 5, level = "cell", top_class = "chrom", n_regions = 1L)
+  tr2 = cell_tracks(feat, new_scphasedcn("normal", cells = res$cells, regions = res$regions, events = ev2), cells = cells[3])
+  g = tr2$fit[source == "confirmed"]
+  expect_equal(c(g$start, g$end), c(r21$start, r21$end))
+})
+
+test_that("cell_tracks takes partial tumour results (no calls, clones without c / a, no allelic_ok, no ploidy)", {
+  feat = pc_features()
+  res = pc_result(feat)
+  cb = res$assignments[clone == "CB", cell][1:2]
+  r1 = res; r1$calls = NULL
+  tr = cell_tracks(feat, r1, cells = cb)
+  expect_true(all(tr$fit$source == "clone"))
+  r2 = res; r2$clones = r2$clones[, .(clone)]
+  r2$segments = copy(r2$segments)[clone == "CB" & chrom == "chr2", state := "0:0"]
+  tr2 = cell_tracks(feat, r2, cells = cb)
+  expect_equal(unique(tr2$fit[chrom == "chr1", f_exp]), 1)          # a = 1: 2:0 at its full major fraction
+  expect_equal(unique(tr2$fit[chrom == "chr2", log2_exp]), log2(0.2 / 2))   # the clone-state emission's floor
+  r3 = res; r3$regions = r3$regions[, !"allelic_ok"]; r3$segments = r3$segments[, !"ploidy"]
+  tr3 = cell_tracks(feat, r3, cells = cb)
+  expect_true(all(tr3$fit[chrom == "chrX", ploidy] == 2L))          # sex unknown without allelic_ok: diploid
+  expect_identical(cell_tracks(feat, res, cells = c(cb, cb))$meta$cell, cb)
+})
+
+test_that("plots colour every state label, including imbalance and labels the palette does not know", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  feat = pc_features()
+  res = pc_result(feat)
+  res$segments[clone == "CB" & chrom == "chr1", label := "imbalance"]
+  res$segments[clone == "CB" & chrom == "chr2", `:=`(state = "2:1", label = "some_new_label")]
+  cb = res$assignments[clone == "CB", cell][1]
+  tr = cell_tracks(feat, res, cells = cb)
+  p = plot_cell_tracks(tr, cb, raster = FALSE)
+  cols = pc_segment_colours(p)
+  expect_false(anyNA(cols))
+  expect_false("grey50" %in% cols)                                   # the scale's NA colour
+  expect_length(cols, 3L)                                            # neutral, imbalance, the unknown label
+  # no known label at all
+  tr$fit[, label := "unknown_state"]
+  p2 = plot_cell_tracks(tr, cb, raster = FALSE)
+  expect_false("grey50" %in% pc_segment_colours(p2))
+})
+
+test_that("plots build for a cell without BAF points and on one chromosome", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  feat = pc_features()
+  res = pc_result(feat)
+  cb = res$assignments[clone == "CB", cell][1]
+  tr = cell_tracks(feat, res, cells = cb)
+  p = plot_cell_tracks(tr, cb, raster = FALSE, min_hap = 1e9)
+  expect_s3_class(ggplot2::ggplot_build(p[[2]]), "ggplot_built")
+  t1 = tr
+  for (k in c("depth", "baf", "fit")) t1[[k]] = t1[[k]][chrom == "chr21"]
+  t1$genome = genome_layout(feat$win$windows[chrom == "chr21"])
+  p1 = plot_cell_tracks(t1, cb, raster = FALSE)
+  for (i in 1:3) expect_s3_class(ggplot2::ggplot_build(p1[[i]]), "ggplot_built")
+})
+
+test_that("plot_cells_pdf checks the cells before opening the file and closes only its own device", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  feat = pc_features()
+  res = pc_result(feat)
+  cb = res$assignments[clone == "CB", cell][1:2]
+  tr = cell_tracks(feat, res, cells = cb)
+  f = tempfile(fileext = ".pdf")
+  expect_error(plot_cells_pdf(tr, f, cells = c(cb[1], "nope")), "not in the tracks")
+  expect_false(file.exists(f))
+  expect_error(plot_cells_pdf(tr, f, cells = character()), "no cells")
+  expect_false(file.exists(f))
+  png_f = tempfile(fileext = ".png")
+  grDevices::png(png_f)
+  dev0 = grDevices::dev.cur()
+  plot_cells_pdf(tr, f, per_page = 1, raster = FALSE)
+  expect_identical(grDevices::dev.cur(), dev0)
+  grDevices::dev.off(dev0)
+  expect_gt(file.size(f), 0)
+})
+
+test_that("cell_tracks and the plots run on call_scn() results, the same after write / read", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  feat = pc_features()
+  res = suppressWarnings(call_scn(pc_dir(), "tumour", features = feat, cells = sim_tum2$scn$cells$cell, verbose = FALSE))
+  tr = cell_tracks(feat, res)
+  expect_identical(attr(tr, "orient"), "clone")
+  expect_true(all(tr$fit$source %in% c("confirmed", "inherited", "clone")))
+  cc = as.data.table(res$calls)[level == "cell" & called %in% TRUE]
+  if (nrow(cc) && "source" %in% names(cc)) {
+    # every called cell-level row of an assigned cell is found among the cell's fitted segments
+    cc = cc[cell %in% tr$meta[!is.na(clone), cell]]
+    hit = tr$fit[source != "clone"][cc, on = .(cell, chrom, start, end), nomatch = NULL]
+    expect_equal(nrow(unique(hit[, .(cell, chrom, start, end)])), nrow(unique(cc[, .(cell, chrom, start, end)])))
+  }
+  out = file.path(tempdir(), "plotcells_tum_out")
+  write_scphasedcn(res, out)
+  tr2 = cell_tracks(feat, read_scphasedcn(out))
+  expect_equal(tr2, tr)
+  cl = tr$meta[!is.na(clone)][order(-n_confirmed)]$cell[1]
+  expect_s3_class(ggplot2::ggplot_build(plot_cell_tracks(tr, cl, raster = FALSE)[[1]]), "ggplot_built")
+  # normal mode on cell-type matched depth
+  fct = pc_features_celltype()
+  nres = suppressWarnings(call_scn(pc_dir(), "normal", features = fct, cells = sim_tum2$scn$cells$cell, verbose = FALSE,
+                                   embedding = FALSE))
+  ntr = cell_tracks(fct, nres)
+  expect_identical(attr(ntr, "mode"), "normal")
+  ev = if (is.null(nres$events)) data.table(level = character()) else as.data.table(nres$events)
+  if (nrow(ev[level == "cell"])) {
+    expect_gt(nrow(ntr$fit[source == "confirmed"]), 0)
+    expect_false(anyNA(ntr$fit$state))
+  }
+  c1 = ntr$meta[order(-n_confirmed)]$cell[1]
+  expect_s3_class(ggplot2::ggplot_build(plot_cell_tracks(ntr, c1, raster = FALSE)[[3]]), "ggplot_built")
+})
+
+test_that("inst/scripts/plot_cells.R --help exits 0 without data", {
+  script = system.file("scripts", "plot_cells.R", package = "scphasedcn")
+  expect_true(file.exists(script))
+  rs = file.path(R.home("bin"), "Rscript")
+  out = suppressWarnings(system2(rs, c(script, "--help"), stdout = TRUE, stderr = TRUE))
+  expect_null(attr(out, "status"))
+  expect_true(any(grepl("--run", out)))
+  expect_true(any(grepl("--orient", out)))
+})
+
+test_that("plot_cells.R fails with usage on bad input and plots a written run", {
+  # the script loads the installed package: run it under R CMD check (or SCPHASEDCN_TEST_CLI=true after an install)
+  skip_if_not(testthat::is_checking() || isTRUE(as.logical(Sys.getenv("SCPHASEDCN_TEST_CLI", "FALSE"))))
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  script = system.file("scripts", "plot_cells.R", package = "scphasedcn")
+  rs = file.path(R.home("bin"), "Rscript")
+  run = function(...) suppressWarnings(system2(rs, c(script, ...), stdout = TRUE, stderr = TRUE))
+  bad = list(list(args = character(), msg = "--run is required"),
+             list(args = c("--run", file.path(tempdir(), "no_such_run")), msg = "no result.rds"),
+             list(args = c("--run", tempdir(), "--bogus", "1"), msg = "unknown option"),
+             list(args = c("--run", tempdir(), "--orient", "sideways"), msg = "--orient must be"),
+             list(args = c("--run", tempdir(), "--per-page", "0"), msg = "--per-page must be"))
+  for (b in bad) {
+    log = run(b$args)
+    expect_false(is.null(attr(log, "status")), info = b$msg)
+    expect_true(any(grepl(b$msg, log, fixed = TRUE)), info = paste(b$msg, paste(log, collapse = "\n")))
+    expect_true(any(grepl("--help", log, fixed = TRUE)), info = b$msg)
+  }
+  feat = pc_features()
+  res = pc_result(feat)
+  rd = file.path(tempdir(), "plotcells_cli_run")
+  unlink(rd, recursive = TRUE)
+  write_scphasedcn(res, rd)
+  ff = file.path(tempdir(), "plotcells_cli_features.rds")
+  saveRDS(feat, ff)
+  od = file.path(tempdir(), "plotcells_cli_out")
+  cb = paste(res$assignments[clone == "CB", cell][1:2], collapse = ";")
+  log = run("--run", rd, "--features", ff, "--out", od, "--cells", cb, "--cores", "1")
+  expect_null(attr(log, "status"))
+  expect_true(file.exists(file.path(od, "CB.pdf")))
+  expect_identical(nrow(fread(file.path(od, "cells.tsv"))), 2L)
+})

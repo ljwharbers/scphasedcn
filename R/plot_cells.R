@@ -7,16 +7,37 @@
 # Outputs: [cell_tracks()] long tables; [plot_cell_tracks()] a patchwork plot; [plot_cells_pdf()] a multi-page PDF.
 # See also: clones_states.R (clone_profiles(), the same depth scale for clone pseudobulks).
 
-# nominal allele-specific state of a call label (normal mode events; relative to a diploid baseline)
+# nominal allele-specific state of a call label (normal mode events) relative to the chromosome's ploidy: diploid
+# (loss 1:0, cnloh 2:0, gain 2:1, ...) or haploid (male chrX / chrY: loss / del 0:0, gain 2:0, amp 3:0, as
+# state_label() names haploid states); NA for a label without a nominal state
 label_states = function() {
   data.table(label = c("neutral", "loss", "cnloh", "gain", "gain_as", "amp", "del"),
-             state = c("1:1", "1:0", "2:0", "2:1", "3:0", "3:1", "0:0"))
+             state = c("1:1", "1:0", "2:0", "2:1", "3:0", "3:1", "0:0"),
+             state_hap = c("1:0", "0:0", NA, "2:0", "2:0", "3:0", "0:0"))
+}
+event_state = function(label, ploidy) {
+  ls_ = label_states()
+  k = match(label, ls_$label)
+  fifelse(ploidy == 1L, ls_$state_hap[k], ls_$state[k])
 }
 
-# colours of the state labels (ggsci npg)
-state_colours = function() {
-  c(neutral = "grey30", loss = "#4DBBD5", del = "#3C5488", cnloh = "#00A087", gain = "#F39B7F",
-    gain_as = "#7E6148", amp = "#DC0000")
+# colours of the state labels (ggsci npg); `labels`: also a colour for every other label present (e.g. the tumour
+# label "imbalance", or labels of a newer caller), so that no segment falls on the scale's NA colour
+state_colours = function(labels = NULL) {
+  cols = c(neutral = "grey30", loss = "#4DBBD5", del = "#3C5488", cnloh = "#00A087", gain = "#F39B7F",
+           gain_as = "#7E6148", amp = "#DC0000", imbalance = "#E64B35")
+  extra = setdiff(unique(stats::na.omit(as.character(labels))), names(cols))
+  if (length(extra)) {
+    pal = c("#8491B4", "#91D1C2", "#B09C85", "#F0B400", "#6F2DA8")
+    cols = c(cols, stats::setNames(rep_len(pal, length(extra)), extra))
+  }
+  cols
+}
+
+# depth normalisation of a features object, from its notes ("depth: <method> ..."); NA when not noted
+features_depth_method = function(features) {
+  l = grep("^depth: ", features$notes %||% character(), value = TRUE)
+  if (length(l)) sub("^depth: ([A-Za-z0-9_]+).*$", "\\1", l[1]) else NA_character_
 }
 
 # chromosome offsets on a concatenated genome axis
@@ -33,8 +54,11 @@ genome_layout = function(windows) {
 #' Builds, for a set of cells, the data behind [plot_cell_tracks()]:
 #' - `depth`: per cell and window the log2 ratio `log2((x + 0.5) / (e + 0.5))` of the features' 1 Mb windows and of
 #'   `agg` windows. As in [clone_profiles()], relative to the reference pool when it has at least `min_ref` cells
-#'   (then the copy-number baseline is the chromosome's ploidy) and centred on the cell's autosomal median, so the
-#'   track is on the scale of the clone segments.
+#'   and centred on the cell's autosomal median, so the track is on the scale of the clone segments. The
+#'   copy-number baseline (`base`, the copy number at log2 0) is the chromosome's ploidy when the depth is relative
+#'   to other cells of the sample (a reference pool, or the features' `celltype` / `loo` depth, normal mode's), else 2
+#'   (`model` depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
+#'   take the ploidy.
 #' - `baf`: per cell and `agg` window the oriented haplotype-A fraction `nA / (nA + nB)` of the cell's molecule votes.
 #'   Phase blocks are oriented with [orient_blocks()] (ties dropped) by a leave-one-out pseudobulk: of the cell's
 #'   clone (`orient = "clone"`, the confirmation's orientation) or of all cells (`"pseudobulk"`); `"none"` keeps
@@ -43,9 +67,12 @@ genome_layout = function(windows) {
 #' - `fit`: the fitted segments of each cell. Tumour mode: the segments of the cell's clone, with `source`
 #'   `confirmed` (called in the cell), `inherited` (the clone's call carried to the cell), or `clone` (neutral, or a
 #'   clone call not reported in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
-#'   cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0) on a neutral baseline. Expected log2 `c * log2(cn / base)`
-#'   (`c` the clone's depth contrast, 1 in normal mode) and expected major fraction `0.5 + a * (f - 0.5)` (`a` the
-#'   clone's orientation attenuation, 1 in normal mode).
+#'   cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0; on a haploid chromosome loss 0:0, gain 2:0, amp 3:0) on a
+#'   neutral baseline; events without coordinates take those of their `top_region`, else the whole chromosome.
+#'   Expected log2 `c * log2(max(cn, 0.2) / base)` (`c` the clone's depth contrast, 1 in normal mode or when the
+#'   result has none) and expected major fraction `0.5 + a * (f - 0.5)` (`a` the clone's orientation attenuation,
+#'   likewise 1). Haploid chromosomes are the chrX / chrY rows with `allelic_ok` FALSE in the result's regions; a
+#'   result without that column is treated as diploid throughout.
 #' - `meta`: one row per cell (clone, posterior, assigned, n_frag, number of confirmed / inherited segments).
 #' - `genome`: chromosome offsets for a concatenated genome axis.
 #' @param features features object ([cell_features()]) with `win`, `votes` and `atoms`
@@ -68,6 +95,7 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
   win = as_clone_win(win, colnames(win$x))
   fcells = colnames(win$x)
   if (is.null(cells)) cells = intersect(as.character(result$cells$cell), fcells)
+  cells = unique(as.character(cells))
   miss = setdiff(cells, fcells)
   if (length(miss)) stop(sprintf("cell_tracks: %d cells are not in the features (e.g. %s)", length(miss), miss[1]))
   mode = result$mode
@@ -81,7 +109,11 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
   asg = if (!is.null(result$assignments)) as.data.table(result$assignments) else data.table(cell = character(), clone = character())
   ref = if ("ref_pool" %in% names(asg)) intersect(asg[ref_pool %in% TRUE, cell], fcells) else character()
   use_ref = length(ref) >= min_ref
-  cl = if (!is.null(result$clones)) as.data.table(result$clones) else data.table(clone = character(), c = numeric(), a = numeric())
+  cl = if (!is.null(result$clones)) as.data.table(result$clones) else data.table(clone = character())
+  for (k in c("c", "a")) if (!k %in% names(cl)) cl[, (k) := rep(NA_real_, .N)]
+  # copy-number baseline of the depth: the ploidy when the depth is relative to cells of the sample
+  dm = features_depth_method(features)
+  rel_depth = use_ref || (if (is.na(dm)) mode == "normal" else dm %in% c("celltype", "loo"))
   if (orient == "auto") {
     chromwide = !is.null(features$phasing) && identical(unname(features$phasing[["detected"]]), "chromosome")
     orient = if (mode == "tumour" && nrow(asg)) "clone" else if (chromwide) "none" else "pseudobulk"
@@ -129,13 +161,18 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
 
   # ---- fitted segments ----
   cl_of = asg$clone[match(cells, asg$cell)]
-  base_of = function(ploidy) if (use_ref) ploidy else rep(2L, length(ploidy))
+  base_of = function(ploidy) if (rel_depth) as.integer(ploidy) else rep(2L, length(ploidy))
   if (mode == "tumour" && !is.null(result$segments)) {
-    seg = as.data.table(result$segments)[, .(clone, chrom, start, end, state, label, ploidy)]
+    seg = as.data.table(result$segments)
+    if (!"label" %in% names(seg)) seg[, label := state_label(nA_of(state), nB_of(state), fifelse(chrom %in% haploid, 1L, 2L))]
+    if (!"ploidy" %in% names(seg)) seg[, ploidy := fifelse(chrom %in% haploid, 1L, 2L)]
+    seg = seg[, .(clone, chrom, start, end, state, label, ploidy)]
     fit = data.table(cell = cells, clone = cl_of)[!is.na(clone)][seg, on = "clone", allow.cartesian = TRUE, nomatch = NULL]
-    calls = as.data.table(result$calls)
-    calls = calls[level == "cell" & called %in% TRUE & cell %in% cells]
-    if (nrow(calls) && "source" %in% names(calls)) {
+    calls = if (is.null(result$calls)) data.table() else as.data.table(result$calls)
+    need = c("cell", "chrom", "start", "end", "level", "called", "source")
+    calls = if (nrow(calls) && all(need %in% names(calls))) calls[level == "cell" & called %in% TRUE & cell %in% cells] else data.table()
+    if (nrow(calls)) {
+      if (!"reportable" %in% names(calls)) calls[, reportable := TRUE]
       calls = calls[, .(src = fifelse(any(source == "confirmed"), "confirmed",
                                       fifelse(any(reportable %in% TRUE), "inherited", "clone"))),
                     by = .(cell, chrom, start, end)]
@@ -149,19 +186,28 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
     fit = neutral_baseline(cells, win$windows, haploid)
     ev = if (!is.null(result$events)) as.data.table(result$events)[level == "cell" & cell %in% cells] else data.table()
     if (nrow(ev)) {
-      ls_ = label_states()
-      ev = ev[, .(cell, clone = NA_character_, chrom, start, end, label = state,
-                  state = ls_$state[match(state, ls_$label)], source = "confirmed")]
-      ev[, ploidy := fifelse(chrom %in% haploid, 1L, 2L)]
+      # events without coordinates (regions of a features-only run): those of the top region, else the chromosome
+      ev[, `:=`(start = as.numeric(start), end = as.numeric(end))]
+      if ("top_region" %in% names(ev) && all(c("region", "start", "end") %in% names(regs))) {
+        k = match(ev$top_region, regs$region)
+        ev[is.na(start), start := as.numeric(regs$start[k[is.na(start)]])]
+        ev[is.na(end), end := as.numeric(regs$end[k[is.na(end)]])]
+      }
+      ce = as.data.table(win$windows)[, .(cs = min(start), cend = max(end)), by = chrom]
+      ev[ce, `:=`(start = fifelse(is.na(start), as.numeric(i.cs), start), end = fifelse(is.na(end), as.numeric(i.cend), end)),
+         on = "chrom"]
+      ev = ev[, .(cell, clone = NA_character_, chrom, start, end, label = state, ploidy = fifelse(chrom %in% haploid, 1L, 2L),
+                  source = "confirmed")]
+      ev[, state := event_state(label, ploidy)]
       fit = rbind(fit, ev, fill = TRUE)
     }
   }
   fit[, cn := nA_of(state) + nB_of(state)]
   fit[, f := fifelse(cn > 0, nA_of(state) / cn, 0.5)]
   fit[, base := base_of(ploidy)]
-  fit[, c_ := cl$c[match(clone, cl$clone)]][is.na(c_), c_ := 1]
-  fit[, a_ := cl$a[match(clone, cl$clone)]][is.na(a_), a_ := 1]
-  fit[, log2_exp := c_ * log2(pmax(cn, 0.25) / base)]
+  fit[, c_ := as.numeric(cl$c[match(clone, cl$clone)])][is.na(c_), c_ := 1]
+  fit[, a_ := as.numeric(cl$a[match(clone, cl$clone)])][is.na(a_), a_ := 1]
+  fit[, log2_exp := c_ * log2(pmax(cn, 0.2) / base)]   # 0.2: the floor of the clone-state depth emission
   fit[, f_exp := fifelse(ploidy == 1L, NA_real_, 0.5 + a_ * (f - 0.5))]   # haploid: no heterozygous SNPs
   fit[, c("c_", "a_", "f") := NULL]
   fit = fit[order(match(cell, cells), chrom_rank(chrom), start)]
@@ -184,7 +230,7 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
             orient = orient, mode = mode, class = c("cell_tracks", "list"))
 }
 utils::globalVariables(c("src", "i.src", "c_", "a_", "log2_exp", "f_exp", "n_confirmed", "n_inherited", "baf", "se",
-                         "shade", "offset", "len", "mid", "gx", "gx0", "gx1", "lt", "size"))
+                         "shade", "offset", "len", "mid", "gx", "gx0", "gx1", "lt", "size", "cs", "cend", "i.cs", "i.cend"))
 
 # one neutral segment per chromosome and cell
 neutral_baseline = function(cells, windows, haploid) {
@@ -204,9 +250,12 @@ print.cell_tracks = function(x, ...) {
 
 # ---- plots -------------------------------------------------------------------------------------------
 
-need_plot_pkgs = function() {
+need_plot_pkgs = function(where = "plot_cell_tracks") {
   for (p in c("ggplot2", "patchwork"))
-    if (!requireNamespace(p, quietly = TRUE)) stop(sprintf("plot_cell_tracks: needs the `%s` package", p), call. = FALSE)
+    if (!requireNamespace(p, quietly = TRUE))
+      stop(sprintf("%s: needs the `%s` package (install.packages(\"%s\"))", where, p, p), call. = FALSE)
+  if (utils::packageVersion("ggplot2") < "3.4.0")
+    stop(sprintf("%s: needs ggplot2 >= 3.4.0 (`linewidth`), found %s", where, utils::packageVersion("ggplot2")), call. = FALSE)
 }
 
 theme_tracks = function(base_size = 11) {
@@ -271,7 +320,8 @@ plot_cell_tracks = function(tracks, cell, ylim_log2 = c(-2, 2), min_hap = 3, ras
   b = to_genome(tracks$baf[cell == cc & n_hap >= min_hap], g)
   f = to_genome(tracks$fit[cell == cc], g)
   f[, lt := fifelse(source == "inherited", "inherited", fifelse(source == "confirmed", "confirmed", "clone"))]
-  cols = state_colours()
+  if (length(cc) != 1) stop("plot_cell_tracks: `cell` must be one cell barcode")
+  cols = state_colours(f$label)
   aes = ggplot2::aes
   # identical scales (limits, key widths) in every panel, so that patchwork collects one legend
   lt_lim = intersect(c("clone", "confirmed", "inherited"), unique(f$lt))
@@ -323,7 +373,9 @@ utils::globalVariables("y")
 
 #' Write the tracks of many cells to a multi-page PDF
 #'
-#' `per_page` cells per page ([plot_cell_tracks()]), with `grDevices::cairo_pdf(onefile = TRUE)`.
+#' `per_page` cells per page ([plot_cell_tracks()]), with `grDevices::cairo_pdf(onefile = TRUE)` (`grDevices::pdf()`
+#' when R has no cairo). The cells are checked before the file is opened; only `file` (and its directory) is written,
+#' and only the device opened here is closed.
 #' @param tracks [cell_tracks()] output
 #' @param file PDF path
 #' @param cells cells (default: all cells of the tracks)
@@ -333,10 +385,22 @@ utils::globalVariables("y")
 #' @return `file`, invisibly
 #' @export
 plot_cells_pdf = function(tracks, file, cells = tracks$meta$cell, per_page = 4, width = 14, height = 4 * per_page, ...) {
-  need_plot_pkgs()
+  need_plot_pkgs("plot_cells_pdf")
+  cells = unique(as.character(cells))
+  if (!length(cells)) stop("plot_cells_pdf: no cells to plot")
+  miss = setdiff(cells, tracks$meta$cell)
+  if (length(miss)) stop(sprintf("plot_cells_pdf: %d cells are not in the tracks (e.g. %s)", length(miss), miss[1]))
+  if (length(per_page) != 1 || !is.finite(per_page) || per_page < 1) stop("plot_cells_pdf: `per_page` must be a number >= 1")
+  per_page = as.integer(per_page)
   dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
-  grDevices::cairo_pdf(file, width = width, height = height, onefile = TRUE)
-  on.exit(grDevices::dev.off(), add = TRUE)
+  prev = grDevices::dev.cur()
+  if (isTRUE(capabilities("cairo"))) grDevices::cairo_pdf(file, width = width, height = height, onefile = TRUE)
+  else grDevices::pdf(file, width = width, height = height, onefile = TRUE)
+  dev = grDevices::dev.cur()
+  on.exit({
+    grDevices::dev.off(dev)
+    if (prev > 1 && prev %in% grDevices::dev.list()) grDevices::dev.set(prev)
+  }, add = TRUE)
   pages = split(cells, ceiling(seq_along(cells) / per_page))
   for (pg in pages) {
     ps = lapply(pg, function(c_) plot_cell_tracks(tracks, c_, ...))

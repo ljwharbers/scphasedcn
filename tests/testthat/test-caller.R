@@ -1771,22 +1771,26 @@ test_that("make_pools and chrom_rank: the same seed gives the same pools and ord
   on.exit(Sys.setlocale("LC_COLLATE", old), add = TRUE)
   ok = nzchar(suppressWarnings(Sys.setlocale("LC_COLLATE", "en_US.UTF-8")))
   skip_if_not(ok && !identical(sort(c("a", "B")), c("B", "a")), "no en_US.UTF-8 collation")
-  # non-ASCII names as a metadata file gives them (native, "unknown" encoding) and one marked Latin-1
-  nat = "Müller glia"
-  Encoding(nat) = "unknown"
-  lat = iconv("Zoë", "UTF-8", "latin1")
+  # non-ASCII names as a metadata file gives them (fread: native, "unknown" encoding; first in the data, which is where
+  # sort(method = "radix") checks the encoding) and one marked Latin-1
+  f = tempfile(fileext = ".tsv")
+  writeLines(c("ct", "M\u00fcller glia"), f, useBytes = TRUE)
+  nat = data.table::fread(f, sep = "\t")$ct
+  expect_identical(Encoding(nat), "unknown")
+  lat = iconv("Zo\u00eb", "UTF-8", "latin1")
   expect_identical(Encoding(lat), "latin1")
   cells = sprintf("c%03d", 1:180)
-  g = rep(c("b", "A", "a", "B", nat, lat), each = 30)
-  ch = c("chrUn_a", "chr1", "chrUn_B", "chrX", "chrM", paste0("chrUn_", nat))
+  g = rep(c(nat, "b", "A", "a", "B", lat), each = 30)
+  ch = c(paste0("chrUn_", nat), "chrUn_a", "chr1", "chrUn_B", "chrX", "chrM")
   pu = make_pools(cells, g, 20, seed = 4)
   ru = chrom_rank(ch)
   Sys.setlocale("LC_COLLATE", "C")
   pc = make_pools(cells, g, 20, seed = 4)
   expect_identical(pu, pc)
-  expect_identical(unique(pc$group), c("A", "B", "Müller glia", "Zoë", "a", "b"))
+  expect_identical(unique(pc$group), c("A", "B", "M\u00fcller glia", "Zo\u00eb", "a", "b"))
   expect_identical(chrom_rank(ch), ru)
   expect_identical(ch[order(ru)], c("chr1", "chrX", "chrM", "chrUn_B", paste0("chrUn_", nat), "chrUn_a"))
+  expect_identical(make_pools(cells[1:30], rep(nat, 30), 20, seed = 4)$group[1], nat)
 })
 
 test_that("caller_normal: cells without a cell type in cell_meta keep the features' cell type", {

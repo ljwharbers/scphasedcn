@@ -1870,3 +1870,14 @@ test_that("caller_states: a list without f_att takes its default (not f_att_norm
   expect_identical(caller_states("tumour", p), caller_states("tumour"))
   expect_identical(caller_states("normal_att", p), caller_states("normal_att"))
 })
+
+test_that("select_null_cells: rows of a class without any null row (named events in `classes`) are ignored", {
+  rg = fake_regions(tiles = c("10Mb" = 1e7))[class %in% c("chrom", "arm")]
+  ev = copy(rg[region == "chr8"])[, `:=`(region = "ev8", class = "event", sd_class = "chrom", null_region = FALSE)]
+  ff = fake_features(200, rbind(rg, ev), seed = 5)
+  s0 = select_null_cells(ff[class != "event"], n_sim = 2e4)
+  s1 = select_null_cells(ff, classes = c("chrom", "arm", "event"), n_sim = 2e4)
+  expect_gt(length(s0$null_cells), 150)
+  expect_identical(s1$null_cells, s0$null_cells)
+  expect_identical(s1$calls, s0$calls)
+})

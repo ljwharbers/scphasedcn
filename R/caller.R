@@ -917,7 +917,7 @@ param_thresholds = function(tmpl, states, tpar, rho, q, params, depth_model = "t
 #' A class x stratum left without null rows in an iteration (every cell of a stratum dropped) is thresholded with
 #' its class over strata (parametric: the class's simulated rows; empirical: the class fallback of
 #' [budget_thresholds()]); a cell with an eligible row that still has no threshold is not assessed (`n_calls` NA)
-#' and is never a null cell.
+#' and is never a null cell. Rows of classes without any null row (named events in `classes`) are ignored.
 #' @return list(null_cells, previous (the set the last iteration started from), log (per iteration), calls (per
 #'   candidate cell: n_calls (NA: a row without a threshold), win_guard, null), tpar, rho, thresholds)
 #' @export
@@ -967,9 +967,12 @@ select_null_cells = function(feat_long, states = caller_states("normal", params)
                        groups = unique(d[, .(class, stratum)]))
     } else budget_thresholds(sc, "s_comb", q = q, cv = TRUE, min_null = params$min_null_rows, params = params, null = isn)
     sc = apply_thresholds(sc, thr, "s_comb")
-    # a cell with an eligible row that has no threshold (no null row to calibrate it on, even at class level) is not
-    # assessed: n_calls NA, never a null cell (its untested rows must not count as clean)
-    nc = sc[, .(n_calls = sum(call_s_comb & eligible, na.rm = TRUE), nothr_ = any(eligible %in% TRUE & is.na(thr_s_comb))), by = cell]
+    # a cell with an eligible row of a class that has null rows in the current set but no threshold for that row is
+    # not assessed: n_calls NA, never a null cell (its untested rows must not count as clean). Rows of classes without
+    # any null row (named events: null_region FALSE) can never be thresholded here and are ignored, as they always were
+    ncls = unique(d$class[isn])
+    nc = sc[, .(n_calls = sum(call_s_comb & eligible, na.rm = TRUE),
+                nothr_ = any(eligible %in% TRUE & is.na(thr_s_comb) & class %in% ncls)), by = cell]
     nc[nothr_ == TRUE, n_calls := NA_integer_]
     nc[, nothr_ := NULL]
     new = nc[!is.na(n_calls) & n_calls <= max_calls & !cell %in% guard_win, cell]

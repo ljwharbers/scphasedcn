@@ -11,7 +11,7 @@ log weight used by
 ## Usage
 
 ``` r
-cn_grid(max_cn = 5)
+cn_grid(max_cn = 5, baseline = NULL, lam = 1)
 ```
 
 ## Arguments
@@ -20,6 +20,25 @@ cn_grid(max_cn = 5)
 
   maximal total copy number
 
+- baseline:
+
+  NULL (the diploid grid above) or the clone baseline the prior is
+  centred on
+
+- lam:
+
+  prior fall-off per copy away from the baseline (with `baseline`)
+
 ## Value
 
 data.table state, nA, nB, cn, f, label, prior
+
+## Details
+
+With `baseline` (the copy number of the clone's median depth, e.g. 3 for
+a near-triploid clone) the grid holds every state nA \>= nB with nA + nB
+\<= `max_cn`, and the prior falls off with the distance of the total
+copy number from the baseline: log weight `-lam * |cn - baseline|`,
+normalised over the grid (so grids of different baselines compare on one
+likelihood scale). Labels stay relative to the diploid normal (see
+`state_label()`).

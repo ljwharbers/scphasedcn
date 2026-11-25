@@ -54,7 +54,7 @@ transitions of <code><a href="segment_clone.html">segment_clone()</a></code>.</p
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">cn_grid</span><span class="op">(</span>max_cn <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">cn_grid</span><span class="op">(</span>max_cn <span class="op">=</span> <span class="fl">5</span>, baseline <span class="op">=</span> <span class="cn">NULL</span>, lam <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -64,10 +64,25 @@ transitions of <code><a href="segment_clone.html">segment_clone()</a></code>.</p
 <dl><dt id="arg-max-cn">max_cn<a class="anchor" aria-label="anchor" href="#arg-max-cn"></a></dt>
 <dd><p>maximal total copy number</p></dd>
 
+
+<dt id="arg-baseline">baseline<a class="anchor" aria-label="anchor" href="#arg-baseline"></a></dt>
+<dd><p>NULL (the diploid grid above) or the clone baseline the prior is centred on</p></dd>
+
+
+<dt id="arg-lam">lam<a class="anchor" aria-label="anchor" href="#arg-lam"></a></dt>
+<dd><p>prior fall-off per copy away from the baseline (with <code>baseline</code>)</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>data.table state, nA, nB, cn, f, label, prior</p>
+    </div>
+    <div class="section level2">
+    <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
+    <p>With <code>baseline</code> (the copy number of the clone's median depth, e.g. 3 for a near-triploid clone) the grid holds
+every state nA &gt;= nB with nA + nB &lt;= <code>max_cn</code>, and the prior falls off with the distance of the total copy number
+from the baseline: log weight <code>-lam * |cn - baseline|</code>, normalised over the grid (so grids of different baselines
+compare on one likelihood scale). Labels stay relative to the diploid normal (see <code>state_label()</code>).</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

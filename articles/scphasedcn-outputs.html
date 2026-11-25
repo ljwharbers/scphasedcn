@@ -555,19 +555,46 @@ whose regions differ in their null spread shows up here as well.</p>
 <code>nA</code>, <code>nB</code>, the total copy number <code>cn</code>,
 the allele-specific state (<code>1:1</code>, <code>1:0</code>,
 <code>2:1</code>, <code>2:0</code>, <code>3:1</code>, …),
-<code>log2</code> (depth relative to the clone baseline), <code>f</code>
-(major-haplotype fraction), <code>llr</code>, <code>confident</code>,
-<code>label</code> (neutral, loss, cnloh, gain, gain_as, amp, del) and
-<code>ploidy</code> (1 on a male’s chrX / chrY). The clone
-<code>N0</code> is the fixed normal clone. With
-<code>gain_support</code> &gt; 0 a column <code>depth_ok</code> is
-added: an imbalanced gain whose depth, measured against the region’s
-offset in the other clones, does not show the extra copy keeps its
-allelic state with <code>label</code> <code>imbalance</code> and
-<code>depth_ok</code> FALSE. This is either a clone that mixes cells
-with LOH and heterozygous cells, or a genome whose baseline is not two
-copies (for example after a whole-genome doubling). MEDICC2 input treats
-it as 1:1.</p>
+<code>log2</code> (depth relative to the clone’s median depth),
+<code>f</code> (major-haplotype fraction), <code>llr</code>,
+<code>confident</code>, <code>label</code> (neutral, loss, cnloh, gain,
+gain_as, amp, del) and <code>ploidy</code> (1 on a male’s chrX / chrY).
+The clone <code>N0</code> is the fixed normal clone. States are absolute
+copy numbers: with the default <code>ploidy = "fit"</code>
+(<code><a href="../reference/clone_defaults.html">clone_defaults()</a></code>) each clone’s baseline, the copy number
+of its median depth, is fitted from depth and alleles together
+(<code>baseline</code> in <code>clones.tsv</code>), so a near-triploid
+clone has <code>2:1</code> where its depth is at the median.
+<code>label</code> stays relative to the diploid normal at any baseline:
+<code>2:1</code> is a gain, <code>1:1</code> neutral, <code>2:2</code>
+amp. A clone with a baseline above 2 therefore has non-neutral segments,
+and per-cell calls, over most of its genome. With
+<code>ploidy = 2</code> every clone has the diploid baseline (the
+behaviour up to 0.1.x: a near-triploid clone is then fitted on a
+compressed scale, 2:2 as 1:1). With <code>gain_support</code> &gt; 0 a
+column <code>depth_ok</code> is added: an imbalanced gain whose depth,
+measured against the region’s offset in the other clones, does not show
+the extra copy keeps its allelic state with <code>label</code>
+<code>imbalance</code> and <code>depth_ok</code> FALSE. This is usually
+a clone that mixes cells with LOH and heterozygous cells. MEDICC2 input
+treats it as 1:1.</p>
+<p><code>clones.tsv</code>: one row per clone: <code>n_cells</code>
+(cells whose likelihood-best clone it is), <code>n_assigned</code> (of
+them with posterior &gt;= <code>min_post</code> and not doublet-like),
+<code>n_members</code> (the members its states were fitted on), the fit
+parameters <code>c</code> (depth contrast: the log2 depth shift of a
+state is <code>c * log2(cn / baseline)</code>), <code>a</code>
+(attenuation of the oriented haplotype fraction), <code>rho</code> and
+<code>s_sys</code> (window-level overdispersion and systematic depth
+noise), <code>baseline</code> (the copy number of the clone’s median
+depth: fitted with <code>ploidy = "fit"</code>, else the given
+<code>ploidy</code>; 2 for <code>N0</code>), <code>ploidy</code> (the
+mean copy number over the clone’s autosomal segments, weighted by
+length), <code>normal</code> (a normal clone of the reference pool),
+<code>trunk</code> and <code>doublet</code> (a doublet clone,
+dissolved). A clone whose <code>c</code> sits at the lower bound of its
+grid (0.6) is named in the run notes: its depth scale is not determined
+by the data, and its states can be off by one copy.</p>
 <p><code>assignments.tsv</code>: per cell the likelihood-best clone, its
 <code>posterior</code>, the margin to the second clone, whether the cell
 looks like a doublet of two clones (<code>doublet_like</code>,

@@ -69,17 +69,20 @@ segment_clone(
 
   with a
   [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
-  input: a balanced non-neutral run (2:2, depth only) needs a mean log2
-  of at least `bal_frac` of its expected shift `c * log2(cn / base)` and
-  `min_bal_len` bp, else 1:1 (0 = off)
+  input: a balanced run other than the balanced reference (e.g. 2:2 at
+  baseline 2; depth only) needs a mean log2 of at least `bal_frac` of
+  its expected shift `c * log2(cn / base)` and `min_bal_len` bp, else it
+  takes the balanced reference (1:1 at baseline 2) (0 = off)
 
 - max_contra:
 
   with a
   [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
-  input: an imbalanced gain / loss whose mean log2 has the opposite sign
-  of its expected shift by more than this takes the best supported
-  copy-neutral state (CN-LOH or 1:1; Inf = off)
+  input: an imbalanced run whose copy number differs from nb and whose
+  mean log2 has the opposite sign of its expected shift by more than
+  this takes the best supported copy-neutral imbalanced state (nb
+  copies: CN-LOH at baseline 2), or the balanced reference when none is
+  supported (Inf = off)
 
 - gain_support:
 
@@ -88,17 +91,30 @@ segment_clone(
   input: an imbalanced gain (diploid window, copy number above the
   window's base) needs a mean log2 of at least this share of its
   expected shift `c * log2(cn / base)`, measured against the region's
-  depth offset (per window, the median log2 of the other clones that are
-  1:1 there with= 50 cells). A run that fails takes the best CN-LOH
-  state if its pooled oriented fraction supports one (asmin_excess);
-  otherwise it keeps its state with label "imbalance" and depth_ok FALSE
-  (allelic imbalancewithout the extra copy: a clone mixing LOH and
-  heterozygous cells, or a genome whose baseline is not 2). 0 = off(no
-  depth_ok column; the behaviour up to 0.1.1). Only applies to a
-  fit_clone_states() input.
+  depth offset (per window, the median over the other clones that are
+  1:1 there, with at least 50 cells, of their log2 minus the 1:1
+  expectation). A run that fails takes the best copy-neutral imbalanced
+  state (nb copies: CN-LOH at baseline 2) if its pooled oriented
+  fraction supports one (as `min_excess`); otherwise it keeps its state
+  with `label` "imbalance" and `depth_ok` FALSE (allelic imbalance
+  without the extra copy, typically a clone mixing LOH and heterozygous
+  cells). 0 = off (no `depth_ok` column; the behaviour up to 0.1.1).
+  Only applies to a
+  [`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
+  input.
 
 ## Value
 
 segments table
 ([`check_segments()`](https://ljwharbers.github.io/scphasedcn/reference/check_tables.md))
 plus `label`, `ploidy` (and `depth_ok` when `gain_support` \> 0)
+
+## Details
+
+The rules below are anchored on the clone's integer baseline nb (its
+fitted baseline `base` rounded; 2 without a fit or at the diploid
+baseline): copy-neutral states have nb copies (CN-LOH 2:0 and 1:1 when
+nb = 2, e.g. 2:1 and 3:0 when nb = 3), and the balanced reference is
+nb/2:nb/2 (nb even) or the better supported of the balanced states next
+to nb (nb odd, e.g. 1:1 or 2:2 when nb = 3). At nb = 2 they are the
+rules up to 0.1.x.

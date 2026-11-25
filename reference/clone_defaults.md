@@ -117,10 +117,26 @@ contradicted by depth become copy-neutral), `bal_frac` and `min_bal_len`
 (support of balanced 2:2 runs), `gain_support` (an imbalanced gain needs
 this share of its expected depth shift against the region's offset, else
 CN-LOH or label "imbalance" with `depth_ok` FALSE; default 0.3, 0 =
-off). Assignment: `mix_prior`, `mix_w`, `mix_margin`, `mix_rel`,
-`mix_min_dist` (mixture hypotheses only for clone pairs whose states
-differ allelically on \>= this many bp), `max_mix_prior`, `min_post`
-(confident), `member_post` (pseudobulk members), `em_rounds`,
+off). Clone baseline (`ploidy`): `"fit"` (default) fits per clone the
+copy number of its median depth (the baseline B: 3 for a near-triploid
+clone) from depth and alleles together
+([`fit_clone_states()`](https://ljwharbers.github.io/scphasedcn/reference/fit_clone_states.md)
+`baseline = "fit"`), so the states are absolute copy numbers; a number
+in \[1, 8\] fixes B for every clone; `2` is the diploid baseline of
+0.1.x (a near-triploid or whole-genome-doubled clone is then fitted on a
+compressed scale: 2:2 as 1:1, 2:0 as 1:0). `ploidy_tol` (log-likelihood
+per window, finite, \>= 0) is the tolerance within which a baseline of
+half the best one (a whole-genome doubling of the same profile) is
+preferred. Labels stay relative to the diploid normal (2:1 is a gain at
+any baseline, 1:1 neutral), so a clone with a baseline above 2 has
+non-neutral segments, and per-cell calls, over most of its genome.
+`clones` reports `baseline` and `ploidy` (the mean autosomal copy
+number); the run notes list the fitted baselines and name every clone
+whose depth contrast `c` sits at the lower bound of its grid (its states
+can be off by one copy). Assignment: `mix_prior`, `mix_w`, `mix_margin`,
+`mix_rel`, `mix_min_dist` (mixture hypotheses only for clone pairs whose
+states differ allelically on \>= this many bp), `max_mix_prior`,
+`min_post` (confident), `member_post` (pseudobulk members), `em_rounds`,
 `same_dist` (clones whose states differ on \< this many bp within a
 trunk are merged after each round). `same_post` = the membership
 posterior of

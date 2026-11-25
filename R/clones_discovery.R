@@ -73,8 +73,11 @@ cl_part = function(feat, names, required = TRUE) {
   NULL
 }
 
-# normalised view of the scn_features input used by the clone functions
-clone_input = function(feat) {
+# normalised view of the scn_features input used by the clone functions. Without an input rho (no `null_fit` / `rho`,
+# e.g. a direct caller_tumour() call) the input null is fitted with tumour_null_fit(features, params, exclude) and its
+# note (with any caution) is kept as `null_note` for the run notes; `null_fit = FALSE` skips that fit (rho NA, tpar
+# as given) for callers that need no null. An input that is already a clone_input is returned as it is.
+clone_input = function(feat, params = NULL, exclude = NULL, null_fit = TRUE) {
   if (inherits(feat, "clone_input")) return(feat)
   features = as.data.table(cl_part(feat, c("features", "long")))
   regions = as.data.table(cl_part(feat, "regions"))
@@ -86,15 +89,18 @@ clone_input = function(feat) {
   tpar = feat$tpar %||% nf$tpar %||% nf$depth
   rho = feat$rho %||% nf$rho %||% nf$allelic
   if (is.data.frame(rho)) rho = stats::median(rho$rho, na.rm = TRUE)
-  if (is.null(rho) || !is.finite(rho)) {
+  null_note = NULL
+  if (null_fit && (is.null(rho) || !is.finite(rho))) {
     # no input rho: the call_scn() recipe (tumour_null_fit(): flagged null cells, else the cells without a call on the
     # null rows, else all cells), which also gives a missing depth null; rho stays NA without votes on the null rows
     # (caller_tumour() then stops)
     need = c("cell", "class", "stratum", "z", "sd_null", "nA", "n_hap", "null_region", "eligible")
-    nf = if (all(need %in% names(features))) tumour_null_fit(features) else NULL
+    nf = if (all(need %in% names(features))) tumour_null_fit(features, params = params %||% caller_defaults(), exclude = exclude) else NULL
     if (is.null(tpar)) tpar = nf$tpar
     rho = nf$rho %||% NA_real_
+    null_note = nf$note
   }
+  if (is.null(rho) || !length(rho)) rho = NA_real_
   win = cl_part(feat, c("win", "windows_1mb", "win1mb"), required = FALSE)
   if (!is.null(win)) win = as_clone_win(win, cells$cell)
   haploid = character()
@@ -102,7 +108,7 @@ clone_input = function(feat) {
   if (length(ao)) haploid = intersect(ao, c("chrX", "chrY"))
   structure(list(features = features, regions = regions, votes = as.data.table(cl_part(feat, "votes")),
                  atoms = as.data.table(cl_part(feat, "atoms")), cells = cells, win = win, tpar = tpar, rho = rho,
-                 haploid = haploid, allelic_chroms = regions[allelic_ok == TRUE, unique(chrom)]),
+                 haploid = haploid, allelic_chroms = regions[allelic_ok == TRUE, unique(chrom)], null_note = null_note),
             class = "clone_input")
 }
 

@@ -1631,12 +1631,27 @@ test_that("caller_tumour stops with a clear error when allelic_exclude removes e
                "caller_tumour: no allele votes outside opts\\$allelic_exclude")
 })
 
-test_that("caller_tumour reads every multiplet_table() form", {
+test_that("caller_tumour reads every multiplet_table() form and, without an input null, fits it with its params and multiplets", {
   inp = tum2_input()
-  mc = inp$cells$cell[1:3]
-  # a vector of cells is a multiplet table (prob 1): flagged and left out of discovery and the pseudobulks
-  res = caller_tumour(inp, multiplets = mc, verbose = FALSE)
+  cells = inp$cells$cell
+  mc = cells[1:3]
+  # clone_input(): the input null of features without one follows the caller's params and excludes the given cells
+  f0 = inp; f0$null_fit = NULL
+  f0$features = copy(f0$features)[, null_cell := FALSE]               # no flagged cells: the selection runs
+  p = modifyList(caller_defaults(), list(seed = 7))
+  ci = clone_input(f0, params = p, exclude = mc)
+  nf = tumour_null_fit(f0$features, params = p, exclude = mc)
+  expect_identical(ci$rho, nf$rho)
+  expect_identical(ci$tpar, nf$tpar)
+  expect_identical(ci$null_note, nf$note)
+  expect_false(any(mc %in% nf$null_cells))
+  expect_null(clone_input(inp)$null_note)                               # an input null: nothing fitted
+  expect_true(is.na(clone_input(f0, null_fit = FALSE)$rho))
+  # a vector of cells is a multiplet table (prob 1): flagged and left out of discovery; the input null's note is a run note
+  res = caller_tumour(f0, params = p, multiplets = mc, verbose = FALSE)
   a = res$assignments
   expect_true(all(a[cell %in% mc, multiplet]))
   expect_false(any(a[!cell %in% mc, multiplet]))
+  expect_identical(res$notes[1], nf$note)
+  expect_identical(res$null_fit$rho, nf$rho)
 })

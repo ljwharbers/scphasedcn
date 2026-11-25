@@ -114,7 +114,7 @@ utils::globalVariables(c("w", "w_clones", "n_clones", "neutral"))
 cell_piece_data = function(features, pieces, blocks, cells = NULL, ref_cells = NULL, loo = NULL, params = caller_defaults(),
                            sd_scale = TRUE, ref_center = c("pseudobulk", "mean"), center = TRUE, s_sys = 0, haploid_sd = sqrt(2)) {
   ref_center = match.arg(ref_center)
-  inp = clone_input(features)
+  inp = clone_input(features, null_fit = FALSE)          # depth and votes only: no input null needed
   pc = unique(as.data.table(pieces)[, .(piece, chrom, start = as.numeric(start), end = as.numeric(end))], by = "piece")
   pc = pc[order(chrom_rank(chrom), start)]
   all_cells = inp$cells$cell
@@ -305,7 +305,7 @@ cell_piece_states = function(features, pieces, blocks = NULL, cells = NULL, para
   rho_mode = if (is.character(rho)) match.arg(rho, c("ref", "auto")) else "given"
   if (rho_mode == "ref" && !use_ref) stop("cell_piece_states: rho = \"ref\" needs >= 10 `ref_cells`")
   if (is.null(rho)) {
-    rho = if (!is.null(features)) clone_input(features)$rho else NA_real_
+    rho = if (!is.null(features)) clone_input(features, params = params)$rho else NA_real_
     rho_mode = "null_fit"
   }
   if (rho_mode %in% c("given", "null_fit") && !is.finite(rho)) stop("cell_piece_states: need `rho`")

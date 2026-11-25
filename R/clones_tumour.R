@@ -600,7 +600,8 @@ utils::globalVariables(c("hyp", "kind", "call_s_comb", "n_called"))
 #' `regions`, `votes`, `atoms`, `cells` (data.table with `cell`, in vote index order; `n_frag` / `stratum`),
 #' `win` (1 Mb window depth: list(windows, x, e) with windows x cells matrices, or a long table cell, chrom,
 #' start, end, x, e) and `null_fit` (list with `tpar` = [fit_depth_null()] table and `rho`; without it, or without its
-#' `rho`, the input null is [tumour_null_fit()] of the features, as in [call_scn()]).
+#' `rho`, the input null is [tumour_null_fit()] of the features with `params` and without the cells with multiplet prob
+#' > 0.5, as in [call_scn()]; its note, and any caution, is the first run note).
 #' @param feat scn_features list
 #' @param params [caller_defaults()]
 #' @param multiplets optional multiplet flags in any form of [multiplet_table()] (a vector or file of cells, a table with
@@ -623,12 +624,14 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   opts = check_clone_opts(opts)
   # multiplets in any form of multiplet_table() (cells, a file, a table with prob / multiplet / clean_singlet)
   md = multiplet_table(multiplets)
-  inp = clone_input(feat)
+  inp = clone_input(feat, params = params, exclude = null_multiplets(md))
   if (!nrow(inp$votes) || length(inp$rho) != 1 || !is.finite(inp$rho))
     stop("caller_tumour: no allele votes (no molecule votes, or none on the null rows to fit rho); the tumour mode needs ",
          "read-phased allele votes", call. = FALSE)
   cells = inp$cells$cell
   notes = character()
+  # an input null fitted here (feat without null_fit / rho): which cells, and any caution, go to the run notes
+  if (!is.null(inp$null_note)) { notes = inp$null_note; say(inp$null_note) }
   if (length(opts$allelic_exclude)) {
     # female chrX: Tn5 fragments come mostly from the active X, so X-inactivation patches look like opposite
     # haplotype imbalance; chrX / chrY are depth-only in the clone steps

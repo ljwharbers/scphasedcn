@@ -26,7 +26,8 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 The genome is hg38 only: the bundled chromosome sizes, ENCODE blacklist v2 and centromere coordinates are hg38, and
 so are the chrX centromere and acrocentric arm defaults of the caller.
 
-Reads: the extractor keeps primary, non-duplicate records with MAPQ >= 30 whose `CB` is in the whitelist; each record
+Reads: the extractor keeps primary, non-duplicate records that are not flagged QC-fail (0x200; counted per cell in
+`n_qcfail`) with MAPQ >= 30 whose `CB` is in the whitelist; each record
 is one fragment. SPLONGGET read names of the form `<CB>_#<uuid>_<sign><piece>of<npieces>` let it recognise pieces of
 one raw read; other read names are accepted (each record is then its own read).
 

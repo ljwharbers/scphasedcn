@@ -317,7 +317,7 @@ event_fdr = function(obj, tail = c("exponential", "none"), tail_n = 50, resolve_
     idx = which(sc$is_null %in% TRUE & sc$class == bc$sd_class[i])
     s = borrowed_stat(sc, idx, bc$class[i], pol, gate)
     data.table(class = bc$class[i], sd_class = bc$sd_class[i], stratum = as.character(sc$stratum[idx]),
-               state = as.character(sc$state_comb[idx]), called = is.finite(s) & !is.na(sc$thr_s_comb[idx]) & s > sc$thr_s_comb[idx])
+               state = as.character(sc$state_comb[idx]), called = is.finite(s) & !is.na(sc$thr_s_comb[idx]) & above_thr(s, sc$thr_s_comb[idx]))
   }))
   ef = expected_false_table(x, tested, ev, pol, bnull)
   # calibration groups: class / stratum of each key, n_null, resolution

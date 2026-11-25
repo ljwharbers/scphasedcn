@@ -43,7 +43,8 @@ with \code{loo}, \code{s_loo}; with \code{scale}, \code{s_comb_llr} (unstandardi
 }
 \description{
 Scores the pools (\code{\link[=pool_scores]{pool_scores()}} per pool x region), applies the fold-0
-pooled thresholds per class and returns the policy's pool-level rows. With
+pooled thresholds per class and returns the policy's pool-level rows (\code{called = score > max(thr, 0)}, as
+\code{\link[=apply_thresholds]{apply_thresholds()}}). With
 \code{loo} the pools are scored as \code{\link[=pool_scores]{pool_scores()}} describes; use
 \code{score = "s_rob"} (thresholded by \code{\link[=pooled_thresholds]{pooled_thresholds()}} with \code{loo = TRUE}) so
 a call must survive dropping its most influential cell.

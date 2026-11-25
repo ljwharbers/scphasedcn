@@ -1553,3 +1553,13 @@ test_that("the seeded clone functions leave the caller's RNG state as they found
   same_rng(discover_within(clone_input(inp), cells[1:100], inp$votes, inp$features, cdt, nfr,
                            opts = modifyList(clone_defaults(), list(min_size = 10, n_perm = 5)), seed = 3), "discover_within")
 })
+
+test_that("the caller and split_disagree() fit and segment clone states through one helper that honours the options", {
+  p = fake_profile_b(tri_states(), B = 3)
+  o = modifyList(clone_defaults(), list(ploidy = 3, p_switch = 1e-4, min_win = 2, gain_support = 0, max_contra = Inf))
+  f = scphasedcn:::fit_states_opts(p, cn_grid(), o)
+  expect_identical(f, fit_clone_states(p, cn_grid(), p_switch = 1e-4, min_win = 2, baseline = 3, ploidy_tol = o$ploidy_tol))
+  expect_equal(unique(f$par$base), 3)
+  expect_identical(scphasedcn:::segment_states_opts(f, cn_grid(), o),
+                   segment_clone(f, 1e-4, 2, cn_grid(), o$min_llr, o$min_excess, o$bal_frac, o$min_bal_len, Inf, 0))
+})

@@ -1022,10 +1022,13 @@ subset_contrast_regions = function(cd, regs) {
 #' @param cdata [contrast_data()] of the test halves
 #' @param win_test,votes_test test halves for the re-fit (default: the full `inp$win` / `inp$votes`)
 #' @param ref_cells depth reference cells of the re-fit (used with >= `min_ref` cells)
-#' @param fit_states optional replacement of [fit_clone_states()] (`function(profile, grid)`)
+#' @param fit_states optional replacement of the re-fit's state fit (`function(profile, grid)`); default
+#'   [fit_clone_states()] with the `opts` of the run (`p_switch`, `min_win`, `ploidy`, `ploidy_tol`), as [caller_tumour()]
+#'   fits its clones (the caller passes its own fit, which also narrows the candidate baselines)
 #' @param opts [clone_defaults()] (`min_size`, `split_sep`, `split_max`, `split_cand`, `split_min_len`, `split_min_df`,
 #'   `split_min_excess`, `q`, `n_perm`, `max_cells`, `depth_delta`, `same_dist`, `small_clone`, `size_small`, `min_ref`, `p_switch`,
-#'   `min_win`, `min_llr`)
+#'   `min_win`, `ploidy`, `ploidy_tol`, `min_llr` and the [segment_clone()] rules `min_excess`, `bal_frac`, `min_bal_len`,
+#'   `max_contra`, `gain_support`)
 #' @param params [caller_defaults()] (`sd_floor`, `eps`)
 #' @param seed RNG seed
 #' @param frac fraction of the counts in the discovery half
@@ -1048,7 +1051,7 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
   sg = as.data.table(segments)
   par = as.data.table(par)
   grid = cn_grid()
-  fit_states = fit_states %||% function(profile, grid) fit_clone_states(profile, grid)
+  fit_states = fit_states %||% function(profile, grid) fit_states_opts(profile, grid, opts)
   inp_d = inp; inp_d$win = win_disc %||% inp$win
   vd = votes_disc %||% inp$votes
   win_t = win_test %||% inp$win; votes_t = votes_test %||% inp$votes
@@ -1125,8 +1128,7 @@ split_disagree = function(members, segments, par, inp, win_disc, votes_disc, cda
     prof = clone_profiles(win_t, votes_t, inp$atoms, m2, ref_cells = if (length(ref_cells) >= opts$min_ref) ref_cells else NULL,
                           size = size, seed = seed, cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms,
                           haploid = inp$haploid, min_ref = opts$min_ref)
-    segment_clone(fit_states(prof, grid), opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac,
-                  opts$min_bal_len, opts$max_contra, opts$gain_support %||% 0)
+    segment_states_opts(fit_states(prof, grid), grid, opts)
   }
   done = character(); n_tested = list(); moved = list()
   for (ii in ord) {

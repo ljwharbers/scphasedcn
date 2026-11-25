@@ -425,7 +425,6 @@ assign_cells = function(feat_pieces, clones, segments, tpar, rho, par = NULL, pr
     }
     hyp = c(K, colnames(LM))
   }
-  sizes = as.vector(table(clones$clone)[K])
   pk = if (is.null(prior)) rep(1 / length(K), length(K)) else {
     pv = as.numeric(prior[K]); pv[is.na(pv)] = mean(pv, na.rm = TRUE)       # a clone without a prior (N0): the mean
     pv / sum(pv)

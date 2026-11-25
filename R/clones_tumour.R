@@ -500,11 +500,8 @@ confirm_null_rows = function(cc, regs, asg, members, par, ev_clones, matched, ha
     })))
   }
   gen = data.table(cn = c(1L, 3L, 2L, 4L), f_state = c(1, 2 / 3, 1, 0.75))
-  rbindlist(lapply(seq_len(nrow(gen)), function(j) {
-    r = copy(base)[, `:=`(cn = gen$cn[j], ploidy = 2L, f_state = gen$f_state[j], c = cmed, a = amed)]
-    r[, ploidy := fifelse(regs$chrom[match(region, regs$region)] %in% haploid, 1L, 2L)]
-    r
-  }))
+  rbindlist(lapply(seq_len(nrow(gen)), function(j) copy(base)[, `:=`(cn = gen$cn[j], ploidy = 2L, f_state = gen$f_state[j], c = cmed,
+                                                                      a = amed)]))
 }
 utils::globalVariables(c("c_own", "c0_"))
 
@@ -518,6 +515,18 @@ next_baselines = function(cand, fit, provisional = FALSE) {
     return(cand)
   nb = c(2, bs + c(-0.25, 0, 0.25))
   sort(unique(nb[nb >= 1.5]))
+}
+
+# clone states and segments of the tumour mode with the options of a run (`opts`, check_clone_opts()): the caller's
+# fits and split_disagree()'s re-fit go through these, so both honour p_switch, min_win, ploidy, ploidy_tol and the
+# segment_clone() rules. `baselines` = the candidate baselines of ploidy "fit" (default: fit_clone_states()'s)
+fit_states_opts = function(profile, grid, opts, baselines = eval(formals(fit_clone_states)$baselines)) {
+  fit_clone_states(profile, grid, p_switch = opts$p_switch, min_win = opts$min_win, baseline = opts$ploidy,
+                   ploidy_tol = opts$ploidy_tol, baselines = baselines)
+}
+segment_states_opts = function(fit, grid, opts) {
+  segment_clone(fit, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
+                opts$max_contra, opts$gain_support)
 }
 
 # baseline B of clones (`par` of fit_clone_states(): column base; 2 without it, for N0 and for unknown clones)
@@ -679,8 +688,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
   # provisional median-centred fit before the first depth reference never narrows the candidates
   b_cand = c(1.5, 2, 2.5, 3, 3.25, 3.5, 4, 4.5, 5)
   fit_states = function(profile, grid, provisional = FALSE) {
-    f = fit_clone_states(profile, grid, p_switch = opts$p_switch, min_win = opts$min_win, baseline = opts$ploidy,
-                         ploidy_tol = opts$ploidy_tol, baselines = b_cand)
+    f = fit_states_opts(profile, grid, opts, b_cand)
     b_cand <<- next_baselines(b_cand, f, provisional)
     f
   }
@@ -698,8 +706,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       p0 = clone_profiles(inp$win, inp$votes, inp$atoms, members, size = size, seed = params$seed, cells = cells,
                           rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid)
       f0 = fit_states(p0, grid, provisional = TRUE)
-      s0 = segment_clone(f0, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
-                        opts$max_contra, opts$gain_support)
+      s0 = segment_states_opts(f0, grid, opts)
       dirty = s0[label != "neutral" & nA_of(state) != nB_of(state) & (end - start) >= 1e7, unique(clone)]
       bal = p0[n_hap > 0 & ploidy == 2, .(imb = mean((nA - n_hap / 2)^2 / (n_hap / 4))), by = clone]
       bal = bal[clone %in% sz[N >= opts$min_ref, clone] & !clone %in% dirty]
@@ -715,8 +722,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     prof = clone_profiles(inp$win, inp$votes, inp$atoms, members, ref_cells = ref_cells, size = size, seed = params$seed,
                           cells = cells, rho = inp$rho, allelic_chroms = inp$allelic_chroms, haploid = inp$haploid, min_ref = opts$min_ref)
     fit = fit_states(prof, grid)
-    seg = segment_clone(fit, opts$p_switch, opts$min_win, grid, opts$min_llr, opts$min_excess, opts$bal_frac, opts$min_bal_len,
-                       opts$max_contra, opts$gain_support)
+    seg = segment_states_opts(fit, grid, opts)
     list(profiles = prof, fit = fit, segments = seg, ref = if (length(ref_cells) >= opts$min_ref) ref_cells else character())
   }
   doublet_clones = character()
@@ -1068,11 +1074,9 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
                                                    pooled_fallback = stratum == "pooled" | n_null < params$min_null_rows)] else NULL
   if (!is.null(thr_tab) && "hyp" %in% names(thr_tab)) thresholds[, `:=`(pooled_fallback = thr_tab$pooled_fallback, hyp = thr_tab$hyp)]
   # events: the called (confirmed) reportable calls consolidated per cell / clone, an empty table otherwise
-  events = if (exists("consolidate_calls", envir = asNamespace("scphasedcn"), inherits = FALSE)) {
-    b_fun("consolidate_calls")(if (is.null(calls)) data.table(cell = character(), region = character(), class = character(),
-                                 chrom = character(), start = numeric(), end = numeric(), state = character(), score = numeric(),
-                                 called = logical(), level = character(), reportable = logical()) else calls, all_regions)
-  } else NULL
+  events = consolidate_calls(if (is.null(calls)) data.table(cell = character(), region = character(), class = character(),
+                               chrom = character(), start = numeric(), end = numeric(), state = character(), score = numeric(),
+                               called = logical(), level = character(), reportable = logical()) else calls, all_regions)
   new_scphasedcn("tumour", cells = inp$cells, regions = all_regions, features = NULL, thresholds = thresholds, calls = calls, events = events,
               clones = clone_tab, assignments = asg, segments = sg, profiles = st$profiles,
               null_fit = list(tpar = inp$tpar, rho = inp$rho, ref_thr = cr$thr, rho_confirm = rho_c, tpar_confirm = tpar_c,

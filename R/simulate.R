@@ -73,7 +73,8 @@ sim_events_tumour = function() {
 #' @param cell_types named numeric vector of type proportions
 #' @param depth lognormal parameters (meanlog, sdlog) of fragments per nucleus
 #' @param events data.table (chrom, start, end, cnA, cnB, type); `type` may be a
-#'   cell type name or "private" (then `private_frac` of the nuclei carry it)
+#'   cell type name, "private" (then `private_frac` of the nuclei carry it) or "nucleus:<i>,<j>,..." (exactly the
+#'   given nuclei carry it, e.g. several events in one nucleus: a highly aneuploid cell)
 #' @param private_frac fraction of nuclei carrying a "private" event
 #' @param multiplet_rate fraction of barcodes that are multi-nucleus pools
 #' @param multiplet_sizes sizes (number of nuclei) and their probabilities
@@ -136,6 +137,9 @@ simulate_scn = function(n_cells = 200, genome = sim_genome(), sex = c("male", "f
       rows = region_bins(bins, data.table(chrom = ev$chrom, start = ev$start, end = ev$end))[[1]]
       if (ev$type == "private") {
         who = which(runif(n_nuc) < private_frac)
+      } else if (startsWith(ev$type, "nucleus:")) {
+        who = as.integer(strsplit(sub("^nucleus:", "", ev$type), ",", fixed = TRUE)[[1]])
+        who = who[!is.na(who) & who >= 1 & who <= n_nuc]
       } else who = which(nuc_type == ev$type)
       cnA[rows, who] = as.integer(ev$cnA); cnB[rows, who] = as.integer(ev$cnB)
       carriers[[e]] = who

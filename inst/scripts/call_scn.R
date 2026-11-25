@@ -14,13 +14,14 @@
 # Inputs: the extraction directory (bins_100kb.h5ad, fragments.tsv.gz + .tbi, cells_qc.tsv), optional cell metadata,
 #         an optional sample yaml and caller yaml.
 # Outputs: <out>/ cells.tsv, calls.tsv, pooled_calls.tsv, events.tsv, thresholds.tsv, null_fit.tsv, false_calls.tsv,
+#          expected_false.tsv (normal), null_selection_check.tsv (normal, --null-check),
 #          (tumour: clones.tsv, assignments.tsv, clone_segments.tsv, clone_profiles.tsv.gz, reference_pool.txt),
 #          result.rds, params.yaml, summary.tsv, NOTES.md.
 
 defaults = list(sample = "", mode = "", dir = "", sex = "", events = "", config = "", caller_config = "", cell_meta = "",
                 cells = "", null_cells = "auto", multiplets = "", groups = "", control_regions = "", features = "",
                 centromeres = "", out = "", tag = "default", cores = 8, write_scores = FALSE, write_features = FALSE,
-                no_embedding = FALSE, seed = "", n_draws = "", confirm_null = "", split_pass = "", phasing = "auto")
+                no_embedding = FALSE, null_check = FALSE, seed = "", n_draws = "", confirm_null = "", split_pass = "", phasing = "auto")
 usage = paste(
   "Single-cell copy-number caller (scphasedcn::call_scn) on one sample.",
   "",
@@ -56,6 +57,8 @@ usage = paste(
   "  --write-scores          also write scores.tsv.gz (large)",
   "  --write-features        also write features.tsv.gz (large)",
   "  --no-embedding          no chromatin embedding (no kNN pools)",
+  "  --null-check            normal mode: also run the selection-free check of the per-cell null (null cells selected on",
+  "                          odd / even autosomes, exceedances on the other half; about doubles the scoring time)",
   "  --seed <n>              RNG seed (overrides the caller config's seed)",
   "  --n-draws <n>           normal mode: null pool-regions per class for the pooled thresholds (overrides normal: n_draws)",
   "  --confirm-null <x>      tumour mode: matched | generic per-cell confirmation null (overrides tumour: confirm_null)",
@@ -137,7 +140,7 @@ pre = nzchar(a$features)
 res = call_scn(dir, mode = mode, cell_meta = cm, cells = cells, sex = if (pre) NULL else sex, events = events, null_cells = null_cells,
                multiplets = mult, control_regions = ctrl, groups = if (nzchar(a$groups)) a$groups else NULL, params = params,
                features = if (pre) a$features else NULL, embedding = !isTRUE(a$no_embedding),
-               keep_scores = isTRUE(a$write_scores), caller_args = caller_args, phasing = a$phasing,
+               keep_scores = isTRUE(a$write_scores), null_check = isTRUE(a$null_check), caller_args = caller_args, phasing = a$phasing,
                centromeres = if (pre) NULL else cen)
 print(res)
 files = write_scphasedcn(res, out, write_scores = isTRUE(a$write_scores), write_features = isTRUE(a$write_features))

@@ -51,6 +51,24 @@ lazy_cached("sim_norm_blk", function() simulate_scn(
   depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_f_events(), private_frac = 0.05,
   multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 101))
 
+# sim_norm_aneu: sim_norm_f's events plus three highly aneuploid nuclei (5, 50, 120; singlet barcodes cell_0005,
+# cell_0049, cell_0116), each carrying a whole-chr2 loss (1:0), a chr22 loss (1:0), chr21 CN-LOH (2:0) and a chr8 gain
+# (2:1): a cell whose aneuploidy no other cell shares. sim_norm_aneu_blk: the same with block-only phasing.
+sim_norm_aneu_nuclei = c(5L, 50L, 120L)
+sim_norm_aneu_events = function() {
+  rbind(sim_norm_f_events(),
+        data.table(chrom = c("chr2", "chr22", "chr21", "chr8"), start = 0, end = NA_real_, cnA = c(1L, 1L, 2L, 2L),
+                   cnB = c(0L, 0L, 0L, 1L), type = paste0("nucleus:", paste(sim_norm_aneu_nuclei, collapse = ","))))
+}
+lazy_cached("sim_norm_aneu", function() simulate_scn(
+  n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
+  depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_aneu_events(), private_frac = 0.05,
+  multiplet_rate = 0.05, phase_block_mean = 1e9, switch_rate = 2e-6, block_flip_prob = 0, seed = 101))
+lazy_cached("sim_norm_aneu_blk", function() simulate_scn(
+  n_cells = 200, sex = "female", cell_types = c(epi = 0.4, fib = 0.35, imm = 0.25),
+  depth = c(meanlog = log(15000), sdlog = 0.35), events = sim_norm_aneu_events(), private_frac = 0.05,
+  multiplet_rate = 0.05, phase_block_mean = 2e5, block_flip_prob = 0.5, seed = 101))
+
 # Clone truth of the tumour simulation: `type` = the cell type (clone) that carries the event. The
 # simulator applies one event row to one cell type, so the trunk event (chr8 distal 3:1 in both clones)
 # is written as two identical rows, one per clone. chr2 10-25 Mb is interstitial; chr1 2:0 is

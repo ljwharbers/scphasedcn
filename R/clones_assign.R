@@ -631,8 +631,10 @@ clean_reference = function(feat, assign, segments, thr = NULL, par = NULL, membe
     oc[, `:=`(cell = cells[ci], score = ll_allelic(oA, oN, f_grid, inp$rho, two_sided = FALSE), is_ctl = region %in% ctl$region)]
     oc
   })
-  scores = if (all(vapply(sc_k, is.null, logical(1)))) data.table() else rbindlist(sc_k)
+  scores = rbindlist(sc_k)
   rm(sc_k)
+  # no clone has votes on its event or control regions: no scores (the whole candidate pool, threshold Inf)
+  if (!nrow(scores)) scores = data.table(cell = character(), score = numeric(), is_ctl = logical())
   obs = scores[is_ctl == FALSE]
   nul = scores[is_ctl == TRUE]
   tab = data.table(cell = cand)

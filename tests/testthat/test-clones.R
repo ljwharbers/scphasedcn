@@ -1676,6 +1676,19 @@ test_that("clean_reference: a negative threshold does not remove cells without p
   expect_setequal(c2$pool, c2$table[score <= 2, cell])
 })
 
+test_that("clean_reference: without votes on any clone's regions the whole candidate pool is kept (threshold Inf)", {
+  r = tum2_result()
+  inp = clone_input(tum2_input())
+  inp$votes = inp$votes[0, ]
+  m = r$assignments[assigned == TRUE, .(cell, clone)]
+  cr = clean_reference(inp, r$assignments, r$segments, par = r$null_fit$clones$par, members = m)
+  expect_identical(cr$thr, Inf)
+  expect_gt(nrow(cr$table), 0)
+  expect_true(all(cr$table$score == 0 & cr$table$n_ev == 0L & cr$table$n_ctl == 0L))
+  expect_false(any(cr$table$flag))
+  expect_setequal(cr$pool, cr$table$cell)
+})
+
 test_that("split_disagree (direct call): checks its options, fits a missing input null with its params, re-fits the parts at the parent's baseline", {
   inp = tum2_input()
   tr = sim_truth(sim_tum2)[mult == FALSE]

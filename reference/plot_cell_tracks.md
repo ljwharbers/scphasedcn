@@ -60,4 +60,6 @@ a patchwork object
 
 Segments are coloured by state label; inherited segments are dashed,
 confirmed and clone (neutral) segments solid. Needs ggplot2 and
-patchwork (ggrastr, when installed, rasterises the 1 Mb points).
+patchwork (ggrastr, when installed, rasterises the 1 Mb points; when it
+cannot rasterise here, e.g. without a working Cairo, the points are
+drawn unrasterised, with one message per session).

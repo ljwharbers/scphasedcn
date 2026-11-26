@@ -150,9 +150,10 @@ Reference: <code>ref_post</code>, <code>min_ref</code>. Other:
 <code>doublet_delta</code>, <code>multiplet_prob</code> (cells above it are excluded from discovery and pseudobulks), <code>control_min_len</code>,
 <code>repass</code>, <code>allelic_exclude</code>.</p>
 <p><code>checkpoint</code> (resume cache, "" = off): an .rds path. When the file does not exist the global discovery
-(leaves, merged clones) and the first EM round are saved there; when it exists they are read from it and the run
-continues from the within-trunk discovery (useful when rerunning the later steps on a large sample). The cache is
-not keyed: reuse it only with the same features, seed and discovery options.</p>
+(leaves, merged clones) and the first EM round (with the candidate baselines of <code>ploidy = "fit"</code> as that round left
+them, and its run notes) are saved there; when it exists they are read from it and the run continues from the
+within-trunk discovery with the same results as the run that wrote it (useful when rerunning the later steps on a
+large sample). The cache is not keyed: reuse it only with the same features, seed and options.</p>
 <p>Confirmation null (per-cell <code>confirmed</code> calls, after assignment; assignment itself always uses the input fits):
 <code>ref_null</code> = "none" (the input rho / depth t of <code>feat$null_fit</code>) or "rho" (opt-in: beta-binomial rho refitted on the
 clean reference pool's piece votes as the confirmation scores them, oriented leave-one-out by a clone pseudobulk;

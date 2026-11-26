@@ -134,7 +134,10 @@ simulate_scn(
   [`sim_genome()`](https://ljwharbers.github.io/scphasedcn/reference/sim_genome.md)
   for `nrow(genome)` bins, then draws the data; the result depends only
   on the genome table, `seed` and the other parameters, not on how
-  `genome` was given. The caller's random stream is saved and restored.
+  `genome` was given. The caller's random stream is saved and restored,
+  around the evaluation of `genome` as well: a `genome` expression that
+  draws random numbers draws them from the caller's stream as it is at
+  the call and leaves it as it was.
 
 ## Value
 

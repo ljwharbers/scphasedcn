@@ -27,8 +27,10 @@
   - A clone fitted at baseline 2 has exactly the states of 0.1.x.
     `ploidy = 2` restores the old behaviour for every clone; a number
     fixes the baseline.
-  - On COLO829 (bulk ploidy 3.1) the clones fit baseline 3. Near-diploid
-    tumours stay at 2.
+  - On COLO829 (bulk ploidy 3.1) the clones fit baseline 3 (one small
+    clone 2.75 in a joint tumour + normal run). A near-diploid tumour
+    stayed at 2 at three seeds, with results identical to those without
+    the fit.
 
 - **Normal mode: windowed, orientation-free allele term**
   ([`window_allelic_features()`](https://ljwharbers.github.io/scphasedcn/reference/window_allelic_features.md),
@@ -160,8 +162,8 @@
   is scored one hypothesis at a time, and the baseline fit’s segment
   refinement no longer recomputes the allele terms per depth contrast.
   Results are unchanged. On a whole-genome-doubled tumour of about
-  10,000 cells the fitted baseline needs less memory than 0.1.1 did (34
-  GiB against 42 GiB).
+  10,000 cells the fitted baseline needs less memory than the same run
+  needed before the baseline fit (34 GiB against 42 GiB).
 
 - Tumour mode without flagged null cells no longer fits its input depth
   t null and allelic rho on all cells. It fits them on the cells without
@@ -311,6 +313,39 @@
   that the cell does not confirm are drawn as inherited, and every state
   label has a colour.
 
+- Follow-up fixes:
+
+  - [`clean_reference()`](https://ljwharbers.github.io/scphasedcn/reference/clean_reference.md):
+    when no clone has allele votes on its event or control regions, the
+    whole candidate pool is kept (threshold `Inf`) instead of an error.
+  - [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
+    `checkpoint`: a resumed run continues with the candidate baselines
+    (and run notes) of the run that wrote the checkpoint, so it gives
+    the same results.
+  - [`simulate_scn()`](https://ljwharbers.github.io/scphasedcn/reference/simulate_scn.md):
+    a `genome` expression that draws random numbers no longer moves the
+    caller’s random stream.
+  - [`assign_cells()`](https://ljwharbers.github.io/scphasedcn/reference/assign_cells.md):
+    a piece without a state of a clone on a haploid chromosome is scored
+    as the neutral 1:0 (it was taken at the clone’s baseline, i.e. at
+    the cell’s median depth).
+  - Tumour mode takes the depth as relative to the reference pool
+    whenever there is one; with a `min_ref` below 10 the assignment and
+    the per-cell scores ignored a pool of fewer than 10 cells that the
+    clone profiles used.
+  - [`cell_tracks()`](https://ljwharbers.github.io/scphasedcn/reference/cell_tracks.md):
+    in tumour mode the depth baseline follows the caller’s (B copies
+    without a reference pool, whatever the features’ depth method).
+  - [`cell_tracks()`](https://ljwharbers.github.io/scphasedcn/reference/cell_tracks.md):
+    a segment is drawn as confirmed only when its call is reportable, so
+    the confirmed segments are the cell’s events.
+  - [`plot_cells_pdf()`](https://ljwharbers.github.io/scphasedcn/reference/plot_cells_pdf.md)
+    falls back to [`pdf()`](https://rdrr.io/r/grDevices/pdf.html) when
+    [`cairo_pdf()`](https://rdrr.io/r/grDevices/cairo.html) opens no
+    device (macOS without XQuartz), and restores the device that was
+    current; `raster = TRUE` draws unrasterised points, with a message,
+    where ggrastr cannot rasterise.
+
 - Simulator:
 
   - [`simulate_scn()`](https://ljwharbers.github.io/scphasedcn/reference/simulate_scn.md):
@@ -318,7 +353,11 @@
     default or an inline
     [`sim_genome()`](https://ljwharbers.github.io/scphasedcn/reference/sim_genome.md);
     before, every seed gave the same data. Seed 1 with the default
-    genome gives the same data as before.
+    genome gives the same data as before. With a genome table built
+    beforehand (`g = sim_genome(); simulate_scn(genome = g)`) or a
+    user’s own bins table, the simulated data differ from earlier
+    versions at every seed, because the random stream now starts after
+    the genome’s draws.
   - Het SNPs are at unique positions; a draw on an occupied position
     moves to the next free one.
   - [`write_bins_h5ad()`](https://ljwharbers.github.io/scphasedcn/reference/write_bins_h5ad.md)
@@ -338,8 +377,10 @@
     (another assembly or naming) stops with a message naming the file,
     instead of binning on the wrong lengths or writing bins without GC.
   - QC-fail reads (flag 0x200) are skipped and counted in a new
-    `n_qcfail` column; primary records without SEQ or CIGAR are skipped
-    (they crashed the chromosome) and counted in `n_no_seq_cigar`.
+    `n_qcfail` column. Primary records without CIGAR are skipped (they
+    crashed the chromosome) and counted in `n_no_cigar`; they are not in
+    the per-cell record counts. Records without SEQ count in depth and
+    fragments but carry no SNP observation (counted in `n_no_seq`).
   - FRiP (`frip`) counts peak fragments among the clean
     (non-blacklisted) fragments, matching its denominator; values drop
     slightly where blacklisted fragments overlap peaks.
@@ -348,14 +389,25 @@
     read is no longer counted as an `other` allele.
   - The bins file is named after the bin size by default
     (`bins_100kb.h5ad` for 100 kb as before); `--tag` still overrides.
-  - `merge` without `--chroms` merges the main chromosomes that have a
-    finished partial; without an output directory it gives a usage
-    error. `index-check` exits with status 1 on a stale or missing
-    index.
+  - `merge` without `--chroms` merges the chromosomes `run` extracts
+    (the main chromosomes of the BAM header) and fails, naming them,
+    when some have no finished partial (a job that died);
+    `--allow-missing` merges without them and lists them in
+    `summary.json`. Without an output directory it gives a usage error.
+  - `merge` removes any other `bins_*.h5ad` of the output directory, so
+    a re-run at another bin size leaves one bins file.
+  - `index-check` exits with status 1 on a stale or missing index.
   - `run` reports a worker killed for memory with the unfinished
-    chromosomes and a hint to lower `--jobs`.
+    chromosomes and a hint to lower `--jobs`, and removes the
+    finished-markers of the chromosomes it extracts before starting, so
+    only chromosomes finished in that run count as finished.
   - `select-hets --loci` matches loci contigs that differ by the `chr`
-    prefix and exits with an error when no autosomal site is selected.
+    prefix. `select-hets` fails when no site is selected (it wrote an
+    empty VCF) and warns when none is on an autosome.
+  - A FASTA without chrM, or with another chrM length, is a warning:
+    chrM’s bins have no GC content.
+  - The bins file tag of a depth layer written by an older version
+    follows that layer’s own bin size.
   - The per-bin layers are built sparse, with identical output and far
     less memory at small bin sizes.
   - Since 0.1.1: `--vote-ps` (one vote per phase set), input metadata in

@@ -96,7 +96,10 @@ assign_cells(
 
 - ref_cells:
 
-  reference cells for the depth centring (NULL = none); the clone states
+  reference cells for the depth centring (NULL or empty = none; any
+  other size is a pool, which
+  [`caller_tumour()`](https://ljwharbers.github.io/scphasedcn/reference/caller_tumour.md)
+  passes with at least `min_ref` cells or not at all); the clone states
   must be relative to the same reference
   ([`clone_profiles()`](https://ljwharbers.github.io/scphasedcn/reference/clone_profiles.md)
   `ref_cells`)
@@ -174,4 +177,6 @@ The hypotheses are the clones with members plus the fixed normal clone
 `normal_hypothesis`), even when no cell is labelled `N0` yet: its state
 is all-neutral, so it needs no orientation, and without it normal cells
 would be forced into a tumour clone. Its `c` is the median `c` of `par`
-(attenuation 1) when `par` has no `N0` row.
+(attenuation 1) when `par` has no `N0` row. A piece without a state of a
+clone is scored at the clone's baseline on a diploid chromosome and as
+the neutral haploid state 1:0 on a haploid one (ploidy 1 in `segments`).

@@ -49,7 +49,7 @@
 <li>
 <code>clones</code> gains <code>baseline</code> and <code>ploidy</code> (the mean autosomal copy number), and the run notes list the baselines.</li>
 <li>A clone fitted at baseline 2 has exactly the states of 0.1.x. <code>ploidy = 2</code> restores the old behaviour for every clone; a number fixes the baseline.</li>
-<li>On COLO829 (bulk ploidy 3.1) the clones fit baseline 3. Near-diploid tumours stay at 2.</li>
+<li>On COLO829 (bulk ploidy 3.1) the clones fit baseline 3 (one small clone 2.75 in a joint tumour + normal run). A near-diploid tumour stayed at 2 at three seeds, with results identical to those without the fit.</li>
 </ul></li>
 <li>
 <p><strong>Normal mode: windowed, orientation-free allele term</strong> (<code><a href="../reference/window_allelic_features.html">window_allelic_features()</a></code>, <code><a href="../reference/caller_defaults.html">caller_defaults()</a></code> <code>win_*</code>). With chromosome-scale (hybrid) phasing the per-cell allele term summed oriented votes over the whole region, so an LOH carried by one cell only was cancelled at population-phase switches: a cell with several whole-chromosome losses and CN-LOH could go uncalled and even become a null cell. <code><a href="../reference/cell_features.html">cell_features()</a></code> now also sums, per cell and region, the mirrored beta-binomial LLR of near-complete LOH (f = 0.98) over 1 Mb windows x phase sets, with the phase trusted only inside a window. These are the new feature columns <code>wal_f980</code> and <code>n_win</code>. Windows with a shared allelic bias over all cells are left out, and only autosomes are scored.</p>
@@ -84,7 +84,7 @@
 <li>With an odd baseline, a region without allele votes (a female chrX is excluded from the allele channel by default) can only take a balanced state, one copy off the baseline.</li>
 <li>In simulations at four seeds the fit put a clone at a quarter-step baseline next to the true one (2.25 for 2, 2.75 for 3) in 3 of 12 tumour runs; in one of them a 2:1 chromosome of a diploid clone came out as 3:1. <code>ploidy = 2</code> avoids this for tumours known to be near-diploid.</li>
 </ul></li>
-<li><p>Tumour mode memory and run time: the per-cell confirmation and the reference cleaning build their vote tables per clone, the matched null is scored one hypothesis at a time, and the baseline fit’s segment refinement no longer recomputes the allele terms per depth contrast. Results are unchanged. On a whole-genome-doubled tumour of about 10,000 cells the fitted baseline needs less memory than 0.1.1 did (34 GiB against 42 GiB).</p></li>
+<li><p>Tumour mode memory and run time: the per-cell confirmation and the reference cleaning build their vote tables per clone, the matched null is scored one hypothesis at a time, and the baseline fit’s segment refinement no longer recomputes the allele terms per depth contrast. Results are unchanged. On a whole-genome-doubled tumour of about 10,000 cells the fitted baseline needs less memory than the same run needed before the baseline fit (34 GiB against 42 GiB).</p></li>
 <li>
 <p>Tumour mode without flagged null cells no longer fits its input depth t null and allelic rho on all cells. It fits them on the cells without a call on the null rows (new <code><a href="../reference/tumour_null_fit.html">tumour_null_fit()</a></code>) when that selection is stable, and falls back to all cells otherwise. The run warns, the run notes record which null was used, and the warning also says when the selection keeps more than two thirds of the cells: a stable selection does not show that the cells are copy-number neutral. Results change for such runs; runs with flagged null cells give the same calls.</p>
 <ul><li>
@@ -131,9 +131,27 @@
 <li><p>The caller finds the extractor’s bins file under its bin-size name (<code>bins_&lt;tag&gt;.h5ad</code>) through the new <code><a href="../reference/bins_file.html">bins_file()</a></code>; <code>bins_100kb.h5ad</code> is still preferred when present. Bin sizes other than 100 kb are readable but not validated.</p></li>
 <li><p>Single-cell track plots: the depth baseline follows the features’ depth reference and the clone’s ploidy baseline, normal-mode events on haploid chromosomes get haploid states, a clone’s reportable segments that the cell does not confirm are drawn as inherited, and every state label has a colour.</p></li>
 <li>
+<p>Follow-up fixes:</p>
+<ul><li>
+<code><a href="../reference/clean_reference.html">clean_reference()</a></code>: when no clone has allele votes on its event or control regions, the whole candidate pool is kept (threshold <code>Inf</code>) instead of an error.</li>
+<li>
+<code><a href="../reference/caller_tumour.html">caller_tumour()</a></code> <code>checkpoint</code>: a resumed run continues with the candidate baselines (and run notes) of the run that wrote the checkpoint, so it gives the same results.</li>
+<li>
+<code><a href="../reference/simulate_scn.html">simulate_scn()</a></code>: a <code>genome</code> expression that draws random numbers no longer moves the caller’s random stream.</li>
+<li>
+<code><a href="../reference/assign_cells.html">assign_cells()</a></code>: a piece without a state of a clone on a haploid chromosome is scored as the neutral 1:0 (it was taken at the clone’s baseline, i.e. at the cell’s median depth).</li>
+<li>Tumour mode takes the depth as relative to the reference pool whenever there is one; with a <code>min_ref</code> below 10 the assignment and the per-cell scores ignored a pool of fewer than 10 cells that the clone profiles used.</li>
+<li>
+<code><a href="../reference/cell_tracks.html">cell_tracks()</a></code>: in tumour mode the depth baseline follows the caller’s (B copies without a reference pool, whatever the features’ depth method).</li>
+<li>
+<code><a href="../reference/cell_tracks.html">cell_tracks()</a></code>: a segment is drawn as confirmed only when its call is reportable, so the confirmed segments are the cell’s events.</li>
+<li>
+<code><a href="../reference/plot_cells_pdf.html">plot_cells_pdf()</a></code> falls back to <code><a href="https://rdrr.io/r/grDevices/pdf.html" class="external-link">pdf()</a></code> when <code><a href="https://rdrr.io/r/grDevices/cairo.html" class="external-link">cairo_pdf()</a></code> opens no device (macOS without XQuartz), and restores the device that was current; <code>raster = TRUE</code> draws unrasterised points, with a message, where ggrastr cannot rasterise.</li>
+</ul></li>
+<li>
 <p>Simulator:</p>
 <ul><li>
-<code><a href="../reference/simulate_scn.html">simulate_scn()</a></code>: <code>seed</code> now controls the simulated data when the genome is the default or an inline <code><a href="../reference/sim_genome.html">sim_genome()</a></code>; before, every seed gave the same data. Seed 1 with the default genome gives the same data as before.</li>
+<code><a href="../reference/simulate_scn.html">simulate_scn()</a></code>: <code>seed</code> now controls the simulated data when the genome is the default or an inline <code><a href="../reference/sim_genome.html">sim_genome()</a></code>; before, every seed gave the same data. Seed 1 with the default genome gives the same data as before. With a genome table built beforehand (<code>g = sim_genome(); simulate_scn(genome = g)</code>) or a user’s own bins table, the simulated data differ from earlier versions at every seed, because the random stream now starts after the genome’s draws.</li>
 <li>Het SNPs are at unique positions; a draw on an occupied position moves to the next free one.</li>
 <li>
 <code><a href="../reference/write_bins_h5ad.html">write_bins_h5ad()</a></code> / <code><a href="../reference/write_alleles_h5ad.html">write_alleles_h5ad()</a></code>: missing values in character columns are written as anndata categoricals and read back as <code>NA</code>, instead of as the string <code>"NA"</code>.</li>
@@ -143,16 +161,22 @@
 <p>Extractor (Python):</p>
 <ul><li>
 <code>extract</code> / <code>run</code> check each chromosome against the BAM header, the FASTA and the chromosome sizes before the BAM pass. A mismatch (another assembly or naming) stops with a message naming the file, instead of binning on the wrong lengths or writing bins without GC.</li>
-<li>QC-fail reads (flag 0x200) are skipped and counted in a new <code>n_qcfail</code> column; primary records without SEQ or CIGAR are skipped (they crashed the chromosome) and counted in <code>n_no_seq_cigar</code>.</li>
+<li>QC-fail reads (flag 0x200) are skipped and counted in a new <code>n_qcfail</code> column. Primary records without CIGAR are skipped (they crashed the chromosome) and counted in <code>n_no_cigar</code>; they are not in the per-cell record counts. Records without SEQ count in depth and fragments but carry no SNP observation (counted in <code>n_no_seq</code>).</li>
 <li>FRiP (<code>frip</code>) counts peak fragments among the clean (non-blacklisted) fragments, matching its denominator; values drop slightly where blacklisted fragments overlap peaks.</li>
 <li>Biallelic SNVs require REF and ALT in A/C/G/T everywhere (<code>extract</code>, <code>select-hets</code>, <code>hybrid-phase</code>). A SNP inside a reference skip of a read is no longer counted as an <code>other</code> allele.</li>
 <li>The bins file is named after the bin size by default (<code>bins_100kb.h5ad</code> for 100 kb as before); <code>--tag</code> still overrides.</li>
 <li>
-<code>merge</code> without <code>--chroms</code> merges the main chromosomes that have a finished partial; without an output directory it gives a usage error. <code>index-check</code> exits with status 1 on a stale or missing index.</li>
+<code>merge</code> without <code>--chroms</code> merges the chromosomes <code>run</code> extracts (the main chromosomes of the BAM header) and fails, naming them, when some have no finished partial (a job that died); <code>--allow-missing</code> merges without them and lists them in <code>summary.json</code>. Without an output directory it gives a usage error.</li>
 <li>
-<code>run</code> reports a worker killed for memory with the unfinished chromosomes and a hint to lower <code>--jobs</code>.</li>
+<code>merge</code> removes any other <code>bins_*.h5ad</code> of the output directory, so a re-run at another bin size leaves one bins file.</li>
 <li>
-<code>select-hets --loci</code> matches loci contigs that differ by the <code>chr</code> prefix and exits with an error when no autosomal site is selected.</li>
+<code>index-check</code> exits with status 1 on a stale or missing index.</li>
+<li>
+<code>run</code> reports a worker killed for memory with the unfinished chromosomes and a hint to lower <code>--jobs</code>, and removes the finished-markers of the chromosomes it extracts before starting, so only chromosomes finished in that run count as finished.</li>
+<li>
+<code>select-hets --loci</code> matches loci contigs that differ by the <code>chr</code> prefix. <code>select-hets</code> fails when no site is selected (it wrote an empty VCF) and warns when none is on an autosome.</li>
+<li>A FASTA without chrM, or with another chrM length, is a warning: chrM’s bins have no GC content.</li>
+<li>The bins file tag of a depth layer written by an older version follows that layer’s own bin size.</li>
 <li>The per-bin layers are built sparse, with identical output and far less memory at small bin sizes.</li>
 <li>Since 0.1.1: <code>--vote-ps</code> (one vote per phase set), input metadata in each partial with checks at <code>merge</code>, <code>--allow-missing</code>, an interruption-safe <code>merge</code>, and a report of barcode-map matches.</li>
 </ul></li>

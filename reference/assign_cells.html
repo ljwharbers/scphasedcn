@@ -136,7 +136,8 @@ pieces = regions table, votes, atoms, cells = names in vote index order)</p></dd
 
 
 <dt id="arg-ref-cells">ref_cells<a class="anchor" aria-label="anchor" href="#arg-ref-cells"></a></dt>
-<dd><p>reference cells for the depth centring (NULL = none); the clone states must be relative to the
+<dd><p>reference cells for the depth centring (NULL or empty = none; any other size is a pool, which
+<code><a href="caller_tumour.html">caller_tumour()</a></code> passes with at least <code>min_ref</code> cells or not at all); the clone states must be relative to the
 same reference (<code><a href="clone_profiles.html">clone_profiles()</a></code> <code>ref_cells</code>)</p></dd>
 
 
@@ -197,7 +198,8 @@ and not doublet-like) (plus trunk, p_trunk when <code>trunks</code> is given; at
     <p>The hypotheses are the clones with members plus the fixed normal clone <code>N0</code> whenever <code>segments</code> has it
 (<code><a href="caller_tumour.html">caller_tumour()</a></code> <code>normal_hypothesis</code>), even when no cell is labelled <code>N0</code> yet: its state is all-neutral, so it
 needs no orientation, and without it normal cells would be forced into a tumour clone. Its <code>c</code> is the median <code>c</code>
-of <code>par</code> (attenuation 1) when <code>par</code> has no <code>N0</code> row.</p>
+of <code>par</code> (attenuation 1) when <code>par</code> has no <code>N0</code> row. A piece without a state of a clone is scored at the clone's
+baseline on a diploid chromosome and as the neutral haploid state 1:0 on a haploid one (ploidy 1 in <code>segments</code>).</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

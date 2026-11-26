@@ -166,7 +166,9 @@ relative to the true haplotypes (0 = anchored blocks)</p></dd>
 change the genome: <code>genome</code> is evaluated before seeding, and <code><a href="sim_genome.html">sim_genome()</a></code> uses its own <code>seed</code>. After
 <code>set.seed(seed)</code> the simulator first makes (and discards) the random draws of <code><a href="sim_genome.html">sim_genome()</a></code> for
 <code>nrow(genome)</code> bins, then draws the data; the result depends only on the genome table, <code>seed</code> and the other
-parameters, not on how <code>genome</code> was given. The caller's random stream is saved and restored.</p></dd>
+parameters, not on how <code>genome</code> was given. The caller's random stream is saved and restored, around the
+evaluation of <code>genome</code> as well: a <code>genome</code> expression that draws random numbers draws them from the caller's
+stream as it is at the call and leaves it as it was.</p></dd>
 
 </dl></div>
     <div class="section level2">

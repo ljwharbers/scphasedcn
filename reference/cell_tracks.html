@@ -3,10 +3,11 @@
 depth: per cell and window the log2 ratio log2((x + 0.5) / (e + 0.5)) of the features' 1 Mb windows and of
 agg windows. As in clone_profiles(), relative to the reference pool when it has at least min_ref cells
 and centred on the cell's autosomal median, so the track is on the scale of the clone segments. The
-copy-number baseline (base, the copy number at log2 0) is the chromosome's ploidy when the depth is relative
-to other cells of the sample (a reference pool, or the features' celltype / loo depth, normal mode's), else 2
-(model depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
-take the ploidy.
+copy-number baseline (base, the copy number at log2 0) follows the caller's expected depth. Tumour mode: the
+chromosome's ploidy with a reference pool, else 2 whatever the features' depth method (as caller_tumour()
+scores the cells: without a pool a male chrX sits at log2 -1). Normal mode: the chromosome's ploidy when the
+depth is relative to other cells of the sample (a reference pool, or the features' celltype / loo depth),
+else 2 (model depth); without a depth method in the features' notes, the ploidy.
 When the result's clones has a baseline column (the clone's ploidy baseline B, with absolute copy-number
 states), base is scaled by B / 2 for the cell's clone (NA or no column: 2, i.e. unchanged).
 baf: per cell and agg window the oriented haplotype-A fraction nA / (nA + nB) of the cell's molecule votes.
@@ -15,9 +16,9 @@ clone (orient = &quot;clone&quot;, the confirmation's orientation) or of all cel
 the phased haplotypes as they are (meaningful with chromosome-wide phasing). &quot;auto&quot;: &quot;clone&quot; in tumour mode,
 &quot;none&quot; in normal mode with chromosome-wide phasing, else &quot;pseudobulk&quot;.
 fit: the fitted segments of each cell. Tumour mode: the segments of the cell's clone, with source
-confirmed (the cell's call has source confirmed), inherited (a reportable call with source inherited:
-the clone's segment carried to the cell without its own confirmation), or clone (neutral, or a clone segment
-without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
+confirmed (a reportable call with source confirmed: one of the cell's events in the result's events),
+inherited (a reportable call with source inherited: the clone's segment carried to the cell without its own
+confirmation), or clone (neutral, or a clone segment without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
 cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0; on a haploid chromosome loss 0:0, gain 2:0, amp 3:0) on a
 neutral baseline; events without coordinates take those of their top_region, else the whole chromosome.
 Expected log2 c * log2(max(cn, 0.2) / base) (c the clone's depth contrast, 1 in normal mode or when the
@@ -31,10 +32,11 @@ genome: chromosome offsets for a concatenated genome axis.
 depth: per cell and window the log2 ratio log2((x + 0.5) / (e + 0.5)) of the features' 1 Mb windows and of
 agg windows. As in clone_profiles(), relative to the reference pool when it has at least min_ref cells
 and centred on the cell's autosomal median, so the track is on the scale of the clone segments. The
-copy-number baseline (base, the copy number at log2 0) is the chromosome's ploidy when the depth is relative
-to other cells of the sample (a reference pool, or the features' celltype / loo depth, normal mode's), else 2
-(model depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
-take the ploidy.
+copy-number baseline (base, the copy number at log2 0) follows the caller's expected depth. Tumour mode: the
+chromosome's ploidy with a reference pool, else 2 whatever the features' depth method (as caller_tumour()
+scores the cells: without a pool a male chrX sits at log2 -1). Normal mode: the chromosome's ploidy when the
+depth is relative to other cells of the sample (a reference pool, or the features' celltype / loo depth),
+else 2 (model depth); without a depth method in the features' notes, the ploidy.
 When the result's clones has a baseline column (the clone's ploidy baseline B, with absolute copy-number
 states), base is scaled by B / 2 for the cell's clone (NA or no column: 2, i.e. unchanged).
 baf: per cell and agg window the oriented haplotype-A fraction nA / (nA + nB) of the cell's molecule votes.
@@ -43,9 +45,9 @@ clone (orient = &quot;clone&quot;, the confirmation's orientation) or of all cel
 the phased haplotypes as they are (meaningful with chromosome-wide phasing). &quot;auto&quot;: &quot;clone&quot; in tumour mode,
 &quot;none&quot; in normal mode with chromosome-wide phasing, else &quot;pseudobulk&quot;.
 fit: the fitted segments of each cell. Tumour mode: the segments of the cell's clone, with source
-confirmed (the cell's call has source confirmed), inherited (a reportable call with source inherited:
-the clone's segment carried to the cell without its own confirmation), or clone (neutral, or a clone segment
-without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
+confirmed (a reportable call with source confirmed: one of the cell's events in the result's events),
+inherited (a reportable call with source inherited: the clone's segment carried to the cell without its own
+confirmation), or clone (neutral, or a clone segment without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
 cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0; on a haploid chromosome loss 0:0, gain 2:0, amp 3:0) on a
 neutral baseline; events without coordinates take those of their top_region, else the whole chromosome.
 Expected log2 c * log2(max(cn, 0.2) / base) (c the clone's depth contrast, 1 in normal mode or when the
@@ -99,10 +101,11 @@ genome: chromosome offsets for a concatenated genome axis.
     <p>Builds, for a set of cells, the data behind <code><a href="plot_cell_tracks.html">plot_cell_tracks()</a></code>:</p><ul><li><p><code>depth</code>: per cell and window the log2 ratio <code>log2((x + 0.5) / (e + 0.5))</code> of the features' 1 Mb windows and of
 <code>agg</code> windows. As in <code><a href="clone_profiles.html">clone_profiles()</a></code>, relative to the reference pool when it has at least <code>min_ref</code> cells
 and centred on the cell's autosomal median, so the track is on the scale of the clone segments. The
-copy-number baseline (<code>base</code>, the copy number at log2 0) is the chromosome's ploidy when the depth is relative
-to other cells of the sample (a reference pool, or the features' <code>celltype</code> / <code>loo</code> depth, normal mode's), else 2
-(<code>model</code> depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
-take the ploidy.
+copy-number baseline (<code>base</code>, the copy number at log2 0) follows the caller's expected depth. Tumour mode: the
+chromosome's ploidy with a reference pool, else 2 whatever the features' depth method (as <code><a href="caller_tumour.html">caller_tumour()</a></code>
+scores the cells: without a pool a male chrX sits at log2 -1). Normal mode: the chromosome's ploidy when the
+depth is relative to other cells of the sample (a reference pool, or the features' <code>celltype</code> / <code>loo</code> depth),
+else 2 (<code>model</code> depth); without a depth method in the features' notes, the ploidy.
 When the result's <code>clones</code> has a <code>baseline</code> column (the clone's ploidy baseline B, with absolute copy-number
 states), <code>base</code> is scaled by B / 2 for the cell's clone (NA or no column: 2, i.e. unchanged).</p></li>
 <li><p><code>baf</code>: per cell and <code>agg</code> window the oriented haplotype-A fraction <code>nA / (nA + nB)</code> of the cell's molecule votes.
@@ -111,9 +114,9 @@ clone (<code>orient = "clone"</code>, the confirmation's orientation) or of all 
 the phased haplotypes as they are (meaningful with chromosome-wide phasing). <code>"auto"</code>: <code>"clone"</code> in tumour mode,
 <code>"none"</code> in normal mode with chromosome-wide phasing, else <code>"pseudobulk"</code>.</p></li>
 <li><p><code>fit</code>: the fitted segments of each cell. Tumour mode: the segments of the cell's clone, with <code>source</code>
-<code>confirmed</code> (the cell's call has <code>source</code> confirmed), <code>inherited</code> (a reportable call with <code>source</code> inherited:
-the clone's segment carried to the cell without its own confirmation), or <code>clone</code> (neutral, or a clone segment
-without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
+<code>confirmed</code> (a reportable call with <code>source</code> confirmed: one of the cell's events in the result's <code>events</code>),
+<code>inherited</code> (a reportable call with <code>source</code> inherited: the clone's segment carried to the cell without its own
+confirmation), or <code>clone</code> (neutral, or a clone segment without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
 cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0; on a haploid chromosome loss 0:0, gain 2:0, amp 3:0) on a
 neutral baseline; events without coordinates take those of their <code>top_region</code>, else the whole chromosome.
 Expected log2 <code>c * log2(max(cn, 0.2) / base)</code> (<code>c</code> the clone's depth contrast, 1 in normal mode or when the

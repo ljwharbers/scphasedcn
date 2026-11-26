@@ -155,10 +155,12 @@ pseudobulks), `control_min_len`, `repass`, `allelic_exclude`.
 
 `checkpoint` (resume cache, "" = off): an .rds path. When the file does
 not exist the global discovery (leaves, merged clones) and the first EM
-round are saved there; when it exists they are read from it and the run
-continues from the within-trunk discovery (useful when rerunning the
+round (with the candidate baselines of `ploidy = "fit"` as that round
+left them, and its run notes) are saved there; when it exists they are
+read from it and the run continues from the within-trunk discovery with
+the same results as the run that wrote it (useful when rerunning the
 later steps on a large sample). The cache is not keyed: reuse it only
-with the same features, seed and discovery options.
+with the same features, seed and options.
 
 Confirmation null (per-cell `confirmed` calls, after assignment;
 assignment itself always uses the input fits): `ref_null` = "none" (the

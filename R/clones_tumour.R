@@ -114,9 +114,10 @@ utils::globalVariables(c(
 #' `repass`, `allelic_exclude`.
 #'
 #' `checkpoint` (resume cache, "" = off): an .rds path. When the file does not exist the global discovery
-#' (leaves, merged clones) and the first EM round are saved there; when it exists they are read from it and the run
-#' continues from the within-trunk discovery (useful when rerunning the later steps on a large sample). The cache is
-#' not keyed: reuse it only with the same features, seed and discovery options.
+#' (leaves, merged clones) and the first EM round (with the candidate baselines of `ploidy = "fit"` as that round left
+#' them, and its run notes) are saved there; when it exists they are read from it and the run continues from the
+#' within-trunk discovery with the same results as the run that wrote it (useful when rerunning the later steps on a
+#' large sample). The cache is not keyed: reuse it only with the same features, seed and options.
 #'
 #' Confirmation null (per-cell `confirmed` calls, after assignment; assignment itself always uses the input fits):
 #' `ref_null` = "none" (the input rho / depth t of `feat$null_fit`) or "rho" (opt-in: beta-binomial rho refitted on the
@@ -360,7 +361,10 @@ tumour_null_fit = function(long, params = caller_defaults(), exclude = NULL, sel
 cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_cells = NULL) {
   # rows: data.table cell, region, cn, ploidy, f_state, c, a, oclone (orientation clone)
   d = region_features(inp, regs, cells = unique(rows$cell))
-  if (length(ref_cells) >= 10) {
+  # a reference pool whenever `ref_cells` is given (the caller's st$ref: at least min_ref cells or none), as in
+  # assign_cells() and clone_profiles()
+  use_ref = length(ref_cells) > 0
+  if (use_ref) {
     rf = region_features(inp, regs, cells = ref_cells)
     rm_ = rf[, .(rmean = mean(log2ratio, na.rm = TRUE)), by = region]
     d[rm_, log2ratio := log2ratio - i.rmean, on = "region"]
@@ -376,7 +380,7 @@ cell_state_scores = function(inp, regs, rows, k_members, tpar, rho, params, ref_
   # hypothesis carries its own clone's contrast (c_own): its neutral sits at c_own log2(n0 / base_)
   if (!"base_b" %in% names(d)) d[, base_b := 2]
   d[is.na(base_b), base_b := 2]
-  d[, base_ := base_b * (if (length(ref_cells) >= 10) ploidy / 2 else 1)]
+  d[, base_ := base_b * (if (use_ref) ploidy / 2 else 1)]
   d[, c0_ := if ("c_own" %in% names(d)) fifelse(is.na(c_own), c, c_own) else c]
   d[, shift0_ := c0_ * log2(fifelse(ploidy == 1L, 1, 2) / base_)]
   d[, c0_ := NULL]
@@ -918,6 +922,7 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
     list(members = members, n = n)
   }
   trunk_info = NULL
+  n_notes0 = length(notes)
   if (!is.null(ck$r)) {
     r = ck$r
     doublet_log = ck$doublet_log %||% {
@@ -925,10 +930,17 @@ caller_tumour = function(feat, params = caller_defaults(), multiplets = NULL, co
       data.table(round = rep("global round", n0), clone = d0, best_pair = rep(NA_character_, n0), n_cells = rep(NA_integer_, n0),
                  ids = rep("global", n0))
     }
+    # the baseline candidates as the global round left them (the later fits start from these) and the round's run
+    # notes. A checkpoint written without the candidates: rebuilt as the round narrowed them, from its last fit
+    # (next_baselines()), unless that fit was the provisional median-centred one (several clones and no depth
+    # reference), which leaves the full set
+    b_cand = ck$b_cand %||% (if (uniqueN(members$clone) >= 2 && !length(r$st$ref)) b_cand else next_baselines(b_cand, r$st$fit))
+    notes = c(notes, ck$notes)
     say("checkpoint: global round re-used (", uniqueN(r$st$segments$clone), " clones)")
   } else r = em_round(members, ref_pool, "global round")
   if (length(opts$checkpoint) && nzchar(opts$checkpoint) && is.null(ck))
-    saveRDS(list(disc = disc, mc = mc, r = r, doublet_log = doublet_log), opts$checkpoint)
+    saveRDS(list(disc = disc, mc = mc, r = r, doublet_log = doublet_log, b_cand = b_cand,
+                 notes = utils::tail(notes, length(notes) - n_notes0)), opts$checkpoint)
   # 2. within-trunk discovery: blocks oriented by each trunk's pseudobulk, allelically selected regions
   tc = r$asg[doublet_like == FALSE & multiplet == FALSE & p_trunk >= opts$trunk_post, .(cell, trunk)]
   newm = list(); trunk_info = list(); n_within_tests = 0L

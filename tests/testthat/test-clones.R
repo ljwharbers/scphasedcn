@@ -1351,6 +1351,38 @@ test_that("caller_tumour names a clone whose depth contrast is at the grid floor
   expect_false(any(grepl("^clone baselines", r2$notes)))
 })
 
+test_that("caller_tumour resumed from a checkpoint continues with the baseline candidates of the run that wrote it", {
+  # sim_tri: the global round narrows the candidate baselines of ploidy "fit"; the later fits of a resumed run must
+  # start from the narrowed set, as those of the run that wrote the checkpoint did (the candidates passed to every
+  # fit are recorded)
+  inp = clone_cached("clones_tri_input", function() clone_sim_input(sim_tri))
+  ck = tempfile(fileext = ".rds")
+  on.exit(unlink(ck), add = TRUE)
+  seen = list()
+  real_fit = fit_states_opts
+  run = function() {
+    seen <<- list()
+    local_mocked_bindings(fit_states_opts = function(profile, grid, opts, baselines = eval(formals(fit_clone_states)$baselines)) {
+      seen[[length(seen) + 1L]] <<- baselines
+      real_fit(profile, grid, opts, baselines)
+    })
+    list(res = caller_tumour(inp, opts = list(checkpoint = ck), verbose = FALSE), seen = seen)
+  }
+  fresh = run()
+  expect_true(file.exists(ck))
+  resumed = run()
+  n = length(resumed$seen)
+  expect_gt(length(fresh$seen), n)                                   # the global round's fits are not re-run
+  expect_identical(resumed$seen, utils::tail(fresh$seen, n))
+  expect_lt(length(resumed$seen[[1]]), length(fresh$seen[[1]]))     # the narrowed set
+  expect_identical(resumed$res, fresh$res)
+  # a checkpoint written without the candidates (and notes): rebuilt from the global round's fit, the same fits
+  x = readRDS(ck); x$b_cand = NULL; x$notes = NULL; saveRDS(x, ck)
+  old = run()
+  expect_identical(old$seen, resumed$seen)
+  expect_identical(old$res[setdiff(names(old$res), "notes")], fresh$res[setdiff(names(fresh$res), "notes")])
+})
+
 test_that("confirmation null rows carry their own clone's baseline and contrast; cell_state_scores centres on them", {
   # two tumour clones at baseline 3 with different c, and the normal clone
   par = data.table(clone = c("C1", "C2", "N0"), c = c(0.9, 0.7, 0.8), a = c(0.95, 0.9, 1), base = c(3, 3, 2))
@@ -1402,7 +1434,7 @@ test_that("cell_state_scores: the neutral of a haploid row is one copy (male chr
   expect_equal(sc$shift0_, 0.8 * log2(1 / c(2, 2, 3, 3)))
   # a haploid 2:0 sits one copy above the neutral (it scored 0 when the neutral was taken at 2 copies)
   expect_equal(unique(sc[, signif(c * log2(pmax(cn, 0.2) / base_) - shift0_, 6)]), signif(0.8, 6))
-  # relative to a reference pool (>= 10 cells) the neutral is c log2(2 / B) on haploid rows too
+  # relative to a reference pool the neutral is c log2(2 / B) on haploid rows too
   sr = scphasedcn:::cell_state_scores(inp, reg, rr, m, inp$tpar, inp$rho, caller_defaults(), ref_cells = n0)[match(cc, cell)]
   expect_equal(sr$shift0_, 0.8 * log2(2 / c(2, 2, 3, 3)))
   # diploid rows are unchanged: c log2(2 / B) with or without the pool
@@ -1410,6 +1442,41 @@ test_that("cell_state_scores: the neutral of a haploid row is one copy (male chr
   sa = scphasedcn:::cell_state_scores(inp, inp$regions[class == "chrom" & chrom == "chr1"][1], ra, m, inp$tpar, inp$rho,
                                       caller_defaults())[match(cc, cell)]
   expect_equal(sa$shift0_, 0.8 * log2(2 / c(2, 2, 3, 3)))
+})
+
+test_that("a reference pool of any size is a pool: cell_state_scores and assign_cells with fewer than 10 pool cells", {
+  # the caller's pool (st$ref) has at least min_ref cells or none, and its clone profiles are pool-relative exactly
+  # then: with a user min_ref below 10 the scores and the assignment are pool-relative as well
+  inp = clone_input(tum2_input()); r0 = tum2_result()
+  m = r0$assignments[confident == TRUE, .(cell, clone)]
+  reg = inp$regions[class == "chrom" & chrom == "chrX"][1]
+  n6 = m[clone == "N0", cell][1:6]
+  k = m[clone != "N0", .N, by = clone][order(-N), clone][1]
+  cc = m[clone == k, cell][1:4]
+  rr = data.table(cell = cc, region = reg$region, cn = 2L, ploidy = 1L, f_state = 1, c = 0.8, a = 0.9, oclone = k,
+                  base_b = c(2, 2, 3, 3))
+  s6 = scphasedcn:::cell_state_scores(inp, reg, rr, m, inp$tpar, inp$rho, caller_defaults(), ref_cells = n6)[match(cc, cell)]
+  expect_equal(s6$shift0_, 0.8 * log2(2 / c(2, 2, 3, 3)))
+  # the depth is relative to the 6 cells' mean
+  rf = region_features(inp, reg, cells = c(cc, n6))
+  expect_equal(s6$log2ratio, rf[match(cc, cell), log2ratio] - mean(rf[cell %in% n6, log2ratio], na.rm = TRUE))
+  # assign_cells: the 6-cell pool centres the depth (it was ignored below 10 cells)
+  sg = r0$segments
+  pieces = segment_pieces(sg, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes, atoms = inp$atoms, cells = inp$cells$cell)
+  par = r0$null_fit$clones$par
+  a0 = assign_cells(fp, m, sg, inp$tpar, inp$rho, par = par)
+  a6 = assign_cells(fp, m, sg, inp$tpar, inp$rho, par = par, ref_cells = n6)
+  expect_false(isTRUE(all.equal(attr(a6, "ll"), attr(a0, "ll"))))
+  # ... as a pool-centred feature table without the pool argument would at baseline 2 on diploid pieces
+  fc = copy(fp$features)
+  fc[fc[cell %in% n6, .(rmean = mean(log2ratio, na.rm = TRUE)), by = region], log2ratio := log2ratio - i.rmean, on = "region"]
+  auto = !pieces$chrom %in% c("chrX", "chrY")
+  fpa = fp; fpa$pieces = pieces[auto]; fpa$features = fp$features[region %in% pieces$region[auto]]
+  fca = fpa; fca$features = fc[region %in% pieces$region[auto]]
+  par2 = copy(as.data.table(par))[, base := 2]
+  expect_equal(attr(assign_cells(fpa, m, sg, inp$tpar, inp$rho, par = par2, ref_cells = n6), "ll"),
+               attr(assign_cells(fca, m, sg, inp$tpar, inp$rho, par = par2), "ll"))
 })
 
 test_that("assign_cells: a piece without a state of a clone is taken at the clone's baseline", {
@@ -1674,6 +1741,45 @@ test_that("clean_reference: a negative threshold does not remove cells without p
   c2 = clean_reference(inp, r$assignments, r$segments, thr = 2, par = r$null_fit$clones$par, members = m)
   expect_identical(c2$table$flag, c2$table$score > 2)
   expect_setequal(c2$pool, c2$table[score <= 2, cell])
+})
+
+test_that("clean_reference: without votes on any clone's regions the whole candidate pool is kept (threshold Inf)", {
+  r = tum2_result()
+  inp = clone_input(tum2_input())
+  inp$votes = inp$votes[0, ]
+  m = r$assignments[assigned == TRUE, .(cell, clone)]
+  cr = clean_reference(inp, r$assignments, r$segments, par = r$null_fit$clones$par, members = m)
+  expect_identical(cr$thr, Inf)
+  expect_gt(nrow(cr$table), 0)
+  expect_true(all(cr$table$score == 0 & cr$table$n_ev == 0L & cr$table$n_ctl == 0L))
+  expect_false(any(cr$table$flag))
+  expect_setequal(cr$pool, cr$table$cell)
+})
+
+test_that("assign_cells: a piece without a state of a clone on a haploid chromosome is scored as the neutral 1:0", {
+  # sim_tum2 (male): a tumour clone without its chrX segment scores every hypothesis (single clones and mixtures) as
+  # with an explicit neutral 1:0 there, without and with a reference pool, at baseline 2 and 3; no votes (depth only)
+  r = tum2_result()
+  inp = clone_input(tum2_input())
+  sg = as.data.table(r$segments)
+  k = setdiff(sort(unique(sg$clone)), "N0")[1]
+  x1 = copy(sg)[clone == k & chrom == "chrX", `:=`(state = "1:0", cn = 1L, nA = 1L, nB = 0L, label = "neutral", ploidy = 1L)]
+  x0 = sg[!(clone == k & chrom == "chrX")]
+  expect_true(all(sg[chrom == "chrX", ploidy] == 1L))
+  pieces = segment_pieces(sg, inp$regions)
+  fp = list(features = region_features(inp, pieces), pieces = pieces, votes = inp$votes[0, ], atoms = inp$atoms,
+            cells = inp$cells$cell)
+  members = r$assignments[confident == TRUE, .(cell, clone)]
+  pool = r$assignments[ref_pool == TRUE, cell]
+  expect_gte(length(pool), 30)
+  par2 = as.data.table(r$null_fit$clones$par)
+  par3 = copy(par2)[clone == k, base := 3]
+  ll = function(seg, ref, par) attr(assign_cells(fp, members, seg, inp$tpar, inp$rho, par = par, ref_cells = ref), "ll")
+  for (ref in list(NULL, pool)) for (par in list(par2, par3)) {
+    l1 = ll(x1, ref, par)
+    expect_gt(ncol(l1), length(unique(members$clone)))                # mixture hypotheses included
+    expect_equal(ll(x0, ref, par), l1, info = sprintf("pool %s, baseline %s", length(ref) > 0, par[clone == k, base]))
+  }
 })
 
 test_that("split_disagree (direct call): checks its options, fits a missing input null with its params, re-fits the parts at the parent's baseline", {

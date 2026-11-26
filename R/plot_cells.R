@@ -55,10 +55,11 @@ genome_layout = function(windows) {
 #' - `depth`: per cell and window the log2 ratio `log2((x + 0.5) / (e + 0.5))` of the features' 1 Mb windows and of
 #'   `agg` windows. As in [clone_profiles()], relative to the reference pool when it has at least `min_ref` cells
 #'   and centred on the cell's autosomal median, so the track is on the scale of the clone segments. The
-#'   copy-number baseline (`base`, the copy number at log2 0) is the chromosome's ploidy when the depth is relative
-#'   to other cells of the sample (a reference pool, or the features' `celltype` / `loo` depth, normal mode's), else 2
-#'   (`model` depth: a male chrX sits at log2 -1). Without a depth method in the features' notes, normal-mode results
-#'   take the ploidy.
+#'   copy-number baseline (`base`, the copy number at log2 0) follows the caller's expected depth. Tumour mode: the
+#'   chromosome's ploidy with a reference pool, else 2 whatever the features' depth method (as [caller_tumour()]
+#'   scores the cells: without a pool a male chrX sits at log2 -1). Normal mode: the chromosome's ploidy when the
+#'   depth is relative to other cells of the sample (a reference pool, or the features' `celltype` / `loo` depth),
+#'   else 2 (`model` depth); without a depth method in the features' notes, the ploidy.
 #'   When the result's `clones` has a `baseline` column (the clone's ploidy baseline B, with absolute copy-number
 #'   states), `base` is scaled by B / 2 for the cell's clone (NA or no column: 2, i.e. unchanged).
 #' - `baf`: per cell and `agg` window the oriented haplotype-A fraction `nA / (nA + nB)` of the cell's molecule votes.
@@ -67,9 +68,9 @@ genome_layout = function(windows) {
 #'   the phased haplotypes as they are (meaningful with chromosome-wide phasing). `"auto"`: `"clone"` in tumour mode,
 #'   `"none"` in normal mode with chromosome-wide phasing, else `"pseudobulk"`.
 #' - `fit`: the fitted segments of each cell. Tumour mode: the segments of the cell's clone, with `source`
-#'   `confirmed` (the cell's call has `source` confirmed), `inherited` (a reportable call with `source` inherited:
-#'   the clone's segment carried to the cell without its own confirmation), or `clone` (neutral, or a clone segment
-#'   without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
+#'   `confirmed` (a reportable call with `source` confirmed: one of the cell's events in the result's `events`),
+#'   `inherited` (a reportable call with `source` inherited: the clone's segment carried to the cell without its own
+#'   confirmation), or `clone` (neutral, or a clone segment without a reportable call in the cell). Normal mode: the cell's events (nominal states of their labels: loss 1:0,
 #'   cnloh 2:0, gain 2:1, gain_as 3:0, amp 3:1, del 0:0; on a haploid chromosome loss 0:0, gain 2:0, amp 3:0) on a
 #'   neutral baseline; events without coordinates take those of their `top_region`, else the whole chromosome.
 #'   Expected log2 `c * log2(max(cn, 0.2) / base)` (`c` the clone's depth contrast, 1 in normal mode or when the
@@ -114,9 +115,10 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
   use_ref = length(ref) >= min_ref
   cl = if (!is.null(result$clones)) as.data.table(result$clones) else data.table(clone = character())
   for (k in c("c", "a", "baseline")) if (!k %in% names(cl)) cl[, (k) := rep(NA_real_, .N)]
-  # copy-number baseline of the depth: the ploidy when the depth is relative to cells of the sample
+  # copy-number baseline of the depth: the ploidy when the depth is relative to cells of the sample. Tumour mode
+  # follows caller_tumour(), whose expected depth is pool-relative only with a pool, whatever the depth method
   dm = features_depth_method(features)
-  rel_depth = use_ref || (if (is.na(dm)) mode == "normal" else dm %in% c("celltype", "loo"))
+  rel_depth = use_ref || (mode != "tumour" && (if (is.na(dm)) mode == "normal" else dm %in% c("celltype", "loo")))
   if (orient == "auto") {
     chromwide = !is.null(features$phasing) && identical(unname(features$phasing[["detected"]]), "chromosome")
     orient = if (mode == "tumour" && nrow(asg)) "clone" else if (chromwide) "none" else "pseudobulk"
@@ -173,12 +175,13 @@ cell_tracks = function(features, result, cells = NULL, agg = 5e6, orient = c("au
     fit = data.table(cell = cells, clone = cl_of)[!is.na(clone)][seg, on = "clone", allow.cartesian = TRUE, nomatch = NULL]
     calls = if (is.null(result$calls)) data.table() else as.data.table(result$calls)
     # caller_tumour() gives every cell its clone's segments: `source` "confirmed" (and `called`) when the cell's own
-    # score passes, else "inherited" with `called` FALSE; an inherited row counts when it is reportable
+    # score passes, else "inherited" with `called` FALSE; a row counts when it is reportable (the result's events are
+    # the reportable confirmed calls)
     need = c("cell", "chrom", "start", "end", "level", "source")
     calls = if (nrow(calls) && all(need %in% names(calls))) calls[level == "cell" & cell %in% cells] else data.table()
     if (nrow(calls)) {
       if (!"reportable" %in% names(calls)) calls[, reportable := TRUE]
-      calls = calls[, .(src = fifelse(any(source == "confirmed"), "confirmed",
+      calls = calls[, .(src = fifelse(any(source == "confirmed" & reportable %in% TRUE), "confirmed",
                                       fifelse(any(source == "inherited" & reportable %in% TRUE), "inherited", NA_character_))),
                     by = .(cell, chrom, start, end)]
       fit[calls, src := i.src, on = .(cell, chrom, start, end)]
@@ -295,8 +298,69 @@ chrom_axis = function(g, labels = TRUE) {
 }
 
 points_layer = function(..., raster = TRUE) {
-  if (raster && requireNamespace("ggrastr", quietly = TRUE)) ggrastr::rasterise(ggplot2::geom_point(...), dpi = 200)
-  else ggplot2::geom_point(...)
+  if (raster) ggrastr::rasterise(ggplot2::geom_point(...), dpi = 200) else ggplot2::geom_point(...)
+}
+
+# ---- graphics devices ----
+# thin wrappers of the base devices (mocked in the tests)
+has_cairo = function() isTRUE(capabilities("cairo"))
+pdf_cairo = function(...) grDevices::cairo_pdf(...)
+pdf_plain = function(...) grDevices::pdf(...)
+
+# call `open` (a device-opening function) and return the number of the device it really opened (NULL: none). A
+# warning or an error counts as a failure: a device it left open is closed again
+open_device_checked = function(open) {
+  before = grDevices::dev.list()
+  ok = tryCatch({ open(); TRUE }, warning = function(w) FALSE, error = function(e) FALSE)
+  new = setdiff(grDevices::dev.list(), before)
+  if (!ok) {
+    for (d in new) close_device(d)
+    return(NULL)
+  }
+  if (length(new)) new[length(new)] else NULL
+}
+
+# close device `dev` if it is open (never the null device) and make `prev` current again if it is still open
+close_device = function(dev, prev = NULL) {
+  if (length(dev) == 1 && !is.na(dev) && dev > 1 && dev %in% grDevices::dev.list()) grDevices::dev.off(dev)
+  if (length(prev) == 1 && !is.na(prev) && prev > 1 && prev %in% grDevices::dev.list()) grDevices::dev.set(prev)
+  invisible()
+}
+
+# open a PDF device on `file`: cairo_pdf() when R reports cairo and it really opens a device (on some systems it
+# reports the capability but cannot load cairo and opens nothing), else pdf(); the number of the opened device, now
+# current. Stops when neither opens a device
+open_pdf_device = function(file, width, height) {
+  dev = if (has_cairo()) open_device_checked(function() pdf_cairo(file, width = width, height = height, onefile = TRUE))
+  if (is.null(dev)) dev = open_device_checked(function() pdf_plain(file, width = width, height = height, onefile = TRUE))
+  if (is.null(dev)) stop(sprintf("plot_cells_pdf: could not open a PDF device on %s (neither grDevices::cairo_pdf() nor grDevices::pdf())",
+                                 file), call. = FALSE)
+  grDevices::dev.set(dev)
+  dev
+}
+
+# can ggrastr rasterise here? A rasterised layer is drawn once on a throw-away pdf(NULL) device (ggrastr renders with
+# a Cairo-based device, which can be missing or fail to load; that shows only when the plot is drawn). Checked once
+# per session; FALSE without ggrastr
+.scphasedcn_raster = new.env(parent = emptyenv())
+raster_probe = function() {
+  p = ggplot2::ggplot(data.frame(x = 1:2, y = 1:2), ggplot2::aes(x, y)) + ggrastr::rasterise(ggplot2::geom_point(), dpi = 20)
+  prev = grDevices::dev.cur()
+  dev = open_device_checked(function() pdf_plain(NULL))
+  if (is.null(dev)) stop("no device to draw on")
+  on.exit(close_device(dev, prev), add = TRUE)
+  grDevices::dev.set(dev)
+  print(p)
+  TRUE
+}
+raster_ok = function() {
+  if (!requireNamespace("ggrastr", quietly = TRUE)) return(FALSE)
+  if (is.null(.scphasedcn_raster$ok)) {
+    why = tryCatch({ raster_probe(); NULL }, warning = function(w) conditionMessage(w), error = function(e) conditionMessage(e))
+    .scphasedcn_raster$ok = is.null(why)
+    if (!is.null(why)) message("raster = TRUE: ggrastr cannot rasterise here (", why, "); the 1 Mb points are drawn unrasterised")
+  }
+  .scphasedcn_raster$ok
 }
 
 #' Plot the tracks of one cell
@@ -309,7 +373,8 @@ points_layer = function(..., raster = TRUE) {
 #'   outlined.
 #'
 #' Segments are coloured by state label; inherited segments are dashed, confirmed and clone (neutral) segments solid.
-#' Needs ggplot2 and patchwork (ggrastr, when installed, rasterises the 1 Mb points).
+#' Needs ggplot2 and patchwork (ggrastr, when installed, rasterises the 1 Mb points; when it cannot rasterise here,
+#' e.g. without a working Cairo, the points are drawn unrasterised, with one message per session).
 #' @param tracks [cell_tracks()] output
 #' @param cell cell barcode
 #' @param ylim_log2 limits of the log2 track (points outside are squished onto the border)
@@ -320,6 +385,7 @@ points_layer = function(..., raster = TRUE) {
 #' @export
 plot_cell_tracks = function(tracks, cell, ylim_log2 = c(-2, 2), min_hap = 3, raster = TRUE, base_size = 11) {
   need_plot_pkgs()
+  raster = isTRUE(raster) && raster_ok()
   cc = cell
   g = tracks$genome
   m = tracks$meta[cell == cc]
@@ -381,9 +447,10 @@ utils::globalVariables("y")
 
 #' Write the tracks of many cells to a multi-page PDF
 #'
-#' `per_page` cells per page ([plot_cell_tracks()]), with `grDevices::cairo_pdf(onefile = TRUE)` (`grDevices::pdf()`
-#' when R has no cairo). The cells are checked before the file is opened; only `file` (and its directory) is written,
-#' and only the device opened here is closed.
+#' `per_page` cells per page ([plot_cell_tracks()]), with `grDevices::cairo_pdf(onefile = TRUE)`, or
+#' `grDevices::pdf()` when R has no cairo or `cairo_pdf()` opens no device (a warning or an error counts as that). The
+#' cells are checked before the file is opened; only `file` (and its directory) is written. Only the device opened
+#' here is closed, also when plotting fails, and the device that was current before is made current again.
 #' @param tracks [cell_tracks()] output
 #' @param file PDF path
 #' @param cells cells (default: all cells of the tracks)
@@ -402,17 +469,13 @@ plot_cells_pdf = function(tracks, file, cells = tracks$meta$cell, per_page = 4, 
   per_page = as.integer(per_page)
   dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
   prev = grDevices::dev.cur()
-  if (isTRUE(capabilities("cairo"))) grDevices::cairo_pdf(file, width = width, height = height, onefile = TRUE)
-  else grDevices::pdf(file, width = width, height = height, onefile = TRUE)
-  dev = grDevices::dev.cur()
-  on.exit({
-    grDevices::dev.off(dev)
-    if (prev > 1 && prev %in% grDevices::dev.list()) grDevices::dev.set(prev)
-  }, add = TRUE)
+  dev = open_pdf_device(file, width, height)
+  on.exit(close_device(dev, prev), add = TRUE)
   pages = split(cells, ceiling(seq_along(cells) / per_page))
   for (pg in pages) {
     ps = lapply(pg, function(c_) plot_cell_tracks(tracks, c_, ...))
     if (length(ps) < per_page) ps = c(ps, rep(list(patchwork::plot_spacer()), per_page - length(ps)))
+    grDevices::dev.set(dev)            # the page goes to this file, whatever plotting did to the current device
     print(patchwork::wrap_plots(ps, ncol = 1))
   }
   invisible(file)

@@ -69,6 +69,12 @@ test_that("cell_tracks returns depth, oriented BAF and fitted segments that foll
   # an inherited call that is not reportable (clone not confident) stays a plain clone segment
   r_nr = res; r_nr$calls = copy(res$calls)[called == FALSE, reportable := FALSE]
   expect_false("inherited" %in% cell_tracks(feat, r_nr, cells = ct("CB"))$fit$source)
+  # ... and so does a confirmed call that is not reportable (it is not among the result's events)
+  r_cn = res; r_cn$calls = copy(res$calls)[called == TRUE, reportable := FALSE]
+  t_cn = cell_tracks(feat, r_cn, cells = ct("CB"))
+  expect_false("confirmed" %in% t_cn$fit$source)
+  expect_true(all(t_cn$meta$n_confirmed == 0L))
+  expect_equal(sum(t_cn$meta$n_inherited), sum(!res$calls$called))
   expect_equal(unique(f$f_exp), 0.5 + 0.9 * 0.5)
   expect_equal(unique(f$log2_exp), 0)   # 2:0 keeps the copy number
   g = tr$fit[chrom == "chr21" & cell %in% ct("CA")]
@@ -217,6 +223,31 @@ test_that("expected log2 lines are relative to the clone's ploidy baseline (clon
   expect_equal(unique(cell_tracks(feat, r0, cells = ca)$fit[chrom == "chr21", log2_exp]), 0.8 * log2(3 / 2))
 })
 
+test_that("tumour tracks without a reference pool follow the caller's expected depth, whatever the depth method", {
+  # a male tumour result without a pool on cell-type matched features: caller_tumour() scores the cells without a pool
+  # against B copies (a male chrX 1:0 at c log2(1 / B)), so the tracks do too; with a pool the ploidy x B / 2
+  feat = pc_features_celltype()
+  expect_identical(scphasedcn:::features_depth_method(feat), "celltype")
+  res = pc_result(feat)
+  res$clones = copy(res$clones)[, baseline := c(2, 3, NA)]
+  ca = res$assignments[clone == "CA", cell][1:2]
+  n0 = res$assignments[clone == "N0", cell][1]
+  r0 = res; r0$assignments = copy(r0$assignments)[, ref_pool := FALSE]
+  f = cell_tracks(feat, r0, cells = c(ca, n0))$fit
+  expect_equal(unique(f[cell %in% ca & chrom == "chrX", log2_exp]), 0.8 * log2(1 / 3))
+  expect_equal(unique(f[cell %in% ca & chrom == "chrX", base]), 3)
+  expect_equal(unique(f[cell %in% ca & chrom == "chr1", log2_exp]), 0.8 * log2(2 / 3))
+  expect_equal(unique(f[cell == n0 & chrom == "chrX", log2_exp]), log2(1 / 2))
+  expect_equal(unique(f[cell == n0 & chrom == "chr1", log2_exp]), 0)
+  # with the pool: unchanged (ploidy x B / 2)
+  fp = cell_tracks(feat, res, cells = c(ca, n0))$fit
+  expect_equal(unique(fp[cell %in% ca & chrom == "chrX", log2_exp]), 0.8 * log2(1 / 1.5))
+  expect_equal(unique(fp[cell == n0 & chrom == "chrX", log2_exp]), 0)
+  # normal mode keeps the features' depth method: cell-type matched depth puts a male chrX at the ploidy
+  nres = new_scphasedcn("normal", cells = res$cells, regions = res$regions)
+  expect_equal(unique(cell_tracks(feat, nres, cells = n0, orient = "pseudobulk")$fit[chrom == "chrX", log2_exp]), 0)
+})
+
 test_that("plots colour every state label, including imbalance and labels the palette does not know", {
   skip_if_not_installed("ggplot2")
   skip_if_not_installed("patchwork")
@@ -282,13 +313,18 @@ test_that("cell_tracks and the plots run on call_scn() results, the same after w
   tr = cell_tracks(feat, res)
   expect_identical(attr(tr, "orient"), "clone")
   expect_true(all(tr$fit$source %in% c("confirmed", "inherited", "clone")))
-  cc = as.data.table(res$calls)[level == "cell" & called %in% TRUE]
+  cc = as.data.table(res$calls)[level == "cell" & called %in% TRUE & reportable %in% TRUE]
   if (nrow(cc) && "source" %in% names(cc)) {
-    # every called cell-level row of an assigned cell is found among the cell's fitted segments
+    # every called reportable cell-level row of an assigned cell is found among the cell's fitted segments
     cc = cc[cell %in% tr$meta[!is.na(clone), cell]]
     hit = tr$fit[source != "clone"][cc, on = .(cell, chrom, start, end), nomatch = NULL]
     expect_equal(nrow(unique(hit[, .(cell, chrom, start, end)])), nrow(unique(cc[, .(cell, chrom, start, end)])))
   }
+  # the confirmed segments of each cell are its reported events (the reportable confirmed calls)
+  ev = as.data.table(res$events)[level == "cell", .(n_ev = .N), by = cell]
+  nc = ev[tr$meta[, .(cell, n_confirmed)], on = "cell"][is.na(n_ev), n_ev := 0L]
+  expect_gt(sum(nc$n_ev), 0)
+  expect_identical(nc$n_confirmed, nc$n_ev)
   # reportable inherited calls (called FALSE by construction) are drawn as inherited segments
   inh = as.data.table(res$calls)[level == "cell" & source == "inherited" & reportable %in% TRUE &
                                    cell %in% tr$meta[!is.na(clone), cell]]
@@ -360,4 +396,109 @@ test_that("plot_cells.R fails with usage on bad input and plots a written run", 
   expect_null(attr(log, "status"))
   expect_true(file.exists(file.path(od, "CB.pdf")))
   expect_identical(nrow(fread(file.path(od, "cells.tsv"))), 2L)
+})
+
+test_that("plot_cells_pdf falls back to pdf() when cairo_pdf() opens no device, and restores the device list", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  feat = pc_features()
+  res = pc_result(feat)
+  cb = res$assignments[clone == "CB", cell][1:2]
+  tr = cell_tracks(feat, res, cells = cb)
+  # a device of the caller's, current before and after each call
+  grDevices::pdf(NULL)
+  dev0 = grDevices::dev.cur()
+  on.exit(if (dev0 %in% grDevices::dev.list()) grDevices::dev.off(dev0), add = TRUE)
+  list0 = grDevices::dev.list()
+  check = function(cairo, label) {
+    f = tempfile(fileext = ".pdf")
+    local_mocked_bindings(has_cairo = function() TRUE, pdf_cairo = cairo)
+    plot_cells_pdf(tr, f, per_page = 1, raster = FALSE)
+    expect_gt(file.size(f), 0, label = label)
+    expect_identical(grDevices::dev.cur(), dev0, label = label)
+    expect_identical(grDevices::dev.list(), list0, label = label)
+  }
+  # (a) cairo_pdf() warns and opens nothing (cairo reported but not loadable)
+  check(function(...) { warning("unable to load the cairo library"); invisible(NULL) }, "cairo warns")
+  # (a') it opens a device and warns: that device is closed again
+  check(function(...) { grDevices::pdf(NULL); warning("cairo trouble"); invisible(NULL) }, "cairo opens and warns")
+  # (b) it throws an error
+  check(function(...) stop("cairo-based devices are not supported"), "cairo errors")
+  # (c) no cairo: cairo_pdf() is not called
+  f = tempfile(fileext = ".pdf")
+  local({
+    local_mocked_bindings(has_cairo = function() FALSE, pdf_cairo = function(...) stop("must not be called"))
+    plot_cells_pdf(tr, f, per_page = 2, raster = FALSE)
+  })
+  expect_gt(file.size(f), 0)
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_identical(grDevices::dev.list(), list0)
+  # neither device opens: a clear error, the device list as it was
+  f = tempfile(fileext = ".pdf")
+  local({
+    local_mocked_bindings(has_cairo = function() TRUE, pdf_cairo = function(...) stop("no cairo"),
+                          pdf_plain = function(...) { warning("cannot open file"); invisible(NULL) })
+    expect_error(plot_cells_pdf(tr, f, raster = FALSE), "could not open a PDF device")
+  })
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_identical(grDevices::dev.list(), list0)
+  # plotting fails midway: the opened device is closed and the previous one current again
+  local({
+    local_mocked_bindings(plot_cell_tracks = function(...) stop("plot failed"))
+    expect_error(plot_cells_pdf(tr, tempfile(fileext = ".pdf"), raster = FALSE), "plot failed")
+  })
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_identical(grDevices::dev.list(), list0)
+})
+
+test_that("raster = TRUE degrades to unrasterised points with one message when ggrastr cannot rasterise", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("patchwork")
+  skip_if_not_installed("ggrastr")
+  feat = pc_features()
+  res = pc_result(feat)
+  cb = res$assignments[clone == "CB", cell][1]
+  tr = cell_tracks(feat, res, cells = cb)
+  # the session's probe result is reset for the test and put back afterwards
+  rc = scphasedcn:::.scphasedcn_raster
+  old = rc$ok
+  on.exit(if (is.null(old)) rm(list = intersect("ok", ls(rc)), envir = rc) else rc$ok = old, add = TRUE)
+  rm(list = intersect("ok", ls(rc)), envir = rc)
+  grDevices::pdf(NULL)
+  dev0 = grDevices::dev.cur()
+  on.exit(if (dev0 %in% grDevices::dev.list()) grDevices::dev.off(dev0), add = TRUE)
+  msgs = character()
+  seen = logical()
+  real_points = points_layer
+  local_mocked_bindings(raster_probe = function() stop("Cairo is not available"),
+                        points_layer = function(..., raster = TRUE) { seen <<- c(seen, raster); real_points(..., raster = raster) })
+  p = withCallingHandlers(plot_cell_tracks(tr, cb, raster = TRUE),
+                          message = function(m) { msgs <<- c(msgs, conditionMessage(m)); invokeRestart("muffleMessage") })
+  expect_length(msgs, 1L)
+  expect_match(msgs, "cannot rasterise here")
+  expect_false(any(seen))
+  expect_s3_class(ggplot2::ggplot_build(p[[1]]), "ggplot_built")
+  # one message per session
+  expect_no_message(plot_cell_tracks(tr, cb, raster = TRUE), message = "rasterise")
+  f = tempfile(fileext = ".pdf")
+  expect_no_message(plot_cells_pdf(tr, f, raster = TRUE), message = "rasterise")
+  expect_gt(file.size(f), 0)
+  expect_identical(grDevices::dev.cur(), dev0)
+  expect_false(any(seen))
+})
+
+test_that("the rasterisation probe draws on a throw-away device and closes it again", {
+  skip_if_not_installed("ggplot2")
+  skip_if_not_installed("ggrastr")
+  grDevices::pdf(NULL)
+  dev0 = grDevices::dev.cur()
+  on.exit(if (dev0 %in% grDevices::dev.list()) grDevices::dev.off(dev0), add = TRUE)
+  list0 = grDevices::dev.list()
+  try(scphasedcn:::raster_probe(), silent = TRUE)
+  expect_identical(grDevices::dev.list(), list0)
+  expect_identical(grDevices::dev.cur(), dev0)
+  # a probe whose device cannot be opened fails without touching the device list
+  local_mocked_bindings(pdf_plain = function(...) stop("no device"))
+  expect_error(scphasedcn:::raster_probe(), "no device to draw on")
+  expect_identical(grDevices::dev.list(), list0)
 })

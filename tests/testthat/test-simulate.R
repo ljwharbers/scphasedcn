@@ -73,3 +73,17 @@ test_that("simulate_scn: one SNP per position (unique chrom:pos ids); a draw wit
                  counts = 73358, counts_ij = 725615605, cn = 106800, n_snp = 995, snp_pos = 20166708141,
                  snp_hap = 258894, dp = 322, ad = 172, hapA = 186, hapB = 136))
 })
+
+test_that("simulate_scn: a genome expression that draws random numbers leaves the caller's stream as it was", {
+  set.seed(7); x = runif(3)
+  set.seed(7)
+  u = NULL
+  s = simulate_scn(n_cells = 5, genome = { u = runif(2); sim_genome() }, seed = 3)
+  expect_identical(runif(3), x)
+  # the expression drew from the caller's stream as it was at the call
+  set.seed(7); expect_identical(u, runif(2))
+  # the data are those of the same genome table given precomputed
+  p = simulate_scn(n_cells = 5, genome = sim_genome(), seed = 3)
+  expect_identical(s$scn$counts, p$scn$counts)
+  expect_identical(s$fragments, p$fragments)
+})

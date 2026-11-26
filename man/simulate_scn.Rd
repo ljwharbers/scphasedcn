@@ -80,7 +80,9 @@ relative to the true haplotypes (0 = anchored blocks)}
 change the genome: \code{genome} is evaluated before seeding, and \code{\link[=sim_genome]{sim_genome()}} uses its own \code{seed}. After
 \code{set.seed(seed)} the simulator first makes (and discards) the random draws of \code{\link[=sim_genome]{sim_genome()}} for
 \code{nrow(genome)} bins, then draws the data; the result depends only on the genome table, \code{seed} and the other
-parameters, not on how \code{genome} was given. The caller's random stream is saved and restored.}
+parameters, not on how \code{genome} was given. The caller's random stream is saved and restored, around the
+evaluation of \code{genome} as well: a \code{genome} expression that draws random numbers draws them from the caller's
+stream as it is at the call and leaves it as it was.}
 }
 \value{
 list with \code{scn} (an \code{scn} object, see \code{\link[=new_scn]{new_scn()}}), \code{truth} (cells,
